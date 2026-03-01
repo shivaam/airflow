@@ -1,0 +1,20 @@
+{
+  "name": "airflow-ecs-executor-cdk",
+  "version": "0.1.0",
+  "description": "CDK stack for Airflow ECS/Batch executor integration testing",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "aws-cdk": "2.x",
+    "ts-node": "^10.9.0",
+    "typescript": "5.x"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.x",
+    "constructs": "^10.0.0"
+  }
+}

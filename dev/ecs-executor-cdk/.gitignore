@@ -1,0 +1,17 @@
+# CDK
+cdk.out/
+cdk.context.json
+
+# Python / uv
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+uv.lock
+
+# Generated env files (contain secrets)
+breeze_ecs_env.sh
+
+# OS
+.DS_Store

@@ -1,0 +1,554 @@
+
+(26-02-04 4:35:53) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % git VERSION=3.1.7
+VERSION_SUFFIX=rc2
+VERSION_RC=${VERSION}${VERSION_SUFFIX}
+TASK_SDK_VERSION=1.1.7
+TASK_SDK_VERSION_RC=${TASK_SDK_VERSION}${VERSION_SUFFIX}
+
+
+(26-02-04 4:36:01) <130> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % VERSION=3.1.7
+VERSION_SUFFIX=rc2
+VERSION_RC=${VERSION}${VERSION_SUFFIX}
+TASK_SDK_VERSION=1.1.7
+TASK_SDK_VERSION_RC=${TASK_SDK_VERSION}${VERSION_SUFFIX}
+
+
+(26-02-04 4:36:01) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % git fetch origin --tags
+
+
+(26-02-04 4:36:06) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % git checkout ${VERSION_RC}
+
+Note: switching to '3.1.7rc2'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+HEAD is now at 83ff6ecec9 Update RELEASE_NOTES.rst for rc2
+
+(26-02-04 4:36:10) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % export AIRFLOW_REPO_ROOT=$(pwd)
+
+
+(26-02-04 4:36:15) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % breeze release-management prepare-airflow-distributions --distribution-format both
+
+
+Reinstalling Breeze from /local/home/rastoshi/airflow-3.1.7/airflow-verify/dev/breeze
+
+Resolved 112 packages in 216ms
+      Built apache-airflow-breeze @ file:///local/home/rastoshi/airflow-3.1.7/airflow-verify/dev/breeze
+Prepared 112 packages in 820ms
+Uninstalled 112 packages in 218ms
+Installed 112 packages in 104ms
+ ~ anyio==4.12.1
+ - apache-airflow-breeze==0.0.1 (from file:///workplace/rastoshi/airflow/airflow/dev/breeze)
+ + apache-airflow-breeze==0.0.1 (from file:///local/home/rastoshi/airflow-3.1.7/airflow-verify/dev/breeze)
+ ~ attrs==25.4.0
+ ~ backports-tarfile==1.2.0
+ ~ backports-zstd==1.3.0
+ ~ black==26.1.0
+ - boto3==1.42.37
+ + boto3==1.42.41
+ - botocore==1.42.37
+ + botocore==1.42.41
+ ~ certifi==2026.1.4
+ ~ cffi==2.0.0
+ ~ charset-normalizer==3.4.4
+ ~ click==8.1.8
+ ~ cryptography==46.0.4
+ ~ distlib==0.4.0
+ ~ docutils==0.22.4
+ ~ exceptiongroup==1.3.1
+ ~ execnet==2.1.2
+ ~ filelock==3.20.3
+ ~ flit==3.12.0
+ ~ flit-core==3.12.0
+ ~ gitdb==4.0.12
+ ~ gitpython==3.1.46
+ ~ google-api-core==2.29.0
+ - google-api-python-client==2.188.0
+ + google-api-python-client==2.189.0
+ ~ google-auth==2.48.0
+ ~ google-auth-httplib2==0.3.0
+ ~ google-auth-oauthlib==1.2.4
+ ~ googleapis-common-protos==1.72.0
+ ~ h11==0.16.0
+ ~ hatch==1.16.3
+ ~ hatchling==1.28.0
+ ~ httpcore==1.0.9
+ ~ httplib2==0.31.2
+ ~ httpx==0.28.1
+ ~ hyperlink==21.0.0
+ ~ id==1.5.0
+ ~ idna==3.11
+ ~ importlib-metadata==8.7.1
+ ~ iniconfig==2.3.0
+ ~ inputimeout==1.0.4
+ ~ jaraco-classes==3.4.0
+ ~ jaraco-context==6.1.0
+ ~ jaraco-functools==4.4.0
+ ~ jeepney==0.9.0
+ ~ jinja2==3.1.6
+ ~ jmespath==1.1.0
+ ~ jsonschema==4.26.0
+ ~ jsonschema-specifications==2025.9.1
+ ~ keyring==25.7.0
+ ~ markdown-it-py==4.0.0
+ ~ markupsafe==3.0.3
+ ~ mdurl==0.1.2
+ ~ more-itertools==10.8.0
+ ~ mypy-extensions==1.1.0
+ ~ nh3==0.3.2
+ ~ oauthlib==3.3.1
+ ~ packaging==26.0
+ ~ pathspec==1.0.4
+ ~ pexpect==4.9.0
+ - pip==25.3
+ + pip==26.0
+ ~ platformdirs==4.5.1
+ ~ pluggy==1.6.0
+ - prek==0.3.0
+ + prek==0.3.1
+ - proto-plus==1.27.0
+ + proto-plus==1.27.1
+ - protobuf==6.33.4
+ + protobuf==6.33.5
+ ~ psutil==7.2.2
+ ~ ptyprocess==0.7.0
+ ~ pyasn1==0.6.2
+ ~ pyasn1-modules==0.4.2
+ ~ pycparser==3.0
+ ~ pygithub==2.8.1
+ ~ pygments==2.19.2
+ - pyjwt==2.10.1
+ + pyjwt==2.11.0
+ ~ pynacl==1.6.2
+ ~ pyparsing==3.3.2
+ ~ pyproject-hooks==1.2.0
+ ~ pytest==9.0.2
+ ~ pytest-xdist==3.8.0
+ ~ python-dateutil==2.9.0.post0
+ - pytokens==0.4.0
+ + pytokens==0.4.1
+ ~ pyyaml==6.0.3
+ ~ readme-renderer==44.0
+ ~ referencing==0.37.0
+ ~ requests==2.32.5
+ ~ requests-oauthlib==2.0.0
+ ~ requests-toolbelt==1.0.0
+ ~ restructuredtext-lint==2.0.2
+ ~ rfc3986==2.0.0
+ - rich==14.3.1
+ + rich==14.3.2
+ ~ rich-click==1.8.9
+ ~ rpds-py==0.30.0
+ ~ rsa==4.9.1
+ ~ s3transfer==0.16.0
+ ~ secretstorage==3.5.0
+ ~ semver==3.0.4
+ ~ shellingham==1.5.4
+ ~ six==1.17.0
+ ~ smmap==5.0.2
+ ~ tabulate==0.9.0
+ ~ tomli==2.4.0
+ ~ tomli-w==1.2.0
+ ~ tomlkit==0.14.0
+ - tqdm==4.67.1
+ + tqdm==4.67.3
+ ~ trove-classifiers==2026.1.14.14
+ ~ twine==6.2.0
+ ~ typing-extensions==4.15.0
+ ~ uritemplate==4.2.0
+ ~ urllib3==2.6.3
+ ~ userpath==1.9.2
+ - uv==0.9.27
+ + uv==0.9.29
+ ~ virtualenv==20.36.1
+ ~ zipp==3.23.0
+Installed 1 executable: breeze
+Regenerating provider dependencies file
+Installed 6 packages in 8ms
+Refreshed 97 providers with 1943 Python files.
+
+Written /local/home/rastoshi/airflow-3.1.7/airflow-verify/generated/provider_dependencies.json
+
+
+Default value of auth_manager parameter SimpleAuthManager used.
+
+
+Default value of backend parameter sqlite used.
+
+
+Default value of mysql_version parameter 8.0 used.
+
+
+Default value of postgres_version parameter 13 used.
+
+
+Default value of python parameter 3.10 used.
+
+Docker container engine detected.
+Good version of Docker: 25.0.14.
+Good version of docker-compose: 5.0.2
+Host python version is 3.10.19 (main, Jan 14 2026, 19:36:24) [Clang 21.1.4 ]
+[+] Building 25.4s (9/9) FINISHED                                                                                                                          docker:default
+ => [internal] load build definition from airflow-build-dockerfile                                                                                                   0.0s
+ => => transferring dockerfile: 4.46kB                                                                                                                               0.0s
+ => [internal] load metadata for docker.io/library/python:3.10-slim-bookworm                                                                                         0.0s
+ => [stage-0 1/5] FROM docker.io/library/python:3.10-slim-bookworm                                                                                                   0.1s
+ => [internal] load build context                                                                                                                                    4.6s
+ => => transferring context: 686.04MB                                                                                                                                4.5s
+ => [stage-0 2/5] RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 git curl                                                               7.0s
+ => [stage-0 3/5] RUN pip install uv==0.9.26                                                                                                                         4.3s
+ => [stage-0 4/5] RUN --mount=type=cache,id=cache-airflow-build-dockerfile-installation,target=/root/.cache/   uv pip install --system ignore pip==25.3 hatch==1.16  2.3s
+ => [stage-0 5/5] COPY . /opt/airflow                                                                                                                                8.1s
+ => exporting to image                                                                                                                                               3.6s
+ => => exporting layers                                                                                                                                              3.6s
+ => => writing image sha256:cf60e463d892a2b97817ecf7be82311b6c433ad53625f3e90503618ef5c9d5bd                                                                         0.0s
+ => => naming to docker.io/apache/airflow:local-build-image                                                                                                          0.0s
+Cleaning build directories
+
+Cleaned build directories
+
+
+Marking /opt/airflow as safe directory for git commands.
+
+Marked /opt/airflow as safe directory for git commands.
+
+Building apache-airflow-core distributions: both
+
+───────────────────────────────────────────────────────────────────────────────── custom ─────────────────────────────────────────────────────────────────────────────────
+Getting git version from: /opt/airflow/.git
+Writing version .dev0+83ff6ecec9dd71d8b8631248bc0725afc472acd7.dirty to /opt/airflow/airflow-core/src/airflow/git_version
+Running command: prek run --hook-stage manual compile-ui-assets --all-files
+Compile ui assets (manual)...............................................Passed
+/opt/airflow/airflow-core/src/airflow/ui/dist
+───────────────────────────────────────────────────────────────────────────────── sdist ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow_core-3.1.7.tar.gz
+───────────────────────────────────────────────────────────────────────────────── wheel ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow_core-3.1.7-py3-none-any.whl
+Building apache-airflow distributions: both
+
+───────────────────────────────────────────────────────────────────────────────── sdist ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow-3.1.7.tar.gz
+───────────────────────────────────────────────────────────────────────────────── wheel ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow-3.1.7-py3-none-any.whl
+Checking if sdist packages can be built into wheels
+Validate build wheel from sdist: apache_airflow-3.1.7.tar.gz
+Processing ./dist/apache_airflow-3.1.7.tar.gz
+  Installing build dependencies ... done
+  Getting requirements to build wheel ... done
+  Preparing metadata (pyproject.toml) ... done
+Building wheels for collected packages: apache-airflow
+  Building wheel for apache-airflow (pyproject.toml) ... done
+  Created wheel for apache-airflow: filename=apache_airflow-3.1.7-py3-none-any.whl size=12724 sha256=3d5f075b4380a3c0703440cf871d686c2e1e18ff945450b7624b98f327e7a22e
+  Stored in directory: /tmp/pip-ephem-wheel-cache-6ib_8wzp/wheels/e0/3b/b6/b7bf3a3d00e3290674f6f43ef73ee013d4bf2b4e63a885fa80
+Successfully built apache-airflow
+Sdist package apache_airflow-3.1.7.tar.gz can be built into wheels
+Sdist package is installed successfully.
+Airflow packages built successfully
+apache_airflow-3.1.7-py3-none-any.whl
+apache_airflow-3.1.7.tar.gz
+
+Restoring original content of /local/home/rastoshi/airflow-3.1.7/airflow-verify/pyproject.toml.
+
+Restoring original content of /local/home/rastoshi/airflow-3.1.7/airflow-verify/airflow-core/pyproject.toml.
+
+Successfully copied 44.5kB to /home/rastoshi/airflow-3.1.7/airflow-verify/dist
+Successfully copied 9.67MB to /home/rastoshi/airflow-3.1.7/airflow-verify/dist
+Successfully prepared Airflow packages
+
+(26-02-04 4:39:31) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % breeze release-management prepare-task-sdk-distributions --distribution-format both
+
+Docker container engine detected.
+Good version of Docker: 25.0.14.
+Good version of docker-compose: 5.0.2
+Host python version is 3.10.19 (main, Jan 14 2026, 19:36:24) [Clang 21.1.4 ]
+[+] Building 0.8s (9/9) FINISHED                                                                                                                           docker:default
+ => [internal] load build definition from airflow-build-dockerfile                                                                                                   0.0s
+ => => transferring dockerfile: 4.46kB                                                                                                                               0.0s
+ => [internal] load metadata for docker.io/library/python:3.10-slim-bookworm                                                                                         0.0s
+ => [stage-0 1/5] FROM docker.io/library/python:3.10-slim-bookworm                                                                                                   0.0s
+ => [internal] load build context                                                                                                                                    0.7s
+ => => transferring context: 1.08MB                                                                                                                                  0.7s
+ => CACHED [stage-0 2/5] RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 git curl                                                        0.0s
+ => CACHED [stage-0 3/5] RUN pip install uv==0.9.26                                                                                                                  0.0s
+ => CACHED [stage-0 4/5] RUN --mount=type=cache,id=cache-airflow-build-dockerfile-installation,target=/root/.cache/   uv pip install --system ignore pip==25.3 hatc  0.0s
+ => CACHED [stage-0 5/5] COPY . /opt/airflow                                                                                                                         0.0s
+ => exporting to image                                                                                                                                               0.0s
+ => => exporting layers                                                                                                                                              0.0s
+ => => writing image sha256:cf60e463d892a2b97817ecf7be82311b6c433ad53625f3e90503618ef5c9d5bd                                                                         0.0s
+ => => naming to docker.io/apache/airflow:local-build-image                                                                                                          0.0s
+───────────────────────────────────────────────────────────────────────────────── sdist ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow_task_sdk-1.1.7.tar.gz
+───────────────────────────────────────────────────────────────────────────────── wheel ──────────────────────────────────────────────────────────────────────────────────
+dist/apache_airflow_task_sdk-1.1.7-py3-none-any.whl
+
+Successfully copied 1.6MB to /home/rastoshi/airflow-3.1.7/airflow-verify/dist
+Restoring original content of /local/home/rastoshi/airflow-3.1.7/airflow-verify/task-sdk/pyproject.toml.
+
+Successfully prepared Airflow Task SDK packages
+
+(26-02-04 4:41:14) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % breeze release-management prepare-tarball --tarball-type apache_airflow --version ${VERSION} --version-suffix ${VERSION_SUFFIX}
+
+Creating tarball for apache_airflow 3.1.7, tag: 3.1.7rc2
+
+Tarball created in /local/home/rastoshi/airflow-3.1.7/airflow-verify/dist/apache_airflow-3.1.7-source.tar.gz
+
+(26-02-04 4:41:39) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % pwd
+/home/rastoshi/airflow-3.1.7/airflow-verify
+
+(26-02-04 4:42:04) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % svn checkout --depth=immediates https://dist.apache.org/repos/dist asf-dist
+
+A    asf-dist/dev
+A    asf-dist/release
+A    asf-dist/test
+Checked out revision 82279.
+
+(26-02-04 4:42:46) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % svn update --set-depth=infinity asf-dist/dev/airflow
+
+Updating 'asf-dist/dev/airflow':
+A    asf-dist/dev/airflow
+A    asf-dist/dev/airflow/task-sdk
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7-py3-none-any.whl
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7-py3-none-any.whl.asc
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7-py3-none-any.whl.sha512
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7.tar.gz
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7.tar.gz.asc
+A    asf-dist/dev/airflow/task-sdk/1.1.7rc2/apache_airflow_task_sdk-1.1.7.tar.gz.sha512
+A    asf-dist/dev/airflow/3.1.7rc2
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-py3-none-any.whl
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-py3-none-any.whl.asc
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-py3-none-any.whl.sha512
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-source.tar.gz
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-source.tar.gz.asc
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7-source.tar.gz.sha512
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7.tar.gz
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7.tar.gz.asc
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow-3.1.7.tar.gz.sha512
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7-py3-none-any.whl
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7-py3-none-any.whl.asc
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7-py3-none-any.whl.sha512
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7.tar.gz
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7.tar.gz.asc
+A    asf-dist/dev/airflow/3.1.7rc2/apache_airflow_core-3.1.7.tar.gz.sha512
+A    asf-dist/dev/airflow/providers
+A    asf-dist/dev/airflow/providers/2026-01-27
+A    asf-dist/dev/airflow/providers/2026-01-17
+A    asf-dist/dev/airflow/providers/2026-01-13
+A    asf-dist/dev/airflow/providers/2025-12-30
+A    asf-dist/dev/airflow/providers/2025-12-09
+A    asf-dist/dev/airflow/providers/2025-12-01
+A    asf-dist/dev/airflow/providers/2025-11-27
+A    asf-dist/dev/airflow/providers/2025-11-18
+A    asf-dist/dev/airflow/providers/2025-11-14
+A    asf-dist/dev/airflow/helm-chart
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-1.19.0.tgz
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-1.19.0.tgz.asc
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-1.19.0.tgz.prov
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-1.19.0.tgz.sha512
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-chart-1.19.0-source.tar.gz
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-chart-1.19.0-source.tar.gz.asc
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/airflow-chart-1.19.0-source.tar.gz.sha512
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc2/index.yaml
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-1.19.0.tgz
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-1.19.0.tgz.asc
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-1.19.0.tgz.prov
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-1.19.0.tgz.sha512
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-chart-1.19.0-source.tar.gz
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-chart-1.19.0-source.tar.gz.asc
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/airflow-chart-1.19.0-source.tar.gz.sha512
+A    asf-dist/dev/airflow/helm-chart/1.19.0rc1/index.yaml
+A    asf-dist/dev/airflow/clients
+A    asf-dist/dev/airflow/clients/python
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6-py3-none-any.whl
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6-py3-none-any.whl.asc
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6-py3-none-any.whl.sha512
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6.tar.gz
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6.tar.gz.asc
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_client-3.1.6.tar.gz.sha512
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_python_client-3.1.6-source.tar.gz
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_python_client-3.1.6-source.tar.gz.asc
+A    asf-dist/dev/airflow/clients/python/3.1.6rc2/apache_airflow_python_client-3.1.6-source.tar.gz.sha512
+A    asf-dist/dev/airflow/clients/go
+A    asf-dist/dev/airflow/clients/go/2.5.0rc1
+A    asf-dist/dev/airflow/clients/go/2.5.0rc1/apache-airflow-client-2.5.0-source.tar.gz
+A    asf-dist/dev/airflow/clients/go/2.5.0rc1/apache-airflow-client-2.5.0-source.tar.gz.asc
+A    asf-dist/dev/airflow/clients/go/2.5.0rc1/apache-airflow-client-2.5.0-source.tar.gz.sha512
+A    asf-dist/dev/airflow/airflow-ctl
+A    asf-dist/dev/airflow/airflow-ctl/0.1.1rc1
+A    asf-dist/dev/airflow/upgrade-check
+Updated to revision 82279.
+
+(26-02-04 4:43:11) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % export PATH_TO_AIRFLOW_SVN=$(pwd)/asf-dist/dev/airflow
+
+
+(26-02-04 4:43:29) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % cd ${PATH_TO_AIRFLOW_SVN}/${VERSION_RC}
+
+
+(26-02-04 4:43:35) <0> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % for i in *.whl *.tar.gz; do
+  echo "Checking $(basename $i)"
+  diff "$(basename $i)" "${AIRFLOW_REPO_ROOT}/dist/$(basename $i)" && echo "OK"
+done
+
+
+Checking apache_airflow-3.1.7-py3-none-any.whl
+OK
+Checking apache_airflow_core-3.1.7-py3-none-any.whl
+OK
+Checking apache_airflow-3.1.7-source.tar.gz
+OK
+Checking apache_airflow-3.1.7.tar.gz
+OK
+Checking apache_airflow_core-3.1.7.tar.gz
+OK
+
+(26-02-04 4:43:43) <0> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % cd ${PATH_TO_AIRFLOW_SVN}/../task-sdk/${TASK_SDK_VERSION_RC}
+for i in *.whl *.tar.gz; do
+  echo "Checking $(basename $i)"
+  diff "$(basename $i)" "${AIRFLOW_REPO_ROOT}/dist/$(basename $i)" && echo "OK"
+done
+
+cd: no such file or directory: /home/rastoshi/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/../task-sdk/1.1.7rc2
+Checking apache_airflow-3.1.7-py3-none-any.whl
+OK
+Checking apache_airflow_core-3.1.7-py3-none-any.whl
+OK
+Checking apache_airflow-3.1.7-source.tar.gz
+OK
+Checking apache_airflow-3.1.7.tar.gz
+OK
+Checking apache_airflow_core-3.1.7.tar.gz
+OK
+
+(26-02-04 4:43:56) <0> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % ls ${AIRFLOW_REPO_ROOT}/dist
+apache_airflow-3.1.7-py3-none-any.whl  apache_airflow-3.1.7.tar.gz                 apache_airflow_core-3.1.7.tar.gz                apache_airflow_task_sdk-1.1.7.tar.gz
+apache_airflow-3.1.7-source.tar.gz     apache_airflow_core-3.1.7-py3-none-any.whl  apache_airflow_task_sdk-1.1.7-py3-none-any.whl
+
+(26-02-04 4:46:19) <0> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % echo #AIRFLOW_REPO_ROOT
+
+(26-02-04 4:46:33) <130> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % echo $AIRFLOW_REPO_ROOT
+/home/rastoshi/airflow-3.1.7/airflow-verify
+
+(26-02-04 4:46:39) <0> [~/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2]
+dev-dsk-rastoshi-2a-603f4301 % cd -
+~/airflow-3.1.7/airflow-verify
+
+(26-02-04 4:48:02) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % wget -q https://dlcdn.apache.org//creadur/apache-rat-0.17/apache-rat-0.17-bin.tar.gz -O /tmp/apache-rat-0.17-bin.tar.gz
+
+
+(26-02-04 4:49:31) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % echo "32848673dc4fb639c33ad85172dfa9d7a4441a0144e407771c9f7eb6a9a0b7a9b557b9722af968500fae84a6e60775449d538e36e342f786f20945b1645294a0  /tmp/apache-rat-0.17-bin.tar.gz" | sha512sum -c -
+
+/tmp/apache-rat-0.17-bin.tar.gz: OK
+
+(26-02-04 4:49:38) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % tar -xzf /tmp/apache-rat-0.17-bin.tar.gz -C /tmp
+
+
+(26-02-04 4:50:05) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % rm -rf /tmp/apache-airflow-src
+
+
+(26-02-04 4:50:13) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % mkdir -p /tmp/apache-airflow-src
+
+
+(26-02-04 4:50:20) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % tar -xzf ${PATH_TO_AIRFLOW_SVN}/${VERSION_RC}/apache-airflow-*-source.tar.gz --strip-components 1 -C /tmp/apache-airflow-src
+
+zsh: no matches found: /home/rastoshi/airflow-3.1.7/airflow-verify/asf-dist/dev/airflow/3.1.7rc2/apache-airflow-*-source.tar.gz
+
+(26-02-04 4:50:26) <1> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % ls -la ${PATH_TO_AIRFLOW_SVN}/${VERSION_RC}/
+
+total 66188
+drwxr-xr-x 2 rastoshi amazon     4096 Feb  4 04:43 .
+drwxr-xr-x 9 rastoshi amazon     4096 Feb  4 04:43 ..
+-rw-r--r-- 1 rastoshi amazon    12724 Feb  4 04:43 apache_airflow-3.1.7-py3-none-any.whl
+-rw-r--r-- 1 rastoshi amazon      265 Feb  4 04:43 apache_airflow-3.1.7-py3-none-any.whl.asc
+-rw-r--r-- 1 rastoshi amazon      168 Feb  4 04:43 apache_airflow-3.1.7-py3-none-any.whl.sha512
+-rw-r--r-- 1 rastoshi amazon 58010430 Feb  4 04:43 apache_airflow-3.1.7-source.tar.gz
+-rw-r--r-- 1 rastoshi amazon      265 Feb  4 04:43 apache_airflow-3.1.7-source.tar.gz.asc
+-rw-r--r-- 1 rastoshi amazon      165 Feb  4 04:43 apache_airflow-3.1.7-source.tar.gz.sha512
+-rw-r--r-- 1 rastoshi amazon    28999 Feb  4 04:43 apache_airflow-3.1.7.tar.gz
+-rw-r--r-- 1 rastoshi amazon      265 Feb  4 04:43 apache_airflow-3.1.7.tar.gz.asc
+-rw-r--r-- 1 rastoshi amazon      158 Feb  4 04:43 apache_airflow-3.1.7.tar.gz.sha512
+-rw-r--r-- 1 rastoshi amazon  5449305 Feb  4 04:43 apache_airflow_core-3.1.7-py3-none-any.whl
+-rw-r--r-- 1 rastoshi amazon      265 Feb  4 04:43 apache_airflow_core-3.1.7-py3-none-any.whl.asc
+-rw-r--r-- 1 rastoshi amazon      173 Feb  4 04:43 apache_airflow_core-3.1.7-py3-none-any.whl.sha512
+-rw-r--r-- 1 rastoshi amazon  4214731 Feb  4 04:43 apache_airflow_core-3.1.7.tar.gz
+-rw-r--r-- 1 rastoshi amazon      265 Feb  4 04:43 apache_airflow_core-3.1.7.tar.gz.asc
+-rw-r--r-- 1 rastoshi amazon      163 Feb  4 04:43 apache_airflow_core-3.1.7.tar.gz.sha512
+
+(26-02-04 4:50:56) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % tar -xzf ${PATH_TO_AIRFLOW_SVN}/${VERSION_RC}/apache_airflow-3.1.7-source.tar.gz --strip-components 1 -C /tmp/apache-airflow-src
+
+
+(26-02-04 4:51:11) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 % java -jar /tmp/apache-rat-0.17/apache-rat-0.17.jar \
+  --input-exclude-file /tmp/apache-airflow-src/.rat-excludes \
+  /tmp/apache-airflow-src/ | grep -E "^\!|INFO:"
+INFO: Apache Creadur RAT 0.17 (Apache Software Foundation)
+INFO: Excluding patterns: .git-blame-ignore-revs, .github/*, .gitignore, .gitattributes, .gitrepo, .airflow_db_initialised, .airflowignore, .babelrc, .coverage, .codecov.yml, .codespellignorelines, .eslintignore, .eslintrc, .prettierignore, .prettierrc, .rat-excludes, .stylelintignore, .stylelintrc, .env, .venv, requirements, requirements.txt, .*log, .travis.yml, .*pyc, .*lock, dist, build, airflow.egg-info, apache_airflow.egg-info, .idea, metastore_db, .*sql, .*svg, .*csv, .*md5, .*zip, .*lock, logs, .bash_aliases, venv, clients/*, files/*, dags/*, generated/*, .gitmodules, prod_image_installed_providers.txt, airflow_pre_installed_providers.txt, Dockerfile.pmc, .*html, _build/*, _static/*, _images/*, .buildinfo, searchindex.js, _api/*, spelling_wordlist.txt, kerberos_auth.py, airflow_api_auth_backend_kerberos_auth_py.html, 3rd-party-licenses/*, parallel.js, underscore.js, jquery.dataTables.min.js, jqClock.min.js, dagre-d3.min.js, d3.v3.min.js, ace.js, node_modules/*, .*json, coverage/*, git_version, flake8_diff.sh, coverage*.xml, _sources/*, robots.txt, rat-results.txt, apache-airflow-.*\+source.tar.gz.*, apache-airflow-.*\+bin.tar.gz.*, PULL_REQUEST_TEMPLATE.md, PROVIDER_CHANGES*.md, manifests/*, redirects.txt, reproducible_build.yaml, .*egg-info/*, .bash_history, .bash_aliases, .inputrc, input_notebook.ipynb, .git, tmp, .*_vendor, .latest-doc-only-change.txt, chart/.gitignore, chart/values.schema.json, chart/Chart.lock, chart/values_schema.schema.json, chart/Chart.yaml, ./dev/breeze/autocomplete/*, devel_deps.txt, newsfragments/*, warnings.txt, warn-summary-*.txt, tests/*, scripts/*, images/*, dev/*, .*\.iml, out/*, airflow-build-dockerfile*, .*sha256, doap_airflow.rdf, .python-version, .nvmrc, PKG-INFO, .*\.md5sum, .openapi-generator-ignore, version.txt, v2*.yaml, _private_ui*.yaml, api-generated.ts, openapi-gen, pnpm-lock.yaml, generated.py, auth_generated.py, www-hash.txt, **/go.mod, **/go.sum, **/protov1/*, **/mocks/*, .*proto, .*pb.go, .*_grpc.pb.go, .env, **/*.svg, **/.latest-doc-only-change.txt, **/*-gen/*, **/redirects.txt, **/.git-blame-ignore-revs, **/.gitattributes, **/.rat-excludes, **/.gitignore, **/.prettierignore, **/.prettierrc, **/.airflowignore, **/.airflowignore_glob, **/_vendor/, **/*-generated.yaml, **/*-generated.py, **/generated.py, **/generated/*, **/auth_generated.py, **/pnpm-lock.yaml, **/yarn.lock, **/Chart.lock, **/uv.lock, **/ui/index.html, **/ui/dev/index.html, **/ui/dist/index.html, **/_private_ui.yaml, **/dist/**, **/www/index.html, **/*.png, **/*.csv, **/LICENCE*.txt, **/LICENSE*.txt, **/*.sha256, **/*.md5sum, **/requirements.txt, **/command_hashes.txt, **/www-hash.txt, **/spelling_wordlist.txt, **/dictionary.txt, **/empty.txt, **/script, **/script.bteq, **/script_utf16.bteq, **/reproducible_build.yaml, **/test_notifier.txt, **/email.html, **/*.log, **/example_upload.txt, **/dummy.pdf, **/java_streaming_src/*, **/kube_config, **/prod_image_installed_providers.txt, **/text.txt, **/newsfragments/**, **/warnings.txt, **/rtd-deprecation/404.html, **/.env, **/*.jsonl, **/_api/**, **/node_modules/**, /docs/.latest-doc-only-change.txt, /docs/redirects.txt, /docs/integration-logos/*.svg, /docs/img/*.md5sum, /docs/img/*.svg, *.log, .*\.md5sum, *generated.*, /src/airflow/providers/keycloak/auth_manager/openapi/v2-keycloak-auth-manager-generated.yaml, /src/airflow/providers/edge3/plugins/www/*, /src/airflow/providers/edge3/openapi/v2-edge-generated.yaml, /src/airflow/providers/fab/auth_manager/api_fastapi/openapi/v2-fab-auth-manager-generated.yaml, /src/airflow/providers/fab/www/static/dist/*, /any/dag_id=dag_for_testing_redis_task_handler/run_id=test/task_id=task_for_testing_redis_log_handler/attempt=1.log, /src/airflow/providers/google/ads/.gitignore, /src/airflow/providers/google/_vendor/*, .gitignore
+INFO: Excluding MISC collection.
+INFO: Excluding HIDDEN_DIR collection.
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+
+
+INFO: RAT summary:
+INFO:   Approved:  7690
+INFO:   Archives:  1
+INFO:   Binaries:  417
+INFO:   Document types:  5
+INFO:   Ignored:  1193
+INFO:   License categories:  2
+INFO:   License names:  2
+INFO:   Notices:  307
+INFO:   Standards:  7687
+INFO:   Unapproved:  0
+INFO:   Unknown:  0
+
+(26-02-04 4:52:12) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 %
+
+(26-02-04 4:52:12) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 %
+
+(26-02-04 4:52:12) <0> [~/airflow-3.1.7/airflow-verify]
+dev-dsk-rastoshi-2a-603f4301 %
