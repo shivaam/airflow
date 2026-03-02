@@ -5,7 +5,16 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "deploy": "npx cdk deploy --all --require-approval never",
+    "deploy:ec2": "npx cdk deploy AirflowEc2 --require-approval never",
+    "deploy:ecs": "npx cdk deploy AirflowEcs --require-approval never",
+    "deploy:batch": "npx cdk deploy AirflowBatch --require-approval never",
+    "destroy": "npx cdk destroy AirflowBatch AirflowEcs AirflowEc2 AirflowInfra --force",
+    "destroy:compute": "npx cdk destroy AirflowBatch AirflowEcs AirflowEc2 --force",
+    "destroy:ecs": "npx cdk destroy AirflowEcs --force",
+    "destroy:batch": "npx cdk destroy AirflowBatch --force",
+    "destroy:ec2": "npx cdk destroy AirflowEc2 --force"
   },
   "devDependencies": {
     "@types/node": "22.x",

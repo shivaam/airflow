@@ -1,0 +1,36 @@
+{
+  "version": "50.0.0",
+  "files": {
+    "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6": {
+      "displayName": "AirflowInfra/Custom::S3AutoDeleteObjectsCustomResourceProvider Code",
+      "source": {
+        "path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "741443349243-us-west-2-9e3b57de": {
+          "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
+          "objectKey": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip",
+          "region": "us-west-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
+        }
+      }
+    },
+    "6ff770087fbd09aa9a3b4893143359ac290387fd57a4ca9f94f6fa187fcb0c98": {
+      "displayName": "AirflowInfra Template",
+      "source": {
+        "path": "AirflowInfra.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "741443349243-us-west-2-eb9bd9ff": {
+          "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
+          "objectKey": "6ff770087fbd09aa9a3b4893143359ac290387fd57a4ca9f94f6fa187fcb0c98.json",
+          "region": "us-west-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

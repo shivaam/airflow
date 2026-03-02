@@ -1,0 +1,36 @@
+{
+  "version": "50.0.0",
+  "files": {
+    "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6": {
+      "displayName": "AirflowEcsExecutorTest/Custom::S3AutoDeleteObjectsCustomResourceProvider Code",
+      "source": {
+        "path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "741443349243-us-west-2-9e3b57de": {
+          "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
+          "objectKey": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip",
+          "region": "us-west-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
+        }
+      }
+    },
+    "0e20711f06b69a11e0733c8244aa45b05da33fcaacbd8a12054d9e72dbb2e617": {
+      "displayName": "AirflowEcsExecutorTest Template",
+      "source": {
+        "path": "AirflowEcsExecutorTest.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "741443349243-us-west-2-1906d4ca": {
+          "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
+          "objectKey": "0e20711f06b69a11e0733c8244aa45b05da33fcaacbd8a12054d9e72dbb2e617.json",
+          "region": "us-west-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
