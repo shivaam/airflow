@@ -1,16 +1,16 @@
 {
   "version": "50.0.0",
   "files": {
-    "7e90a6580f23106de4bdc581da1eccadc7fa4c0ebd77e1965619e0239cbf9da8": {
+    "eefa81d416d0f916700d8b37574f32ca69876ab3f9bdbc92a8e62fef76efcafc": {
       "displayName": "AirflowEcs Template",
       "source": {
         "path": "AirflowEcs.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "741443349243-us-west-2-bfe1c558": {
+        "741443349243-us-west-2-1a6e8266": {
           "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
-          "objectKey": "7e90a6580f23106de4bdc581da1eccadc7fa4c0ebd77e1965619e0239cbf9da8.json",
+          "objectKey": "eefa81d416d0f916700d8b37574f32ca69876ab3f9bdbc92a8e62fef76efcafc.json",
           "region": "us-west-2",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
         }

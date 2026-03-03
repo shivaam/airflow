@@ -68,6 +68,10 @@
      {
       "Environment": [
        {
+        "Name": "AIRFLOW__CORE__MULTI_TEAM",
+        "Value": "True"
+       },
+       {
         "Name": "AIRFLOW__CORE__EXECUTION_API_SERVER_URL",
         "Value": {
          "Fn::Join": [
@@ -242,6 +246,10 @@
      {
       "Environment": [
        {
+        "Name": "AIRFLOW__CORE__MULTI_TEAM",
+        "Value": "True"
+       },
+       {
         "Name": "AIRFLOW__CORE__EXECUTION_API_SERVER_URL",
         "Value": {
          "Fn::Join": [
@@ -403,7 +411,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/12OywrCMBBFv6X7dKzFjeuKblyIupcxnZbpI5FMapGQf5dSq+BqztwH3BzyTQZZgqOkumzTju8QLh51q3CUWyAtEIpuEE9OFZVZcI+uRk9XlHZHFRv2bM0U+Fes8ciG3E+LirGHcLId69dUmSmqztYC4Wjrg7PDY3IWjkqkn3Y5NvUJHfb02fN9YlRnEjs4TVEZWxI0snrmGay3kCWNMKduMJ57gvN830uj0bn7AAAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/12OywoCMQxFv8V9Jw7FPxjRjQtR9xJrLHFmWmlaByn9dym+wFVO7gOuBr1ooZ3hJI05983AJ8j7iKZXOMkxkxHI3ZAkUlDdxX1whcFipANKv6QLO47sXQ38K95FZEfhpxXFOELe+oHNo1ZeVNTgrUDeeLsOPt2q8+GiRMa6K7CzWww40nvP9ylF7Uh8CoaKcv5McJX5XWvQGtrZVZibkFzkkWD3uk8Mtjfb+wAAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "AirflowEcs/CDKMetadata/Default"

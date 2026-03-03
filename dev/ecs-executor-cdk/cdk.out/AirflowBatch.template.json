@@ -304,7 +304,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/21PS27CQAw9C/uJm0bdsKa0EmJBwwEqZzCpIWOj+YCqaO5eTSJoF129n/0sN9C81FAv8BYqezhXA3cw7iPas8Fb+Bw7jPYLxjf0PUZaqbukSGu5sldxJNGsjvKPu9HuI1GiEj/42oZHj0RkIf9KRxaOrFLSjXZ/jHn118hm0D7AuNX+3Wu6lIE7z4bRwdjqMJ2ccKcD2+8iZ5ZNCK4851n6HXp0FMlP+V3kbFoKmrylbEQPBKfwdG1qeF5CvTgF5soniewI2hl/ADdw+lhAAQAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/21PS27CQAw9C/uJG416A0oroS4gPUDlDCY1ZGw0H1AVzd2rSQTtoqv3s59lC/a5hXaFt9i4w7kZuYfpI6E7G7zFz6nH5L5gesUwYKK1+ktOtJErBxVPksz6KP+4W+33mTLV+ME3Lj56JCELhRc6snBilZputf9jLKu/RjGjDhGmdx3eguZLHbjzYhg9TJ2O88kZdzqy+65yYcXE6OtzgWXYYUBPicKc30UppqOoOTgqRvRAcIpPV2vBWmhXp8jchCyJPUG34A9wZRw6QAEAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "AirflowBatch/CDKMetadata/Default"

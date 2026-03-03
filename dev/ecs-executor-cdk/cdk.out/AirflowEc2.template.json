@@ -49,7 +49,7 @@
      }
     ],
     "UserData": {
-     "Fn::Base64": "#!/bin/bash\n#!/bin/bash\nset -e\ndnf update -y\ndnf install -y git docker unzip nodejs tmux jq\n\n# AWS CLI v2\ncurl -s \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o /tmp/awscliv2.zip\nunzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install\n\n# Python 3.12 + uv\ndnf install -y python3.12 python3.12-pip\npip3.12 install uv\n\n# psql client\ndnf install -y postgresql15\n\n# Docker\nsystemctl enable docker\nsystemctl start docker\nusermod -aG docker ec2-user\n\n# Deploy scripts from S3 asset\nmkdir -p /opt/airflow-scripts\naws s3 cp s3://cdk-hnb659fds-assets-741443349243-us-west-2/5f322e5326cae3a7f33d9f4fea248b0efc92b68b2bb2464c44946945ae5036c2.zip /tmp/scripts.zip\nunzip -o /tmp/scripts.zip -d /opt/airflow-scripts/\nchmod +x /opt/airflow-scripts/*.sh\nchown -R ec2-user:ec2-user /opt/airflow-scripts\n\n# Source CLI helpers in ec2-user bashrc\necho \"source /opt/airflow-scripts/airflow-cli-helpers.sh\" >> /home/ec2-user/.bashrc"
+     "Fn::Base64": "#!/bin/bash\n#!/bin/bash\nset -e\ndnf update -y\ndnf install -y git docker unzip nodejs tmux jq\n\n# AWS CLI v2\ncurl -s \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o /tmp/awscliv2.zip\nunzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install\n\n# Python 3.12 + uv\ndnf install -y python3.12 python3.12-pip\npip3.12 install uv\n\n# psql client\ndnf install -y postgresql15\n\n# Docker\nsystemctl enable docker\nsystemctl start docker\nusermod -aG docker ec2-user\n\n# Deploy scripts from S3 asset\nmkdir -p /opt/airflow-scripts\naws s3 cp s3://cdk-hnb659fds-assets-741443349243-us-west-2/6f8964e455ef7082b4a607f82a04a8f1c0557e869d6b315d2921644a1a256041.zip /tmp/scripts.zip\nunzip -o /tmp/scripts.zip -d /opt/airflow-scripts/\nchmod +x /opt/airflow-scripts/*.sh\nchown -R ec2-user:ec2-user /opt/airflow-scripts\n\n# Source CLI helpers in ec2-user bashrc\necho \"source /opt/airflow-scripts/airflow-cli-helpers.sh\" >> /home/ec2-user/.bashrc"
     }
    },
    "Metadata": {
@@ -104,7 +104,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/01OPW/CMBD9LezONTUsHUuHCqkqCLqjwzmiI84Z+c5kiPLfq5QiMb1PPT0PflVDvcBBq9B0VeQTjAfD0Dkc9Djq8oiqZArvMzhdwrqEjmyNSo6Ch3EjaiiB3MdZHnxyjD08GbuczhzJUUQ1DjFhc8KIEljam4fxm2xIufvB3JJ95lSu89yz/G98sRoJ5Tl+8Glyf+8Ohi1LO0c7zNiTUXZ70lTy/d622LXY5CQ1BBd9ufkaXt+gXlyUucpFjHuC/R1/AV6uUeUbAQAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/01OTWvCQBD9Ld4307D6B6oHKRQV7V3GzRjGbHZlZtYcQv57Sa3g6X3yeB78qoZ6gYNWoemqyBcYT4ahczjoedTlGVXJFD5ncLqEdQkd2RqVHAUP41dSwxTIba7pxSfH2MObcZB85UiOIqpxiBmbC0ZMgVP78DDuyIYs3Q9KS7aVXO7z3Lv8b3yzGiWSOX7xaXJ/706GLad2jg4o2JORuCNpLvK8ty92Lza5lBuCm348vAfvoV7clLmSkox7guMTfwEZu7eHGwEAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "AirflowEc2/CDKMetadata/Default"

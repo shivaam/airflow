@@ -94,7 +94,75 @@ npm run destroy:compute   # all 3 compute stacks, keep infra
 npm run destroy           # everything (correct order)
 ```
 
-## Known quirk
+## Building worker images from source
+
+Since we run from Airflow `main` (3.2.0dev), there are no published Docker images that match.
+Worker images must be built from source using Breeze.
+
+```bash
+# On EC2 — builds prod image from your local checkout, layers on Amazon provider, pushes to ECR
+af rebuild
+```
+
+This runs `rebuild-worker-image.sh` which:
+1. Runs `breeze prod-image build --python 3.12` from `~/airflow`
+2. Layers on `apache-airflow-providers-amazon`, `asyncpg`, `psycopg2-binary`
+3. Tags and pushes to ECR
+
+### Prerequisites (installed automatically by `setup-airflow.sh`)
+
+| Tool | Why | Install |
+|------|-----|---------|
+| pnpm | Build simple auth manager UI assets | `npm install -g pnpm` |
+| docker-compose v2 | Required by Breeze | See below |
+| breeze | Builds prod/CI images from source | `uv tool install -e ~/airflow/dev/breeze` |
+
+docker-compose v2 install (if not present):
+```bash
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
+
+### Troubleshooting: `dag_bundle_config_list` validation error
+
+```
+AirflowConfigException: Invalid config for section `dag_processor` key `dag_bundle_config_list`.
+Expected keys {'kwargs', 'classpath', 'name'} but found {'kwargs', 'team_name', 'classpath', 'name'}
+```
+
+This means the worker image is running an older Airflow version that doesn't support `team_name`
+in bundle configs. The `team_name` field was added in `main` and isn't in any released version yet.
+
+Fix: rebuild the worker image from source so it matches the scheduler:
+```bash
+af rebuild
+```
+
+Then force a new ECS deployment to pick up the new image:
+```bash
+aws ecs update-service --cluster alpha-cluster --service <service-name> --force-new-deployment
+# or just re-trigger the DAG — ECS executor launches new tasks with the latest image
+```
+
+### Troubleshooting: Breeze `UI Vite manifest file does not exist`
+
+Breeze requires all UI assets to be compiled before building the prod image.
+The main UI is built during `setup-airflow.sh`, but the simple auth manager UI
+may be missing.
+
+```bash
+cd ~/airflow/airflow-core/src/airflow/api_fastapi/auth/managers/simple/ui
+pnpm install
+pnpm build
+```
+
+Then retry `breeze prod-image build --python 3.12`.
+
+## Known quirks
+
+### cloud-init may skip UserData
 
 After `npm run deploy:ec2`, cloud-init may skip UserData on the replacement instance.
 If `/opt/airflow-scripts/` is empty after SSM-ing in, run UserData manually:
