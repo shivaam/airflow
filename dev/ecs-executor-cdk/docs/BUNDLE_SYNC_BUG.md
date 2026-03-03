@@ -1,122 +1,128 @@
-# Bug: DAG Bundle Models Not Persisted for Team-Scoped Bundles
+# Bug: Team-Scoped DAG Bundles Not Persisted — `expunge_all()` Session Corruption
+
+## Status: Root Cause Confirmed
 
 ## Summary
 
-When using `dag_bundle_config_list` with `team_name` in multi-team mode, the dag-processor's
-`sync_bundles_to_db` method logs "Added new DAG bundle" for team-scoped bundles but the records
-are not persisted to the `dag_bundle` table. Non-team bundles (like `shared_dags` and `example_dags`)
-persist correctly. The dag-processor then continuously logs "Bundle model not found" for the
-team bundles, and their DAGs are never processed.
+When using `dag_bundle_config_list` with `team_name` in multi-team mode, team-scoped DAG
+bundles (`team_alpha_dags`, `team_beta_dags`) are never persisted to the `dag_bundle` table.
+The dag-processor logs "Added new DAG bundle" for them, but they silently vanish before commit.
+The processor then loops forever logging "Bundle model not found" every ~5 seconds, and those
+bundles' DAGs are never discovered or processed. Non-team bundles (`shared_dags`, `example_dags`)
+work fine because they already exist in the DB from a prior run.
 
 ## Environment
 
-- Airflow version: 3.2.0 (main branch, commit from 2026-03-01)
+- Airflow version: 3.2.0 (main branch)
 - Python: 3.12
 - Database: PostgreSQL 16 (RDS)
 - OS: Amazon Linux 2023 (EC2)
 - Multi-team: enabled (`core.multi_team = True`)
-- Teams: `team_alpha`, `team_beta` (created via `airflow teams create`)
+- Teams: `team_alpha`, `team_beta`
+- Bundle type: `S3DagBundle` (airflow.providers.amazon.aws.bundles.s3.S3DagBundle)
+- No `aws_default` Airflow connection configured (uses IAM role)
 
-## Configuration
+## Root Cause (Confirmed via instrumented logs)
 
-```ini
-[core]
-executor = LocalExecutor;team_alpha=airflow.providers.amazon.aws.executors.ecs.ecs_executor.AwsEcsExecutor;team_beta=airflow.providers.amazon.aws.executors.ecs.ecs_executor.AwsEcsExecutor
-multi_team = True
+`MetastoreBackend.get_connection()` calls `session.expunge_all()` on the shared
+`scoped_session` singleton, destroying pending objects that `sync_bundles_to_db` had added.
 
-[dag_processor]
-dag_bundle_config_list = [
-  {"name": "team_alpha_dags", "classpath": "airflow.providers.amazon.aws.bundles.s3.S3DagBundle", "kwargs": {"bucket_name": "airflow-ecs-dags-ACCOUNT-REGION", "prefix": "team_alpha"}, "team_name": "team_alpha"},
-  {"name": "team_beta_dags", "classpath": "airflow.providers.amazon.aws.bundles.s3.S3DagBundle", "kwargs": {"bucket_name": "airflow-ecs-dags-ACCOUNT-REGION", "prefix": "team_beta"}, "team_name": "team_beta"},
-  {"name": "shared_dags", "classpath": "airflow.providers.amazon.aws.bundles.s3.S3DagBundle", "kwargs": {"bucket_name": "airflow-ecs-dags-ACCOUNT-REGION", "prefix": "shared"}}
-]
-```
+### The chain of events
 
-## Steps to Reproduce
+1. `sync_bundles_to_db` gets a session via `@provide_session` → scoped session `140126030839936`
+2. For each bundle, it calls `_extract_and_sign_template()` which instantiates an `S3DagBundle`,
+   which creates an `S3Hook`, which accesses `self.conn_config`, which calls
+   `self.get_connection('aws_default')`
+3. `get_connection` → `Connection.get_connection_from_secrets` → `MetastoreBackend.get_connection`
+4. `MetastoreBackend.get_connection` is also `@provide_session` — but because Airflow uses
+   `scoped_session` (thread-local singleton), it gets the **same session** `140126030839936`
+5. `MetastoreBackend.get_connection` calls `session.expunge_all()` at the end, which detaches
+   **every object** from the session — including pending `DagBundleModel` and `Team` objects
+6. When `sync_bundles_to_db` returns, `session.new` is empty — nothing gets committed
 
-1. Deploy Airflow with multi-team enabled and team-scoped S3 DAG bundles
-2. Create teams: `airflow teams create team_alpha` and `airflow teams create team_beta`
-3. Run `airflow db migrate`
-4. Start dag-processor: `airflow dag-processor`
-5. Check the `dag_bundle` table
+### Why non-team bundles survive
 
-## Expected Behavior
+`shared_dags` and `example_dags` already exist in the DB from a previous run. They're loaded
+into `stored` as persistent objects. Even though `expunge_all()` detaches them, they were
+already committed — the session just updates them in place. New bundles (the team ones) are
+in `session.new` and get destroyed.
 
-All four bundles (`team_alpha_dags`, `team_beta_dags`, `shared_dags`, `example_dags`) should
-have rows in the `dag_bundle` table, and the `dag_bundle_team` association table should link
-the team bundles to their respective teams.
+### Why it doesn't happen with local dev (SQLite)
 
-## Actual Behavior
+- Local dev typically doesn't use S3 bundles, so `S3Hook` / `MetastoreBackend.get_connection`
+  is never triggered during `sync_bundles_to_db`
+- If `aws_default` connection exists in the DB, the `SecretCache` may return it before
+  `MetastoreBackend` is reached
+- SQLite's in-process behavior may also mask timing-dependent session state issues
 
-Only `shared_dags` and `example_dags` are in the `dag_bundle` table. `team_alpha_dags` and
-`team_beta_dags` are missing despite being logged as "Added".
-
-### Dag-processor logs (startup)
-
-```
-2026-03-02T00:26:05.798Z [info] DAG bundles loaded: team_alpha_dags, team_beta_dags, shared_dags, example_dags
-2026-03-02T00:26:05.849Z [info] Added new DAG bundle team_alpha_dags to the database
-2026-03-02T00:26:05.867Z [warning] Unable to find AWS Connection ID 'aws_default', switching to empty.
-2026-03-02T00:26:05.868Z [info] Added new DAG bundle team_beta_dags to the database
-2026-03-02T00:26:05.893Z [warning] Unable to find AWS Connection ID 'aws_default', switching to empty.
-2026-03-02T00:26:05.893Z [warning] Removing ownership of team 'None' from Dag bundle 'shared_dags'
-2026-03-02T00:26:05.893Z [warning] Removing ownership of team 'None' from Dag bundle 'example_dags'
-2026-03-02T00:26:05.894Z [info] DAG bundles loaded: team_alpha_dags, team_beta_dags, shared_dags, example_dags
-2026-03-02T00:26:05.895Z [info] Checking for new files in bundle team_alpha_dags every 300 seconds
-2026-03-02T00:26:05.895Z [info] Checking for new files in bundle team_beta_dags every 300 seconds
-```
-
-### Dag-processor logs (refresh loop, repeating every 5s)
+## Proof (Instrumented Log Output)
 
 ```
-2026-03-02T00:26:07.017Z [warning] Bundle model not found for team_alpha_dags
-2026-03-02T00:26:07.764Z [warning] Bundle model not found for team_beta_dags
-2026-03-02T00:26:10.934Z [warning] Bundle model not found for team_alpha_dags
-2026-03-02T00:26:10.937Z [warning] Bundle model not found for team_beta_dags
-... (continues indefinitely)
+[DEBUG-SYNC] sync_bundles_to_db START — session id=140126030839936, session.new=0
+[DEBUG-SYNC] Processing bundle 'team_alpha_dags' (team_name=team_alpha)
+[DEBUG-SYNC] Loaded team 'team_alpha' — persistent=True, detached=False
+[DEBUG-SYNC] BEFORE _extract_and_sign_template('team_alpha_dags') — session.new=[]
+[DEBUG-SYNC] AFTER _extract_and_sign_template('team_alpha_dags') — session.new=[]
+[DEBUG-SYNC] Team 'team_alpha' state after hook init — persistent=False, detached=True
+[DEBUG-SYNC] After session.add('team_alpha_dags') — session.new=['team_alpha_dags']
+
+[DEBUG-SYNC] Processing bundle 'team_beta_dags' (team_name=team_beta)
+[DEBUG-SYNC] BEFORE _extract_and_sign_template('team_beta_dags') — session.new=['team_alpha_dags']
+[DEBUG-METASTORE] expunge_all() about to nuke session id=140126030839936 — new=1, dirty=1
+[DEBUG-METASTORE] Objects being expunged from session.new: ['team_alpha_dags']    <-- DESTROYED
+[DEBUG-SYNC] AFTER _extract_and_sign_template('team_beta_dags') — session.new=[]
+[DEBUG-SYNC] After session.add('team_beta_dags') — session.new=['team_beta_dags']
+
+[DEBUG-SYNC] Processing bundle 'shared_dags' (team_name=None)
+[DEBUG-SYNC] BEFORE _extract_and_sign_template('shared_dags') — session.new=['team_beta_dags']
+[DEBUG-METASTORE] expunge_all() about to nuke session id=140126030839936 — new=1, dirty=1
+[DEBUG-METASTORE] Objects being expunged from session.new: ['team_beta_dags']     <-- DESTROYED
+[DEBUG-SYNC] AFTER _extract_and_sign_template('shared_dags') — session.new=[]
+
+[DEBUG-SYNC] sync_bundles_to_db END — session.new=[], session.dirty=[]            <-- NOTHING TO COMMIT
 ```
 
-### Database state after startup
+## Affected Code
 
-```sql
-airflow_db=> SELECT * FROM dag_bundle;
-     name     | active | version |        last_refreshed         | signed_url_template | template_params
---------------+--------+---------+-------------------------------+---------------------+-----------------
- shared_dags  | t      |         | 2026-03-02 00:31:09.535605+00 | ...                 | {}
- example_dags | t      |         | 2026-03-02 00:31:09.535605+00 |                     | {}
-(2 rows)
+- `airflow/dag_processing/bundles/manager.py` — `sync_bundles_to_db()` (victim)
+- `airflow/secrets/metastore.py` — `MetastoreBackend.get_connection()` (culprit: `expunge_all()`)
+- `airflow/utils/session.py` — `scoped_session` singleton (enabler)
 
-airflow_db=> SELECT * FROM dag_bundle_team;
-(0 rows)
+## Possible Fixes
 
-airflow_db=> SELECT * FROM team;
-    name
-------------
- team_alpha
- team_beta
-(2 rows)
+### Option A: Flush before the dangerous call (minimal, targeted)
+
+In `sync_bundles_to_db`, call `session.flush()` after `session.add(bundle)` so the row is
+persisted before `_extract_and_sign_template` can nuke it:
+
+```python
+session.add(bundle)
+session.flush()  # persist to DB before S3Hook triggers expunge_all()
 ```
 
-## Root Cause Analysis
+Downside: doesn't fix the root cause. Other callers of `MetastoreBackend` could hit the same issue.
 
-The `sync_bundles_to_db` method in `airflow/dag_processing/bundles/manager.py` runs twice
-at startup — once in the dag-processor parent process and once in the forked child. Key observations:
+### Option B: Move `_extract_and_sign_template` before `session.add` (reorder)
 
-1. The first run adds all 4 bundles via `session.add()` and logs "Added new DAG bundle" for each
-2. The method uses `@provide_session` which should auto-commit at the end
-3. The second run (same second, `00:26:05.894`) sees only `shared_dags` and `example_dags` in the DB
-4. This means the first run's transaction only partially committed — the team bundles were rolled back
+Call `_extract_and_sign_template` at the top of the loop, before any session mutations.
+The `expunge_all()` would fire on a clean session with no pending objects.
 
-The likely cause is that `bundle.teams = [team]` (line ~271 in manager.py) triggers a SQLAlchemy
-relationship flush that fails or conflicts when the second sync runs concurrently. The non-team
-bundles don't have this relationship assignment, so they commit successfully.
+Downside: requires restructuring the loop. Still doesn't fix the root cause.
 
-Relevant code path: `airflow/dag_processing/bundles/manager.py`, method `sync_bundles_to_db`,
-around lines 233-290.
+### Option C: Fix `MetastoreBackend.get_connection` to not nuke the session (root cause fix)
 
-## Workaround
+Replace `session.expunge_all()` with targeted expunge of just the connection object:
 
-Manually insert the bundle records after startup:
+```python
+if conn:
+    session.expunge(conn)
+```
+
+Or use a separate non-scoped session for the connection lookup.
+
+This is the proper fix — `expunge_all()` is a sledgehammer that shouldn't be used on a shared session.
+
+## Workaround (Manual SQL)
 
 ```sql
 INSERT INTO dag_bundle (name, active) VALUES ('team_alpha_dags', true) ON CONFLICT (name) DO UPDATE SET active = true;
@@ -125,10 +131,10 @@ INSERT INTO dag_bundle_team (bundle_name, team_name) VALUES ('team_alpha_dags', 
 INSERT INTO dag_bundle_team (bundle_name, team_name) VALUES ('team_beta_dags', 'team_beta') ON CONFLICT DO NOTHING;
 ```
 
-Then restart the dag-processor. The bundles will be found and DAGs will be processed.
+Then restart the dag-processor.
 
 ## Impact
 
-Team-scoped DAG bundles are completely non-functional without the manual workaround. The
-dag-processor never processes DAGs from team bundles, so they never appear in the UI or CLI.
-Non-team bundles work fine.
+Team-scoped DAG bundles are completely non-functional without the manual workaround when
+using S3DagBundle (or any bundle whose initialization triggers a connection lookup via
+`MetastoreBackend`). The dag-processor never processes DAGs from team bundles.
