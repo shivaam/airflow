@@ -49,6 +49,10 @@ class MetastoreBackend(BaseSecretsBackend):
         """
         from airflow.models import Connection
 
+        import logging
+
+        _debug_log = logging.getLogger(__name__)
+
         conn = session.scalar(
             select(Connection)
             .where(
@@ -57,6 +61,23 @@ class MetastoreBackend(BaseSecretsBackend):
             )
             .limit(1)
         )
+        pending_new = len(session.new)
+        pending_dirty = len(session.dirty)
+        identity_count = len(session.identity_map)
+        if pending_new > 0 or pending_dirty > 0:
+            _debug_log.warning(
+                "[DEBUG-METASTORE] expunge_all() about to nuke session id=%s — "
+                "new=%d, dirty=%d, identity_map=%d (conn_id=%s)",
+                id(session),
+                pending_new,
+                pending_dirty,
+                identity_count,
+                conn_id,
+            )
+            _debug_log.warning(
+                "[DEBUG-METASTORE] Objects being expunged from session.new: %s",
+                [getattr(obj, "name", type(obj).__name__) for obj in session.new],
+            )
         session.expunge_all()
         return conn
 

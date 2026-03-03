@@ -1,9 +1,9 @@
 {
  "Resources": {
-  "BatchCompute5091E369": {
+  "alphaBatchCompute534EFCBD": {
    "Type": "AWS::Batch::ComputeEnvironment",
    "Properties": {
-    "ComputeEnvironmentName": "airflow-batch-compute",
+    "ComputeEnvironmentName": "alpha-batch-compute",
     "ComputeResources": {
      "MaxvCpus": 16,
      "SecurityGroupIds": [
@@ -27,64 +27,44 @@
     "UpdatePolicy": {}
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchCompute/Resource"
+    "aws:cdk:path": "AirflowBatch/alphaBatchCompute/Resource"
    }
   },
-  "BatchQueue28C25975": {
+  "alphaBatchQueueFC147B8A": {
    "Type": "AWS::Batch::JobQueue",
    "Properties": {
     "ComputeEnvironmentOrder": [
      {
       "ComputeEnvironment": {
        "Fn::GetAtt": [
-        "BatchCompute5091E369",
+        "alphaBatchCompute534EFCBD",
         "ComputeEnvironmentArn"
        ]
       },
       "Order": 1
      }
     ],
-    "JobQueueName": "airflow-batch-queue",
+    "JobQueueName": "alpha-batch-queue",
     "Priority": 1,
     "State": "ENABLED"
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchQueue/Resource"
+    "aws:cdk:path": "AirflowBatch/alphaBatchQueue/Resource"
    }
   },
-  "BatchLogGroupFA0EEAC1": {
+  "alphaBatchLogGroup93186D5F": {
    "Type": "AWS::Logs::LogGroup",
    "Properties": {
-    "LogGroupName": "/airflow/batch-worker",
+    "LogGroupName": "/airflow/batch-worker/alpha",
     "RetentionInDays": 731
    },
    "UpdateReplacePolicy": "Delete",
    "DeletionPolicy": "Delete",
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchLogGroup/Resource"
+    "aws:cdk:path": "AirflowBatch/alphaBatchLogGroup/Resource"
    }
   },
-  "BatchContainerExecutionRoleB5A032EF": {
-   "Type": "AWS::IAM::Role",
-   "Properties": {
-    "AssumeRolePolicyDocument": {
-     "Statement": [
-      {
-       "Action": "sts:AssumeRole",
-       "Effect": "Allow",
-       "Principal": {
-        "Service": "ecs-tasks.amazonaws.com"
-       }
-      }
-     ],
-     "Version": "2012-10-17"
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchContainer/ExecutionRole/Resource"
-   }
-  },
-  "BatchContainerExecutionRoleDefaultPolicy757B7694": {
+  "alphaBatchExecRolePolicyF4E58E52": {
    "Type": "AWS::IAM::Policy",
    "Properties": {
     "PolicyDocument": {
@@ -97,7 +77,7 @@
        "Effect": "Allow",
        "Resource": {
         "Fn::GetAtt": [
-         "BatchLogGroupFA0EEAC1",
+         "alphaBatchLogGroup93186D5F",
          "Arn"
         ]
        }
@@ -105,22 +85,46 @@
      ],
      "Version": "2012-10-17"
     },
-    "PolicyName": "BatchContainerExecutionRoleDefaultPolicy757B7694",
+    "PolicyName": "alphaBatchExecRolePolicyF4E58E52",
     "Roles": [
      {
-      "Ref": "BatchContainerExecutionRoleB5A032EF"
+      "Fn::Select": [
+       1,
+       {
+        "Fn::Split": [
+         "/",
+         {
+          "Fn::Select": [
+           5,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcsExecRoleDBE37922Arn447AD7C5"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
      }
     ]
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchContainer/ExecutionRole/DefaultPolicy/Resource"
+    "aws:cdk:path": "AirflowBatch/alphaBatchExecRole/Policy/Resource"
    }
   },
-  "BatchJobDef0BB5F6F7": {
+  "alphaBatchJobDef1C88DBD9": {
    "Type": "AWS::Batch::JobDefinition",
    "Properties": {
     "ContainerProperties": {
      "Environment": [
+      {
+       "Name": "AIRFLOW__CORE__MULTI_TEAM",
+       "Value": "True"
+      },
       {
        "Name": "AIRFLOW__CORE__EXECUTION_API_SERVER_URL",
        "Value": {
@@ -142,10 +146,7 @@
       }
      ],
      "ExecutionRoleArn": {
-      "Fn::GetAtt": [
-       "BatchContainerExecutionRoleB5A032EF",
-       "Arn"
-      ]
+      "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcsExecRoleDBE37922Arn447AD7C5"
      },
      "FargatePlatformConfiguration": {},
      "Image": {
@@ -198,9 +199,9 @@
       "LogDriver": "awslogs",
       "Options": {
        "awslogs-group": {
-        "Ref": "BatchLogGroupFA0EEAC1"
+        "Ref": "alphaBatchLogGroup93186D5F"
        },
-       "awslogs-stream-prefix": "batch",
+       "awslogs-stream-prefix": "batch-alpha",
        "awslogs-region": "us-west-2"
       }
      },
@@ -220,7 +221,7 @@
      ],
      "RuntimePlatform": {}
     },
-    "JobDefinitionName": "airflow-batch-job-def",
+    "JobDefinitionName": "alpha-batch-job-def",
     "PlatformCapabilities": [
      "FARGATE"
     ],
@@ -229,13 +230,246 @@
     "Type": "container"
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/BatchJobDef/Resource"
+    "aws:cdk:path": "AirflowBatch/alphaBatchJobDef/Resource"
    }
   },
-  "SsmBatchJobQueue29CFDF1D": {
+  "betaBatchCompute5AD234A6": {
+   "Type": "AWS::Batch::ComputeEnvironment",
+   "Properties": {
+    "ComputeEnvironmentName": "beta-batch-compute",
+    "ComputeResources": {
+     "MaxvCpus": 16,
+     "SecurityGroupIds": [
+      {
+       "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttWorkerSgD9B79631GroupIdB47B11F0"
+      }
+     ],
+     "Subnets": [
+      {
+       "Fn::ImportValue": "AirflowInfra:ExportsOutputRefVpcprivateSubnet1SubnetCEAD37168693D373"
+      },
+      {
+       "Fn::ImportValue": "AirflowInfra:ExportsOutputRefVpcprivateSubnet2Subnet2DE7549CDF5ACE3D"
+      }
+     ],
+     "Type": "FARGATE"
+    },
+    "ReplaceComputeEnvironment": false,
+    "State": "ENABLED",
+    "Type": "managed",
+    "UpdatePolicy": {}
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/betaBatchCompute/Resource"
+   }
+  },
+  "betaBatchQueueE8FC9608": {
+   "Type": "AWS::Batch::JobQueue",
+   "Properties": {
+    "ComputeEnvironmentOrder": [
+     {
+      "ComputeEnvironment": {
+       "Fn::GetAtt": [
+        "betaBatchCompute5AD234A6",
+        "ComputeEnvironmentArn"
+       ]
+      },
+      "Order": 1
+     }
+    ],
+    "JobQueueName": "beta-batch-queue",
+    "Priority": 1,
+    "State": "ENABLED"
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/betaBatchQueue/Resource"
+   }
+  },
+  "betaBatchLogGroupAF9EB0D2": {
+   "Type": "AWS::Logs::LogGroup",
+   "Properties": {
+    "LogGroupName": "/airflow/batch-worker/beta",
+    "RetentionInDays": 731
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/betaBatchLogGroup/Resource"
+   }
+  },
+  "betaBatchExecRolePolicyEB57175D": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "betaBatchLogGroupAF9EB0D2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "betaBatchExecRolePolicyEB57175D",
+    "Roles": [
+     {
+      "Fn::Select": [
+       1,
+       {
+        "Fn::Split": [
+         "/",
+         {
+          "Fn::Select": [
+           5,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcsExecRoleDBE37922Arn447AD7C5"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/betaBatchExecRole/Policy/Resource"
+   }
+  },
+  "betaBatchJobDefA019ECDC": {
+   "Type": "AWS::Batch::JobDefinition",
+   "Properties": {
+    "ContainerProperties": {
+     "Environment": [
+      {
+       "Name": "AIRFLOW__CORE__MULTI_TEAM",
+       "Value": "True"
+      },
+      {
+       "Name": "AIRFLOW__CORE__EXECUTION_API_SERVER_URL",
+       "Value": {
+        "Fn::Join": [
+         "",
+         [
+          "http://",
+          {
+           "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttNlbBCDB97FEDNSName8C4ADEFF"
+          },
+          ":8080/execution/"
+         ]
+        ]
+       }
+      },
+      {
+       "Name": "AIRFLOW__DAG_PROCESSOR__DAG_BUNDLE_CONFIG_LIST",
+       "Value": "[{\"name\":\"team_alpha_dags\",\"classpath\":\"airflow.providers.amazon.aws.bundles.s3.S3DagBundle\",\"kwargs\":{\"bucket_name\":\"airflow-ecs-dags-741443349243-us-west-2\",\"prefix\":\"team_alpha\"},\"team_name\":\"team_alpha\"},{\"name\":\"team_beta_dags\",\"classpath\":\"airflow.providers.amazon.aws.bundles.s3.S3DagBundle\",\"kwargs\":{\"bucket_name\":\"airflow-ecs-dags-741443349243-us-west-2\",\"prefix\":\"team_beta\"},\"team_name\":\"team_beta\"},{\"name\":\"shared_dags\",\"classpath\":\"airflow.providers.amazon.aws.bundles.s3.S3DagBundle\",\"kwargs\":{\"bucket_name\":\"airflow-ecs-dags-741443349243-us-west-2\",\"prefix\":\"shared\"}}]"
+      }
+     ],
+     "ExecutionRoleArn": {
+      "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcsExecRoleDBE37922Arn447AD7C5"
+     },
+     "FargatePlatformConfiguration": {},
+     "Image": {
+      "Fn::Join": [
+       "",
+       [
+        {
+         "Fn::Select": [
+          4,
+          {
+           "Fn::Split": [
+            ":",
+            {
+             "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcrRepoBB83A592ArnB6C43A7E"
+            }
+           ]
+          }
+         ]
+        },
+        ".dkr.ecr.",
+        {
+         "Fn::Select": [
+          3,
+          {
+           "Fn::Split": [
+            ":",
+            {
+             "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttEcrRepoBB83A592ArnB6C43A7E"
+            }
+           ]
+          }
+         ]
+        },
+        ".",
+        {
+         "Ref": "AWS::URLSuffix"
+        },
+        "/",
+        {
+         "Fn::ImportValue": "AirflowInfra:ExportsOutputRefEcrRepoBB83A592FA170EC2"
+        },
+        ":latest"
+       ]
+      ]
+     },
+     "JobRoleArn": {
+      "Fn::ImportValue": "AirflowInfra:ExportsOutputFnGetAttTaskRole30FC0FBBArn85EA3C60"
+     },
+     "LogConfiguration": {
+      "LogDriver": "awslogs",
+      "Options": {
+       "awslogs-group": {
+        "Ref": "betaBatchLogGroupAF9EB0D2"
+       },
+       "awslogs-stream-prefix": "batch-beta",
+       "awslogs-region": "us-west-2"
+      }
+     },
+     "NetworkConfiguration": {
+      "AssignPublicIp": "DISABLED"
+     },
+     "ReadonlyRootFilesystem": false,
+     "ResourceRequirements": [
+      {
+       "Type": "MEMORY",
+       "Value": "2048"
+      },
+      {
+       "Type": "VCPU",
+       "Value": "1"
+      }
+     ],
+     "RuntimePlatform": {}
+    },
+    "JobDefinitionName": "beta-batch-job-def",
+    "PlatformCapabilities": [
+     "FARGATE"
+    ],
+    "RetryStrategy": {},
+    "Timeout": {},
+    "Type": "container"
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/betaBatchJobDef/Resource"
+   }
+  },
+  "SsmAlphaBatchJobQueue87E9806D": {
    "Type": "AWS::SSM::Parameter",
    "Properties": {
-    "Name": "/airflow-test/batch-job-queue",
+    "Name": "/airflow-test/alpha-batch-job-queue",
     "Type": "String",
     "Value": {
      "Fn::Select": [
@@ -251,7 +485,7 @@
             ":",
             {
              "Fn::GetAtt": [
-              "BatchQueue28C25975",
+              "alphaBatchQueueFC147B8A",
               "JobQueueArn"
              ]
             }
@@ -265,13 +499,13 @@
     }
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/SsmBatchJobQueue/Resource"
+    "aws:cdk:path": "AirflowBatch/SsmAlphaBatchJobQueue/Resource"
    }
   },
-  "SsmBatchJobDefF70AD293": {
+  "SsmAlphaBatchJobDef09C70066": {
    "Type": "AWS::SSM::Parameter",
    "Properties": {
-    "Name": "/airflow-test/batch-job-def",
+    "Name": "/airflow-test/alpha-batch-job-def",
     "Type": "String",
     "Value": {
      "Fn::Select": [
@@ -286,7 +520,7 @@
            "Fn::Split": [
             ":",
             {
-             "Ref": "BatchJobDef0BB5F6F7"
+             "Ref": "alphaBatchJobDef1C88DBD9"
             }
            ]
           }
@@ -298,13 +532,82 @@
     }
    },
    "Metadata": {
-    "aws:cdk:path": "AirflowBatch/SsmBatchJobDef/Resource"
+    "aws:cdk:path": "AirflowBatch/SsmAlphaBatchJobDef/Resource"
+   }
+  },
+  "SsmBetaBatchJobQueueC956362B": {
+   "Type": "AWS::SSM::Parameter",
+   "Properties": {
+    "Name": "/airflow-test/beta-batch-job-queue",
+    "Type": "String",
+    "Value": {
+     "Fn::Select": [
+      1,
+      {
+       "Fn::Split": [
+        "/",
+        {
+         "Fn::Select": [
+          5,
+          {
+           "Fn::Split": [
+            ":",
+            {
+             "Fn::GetAtt": [
+              "betaBatchQueueE8FC9608",
+              "JobQueueArn"
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/SsmBetaBatchJobQueue/Resource"
+   }
+  },
+  "SsmBetaBatchJobDef39C59F55": {
+   "Type": "AWS::SSM::Parameter",
+   "Properties": {
+    "Name": "/airflow-test/beta-batch-job-def",
+    "Type": "String",
+    "Value": {
+     "Fn::Select": [
+      1,
+      {
+       "Fn::Split": [
+        "/",
+        {
+         "Fn::Select": [
+          5,
+          {
+           "Fn::Split": [
+            ":",
+            {
+             "Ref": "betaBatchJobDefA019ECDC"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "AirflowBatch/SsmBetaBatchJobDef/Resource"
    }
   },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/21PS27CQAw9C/uJG416A0oroS4gPUDlDCY1ZGw0H1AVzd2rSQTtoqv3s59lC/a5hXaFt9i4w7kZuYfpI6E7G7zFz6nH5L5gesUwYKK1+ktOtJErBxVPksz6KP+4W+33mTLV+ME3Lj56JCELhRc6snBilZputf9jLKu/RjGjDhGmdx3eguZLHbjzYhg9TJ2O88kZdzqy+65yYcXE6OtzgWXYYUBPicKc30UppqOoOTgqRvRAcIpPV2vBWmhXp8jchCyJPUG34A9wZRw6QAEAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/22PTW4CMQxGz8I+446i3oBSJNQFpQeoPMFMDRMb5QdURbl7lY6gXbDy5/dsS7Zgn3voF3iNndufuokHKB8J3cngNX6WAZP7gvKKYcRES/XnnGglFw4qniSZ5UEe0I0O75kyNX3PKxfvdyQhC4UXOrBwYpVmNzr8A/PqH6hm0jFCedNxHTSf28AtV8PooWx1YvfdxJyqidG3fwLLuMWAnhKFX39rajU7ipqDo2pE9wTH+HSxFqyFfnGMzF3IktgT7Ob6Aw+JevwzAQAA"
    },
    "Metadata": {
     "aws:cdk:path": "AirflowBatch/CDKMetadata/Default"

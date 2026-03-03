@@ -374,9 +374,7 @@
    "Properties": {
     "Name": "/airflow-test/alpha-task-def",
     "Type": "String",
-    "Value": {
-     "Ref": "alphaTaskDefAAB69CFB"
-    }
+    "Value": "alpha-task-def"
    },
    "Metadata": {
     "aws:cdk:path": "AirflowEcs/SsmAlphaTaskDef/Resource"
@@ -400,9 +398,7 @@
    "Properties": {
     "Name": "/airflow-test/beta-task-def",
     "Type": "String",
-    "Value": {
-     "Ref": "betaTaskDefC9DFDDEE"
-    }
+    "Value": "beta-task-def"
    },
    "Metadata": {
     "aws:cdk:path": "AirflowEcs/SsmBetaTaskDef/Resource"

@@ -619,7 +619,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-deploy-role-741443349243-us-west-2",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-cfn-exec-role-741443349243-us-west-2",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-741443349243-us-west-2/eefa81d416d0f916700d8b37574f32ca69876ab3f9bdbc92a8e62fef76efcafc.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-741443349243-us-west-2/8b2f386a2b0ac5c38fa8662a338a58fbc3f5180bdc23f6a3d8c65445ff8876be.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -746,7 +746,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-deploy-role-741443349243-us-west-2",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-cfn-exec-role-741443349243-us-west-2",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-741443349243-us-west-2/8eba843fff927676823318931fed08ff9beb8d62bdce569a1b9d2cc0789cb994.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-741443349243-us-west-2/4c1d9f3e504578963a2fb5f68d2cc538bd62e067f162b04e7e1d7dbd5db73b73.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -763,52 +763,88 @@
         "AirflowBatch.assets"
       ],
       "metadata": {
-        "/AirflowBatch/BatchCompute/Resource": [
+        "/AirflowBatch/alphaBatchCompute/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchCompute5091E369"
+            "data": "alphaBatchCompute534EFCBD"
           }
         ],
-        "/AirflowBatch/BatchQueue/Resource": [
+        "/AirflowBatch/alphaBatchQueue/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchQueue28C25975"
+            "data": "alphaBatchQueueFC147B8A"
           }
         ],
-        "/AirflowBatch/BatchLogGroup/Resource": [
+        "/AirflowBatch/alphaBatchLogGroup/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchLogGroupFA0EEAC1"
+            "data": "alphaBatchLogGroup93186D5F"
           }
         ],
-        "/AirflowBatch/BatchContainer/ExecutionRole/Resource": [
+        "/AirflowBatch/alphaBatchExecRole/Policy/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchContainerExecutionRoleB5A032EF"
+            "data": "alphaBatchExecRolePolicyF4E58E52"
           }
         ],
-        "/AirflowBatch/BatchContainer/ExecutionRole/DefaultPolicy/Resource": [
+        "/AirflowBatch/alphaBatchJobDef/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchContainerExecutionRoleDefaultPolicy757B7694"
+            "data": "alphaBatchJobDef1C88DBD9"
           }
         ],
-        "/AirflowBatch/BatchJobDef/Resource": [
+        "/AirflowBatch/betaBatchCompute/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "BatchJobDef0BB5F6F7"
+            "data": "betaBatchCompute5AD234A6"
           }
         ],
-        "/AirflowBatch/SsmBatchJobQueue/Resource": [
+        "/AirflowBatch/betaBatchQueue/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SsmBatchJobQueue29CFDF1D"
+            "data": "betaBatchQueueE8FC9608"
           }
         ],
-        "/AirflowBatch/SsmBatchJobDef/Resource": [
+        "/AirflowBatch/betaBatchLogGroup/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SsmBatchJobDefF70AD293"
+            "data": "betaBatchLogGroupAF9EB0D2"
+          }
+        ],
+        "/AirflowBatch/betaBatchExecRole/Policy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "betaBatchExecRolePolicyEB57175D"
+          }
+        ],
+        "/AirflowBatch/betaBatchJobDef/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "betaBatchJobDefA019ECDC"
+          }
+        ],
+        "/AirflowBatch/SsmAlphaBatchJobQueue/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SsmAlphaBatchJobQueue87E9806D"
+          }
+        ],
+        "/AirflowBatch/SsmAlphaBatchJobDef/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SsmAlphaBatchJobDef09C70066"
+          }
+        ],
+        "/AirflowBatch/SsmBetaBatchJobQueue/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SsmBetaBatchJobQueueC956362B"
+          }
+        ],
+        "/AirflowBatch/SsmBetaBatchJobDef/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SsmBetaBatchJobDef39C59F55"
           }
         ],
         "/AirflowBatch/CDKMetadata/Default": [

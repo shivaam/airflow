@@ -1,16 +1,16 @@
 {
   "version": "50.0.0",
   "files": {
-    "8eba843fff927676823318931fed08ff9beb8d62bdce569a1b9d2cc0789cb994": {
+    "4c1d9f3e504578963a2fb5f68d2cc538bd62e067f162b04e7e1d7dbd5db73b73": {
       "displayName": "AirflowBatch Template",
       "source": {
         "path": "AirflowBatch.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "741443349243-us-west-2-ab4f30f9": {
+        "741443349243-us-west-2-f630333f": {
           "bucketName": "cdk-hnb659fds-assets-741443349243-us-west-2",
-          "objectKey": "8eba843fff927676823318931fed08ff9beb8d62bdce569a1b9d2cc0789cb994.json",
+          "objectKey": "4c1d9f3e504578963a2fb5f68d2cc538bd62e067f162b04e7e1d7dbd5db73b73.json",
           "region": "us-west-2",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::741443349243:role/cdk-hnb659fds-file-publishing-role-741443349243-us-west-2"
         }
