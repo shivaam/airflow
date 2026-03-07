@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import or_, select
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from airflow.models import Connection
+
+log = logging.getLogger(__name__)
 
 
 class MetastoreBackend(BaseSecretsBackend):
@@ -49,10 +52,7 @@ class MetastoreBackend(BaseSecretsBackend):
         """
         from airflow.models import Connection
 
-        import logging
-
-        _debug_log = logging.getLogger(__name__)
-
+        log.debug("MetastoreBackend retrieving connection: %s (team=%s)", conn_id, team_name)
         conn = session.scalar(
             select(Connection)
             .where(
@@ -61,24 +61,11 @@ class MetastoreBackend(BaseSecretsBackend):
             )
             .limit(1)
         )
-        pending_new = len(session.new)
-        pending_dirty = len(session.dirty)
-        identity_count = len(session.identity_map)
-        if pending_new > 0 or pending_dirty > 0:
-            _debug_log.warning(
-                "[DEBUG-METASTORE] expunge_all() about to nuke session id=%s — "
-                "new=%d, dirty=%d, identity_map=%d (conn_id=%s)",
-                id(session),
-                pending_new,
-                pending_dirty,
-                identity_count,
-                conn_id,
-            )
-            _debug_log.warning(
-                "[DEBUG-METASTORE] Objects being expunged from session.new: %s",
-                [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-            )
-        session.expunge_all()
+        if conn:
+            session.expunge(conn)
+            log.debug("MetastoreBackend found and detached connection: %s", conn_id)
+        else:
+            log.debug("MetastoreBackend connection not found: %s", conn_id)
         return conn
 
     @provide_session
@@ -95,12 +82,15 @@ class MetastoreBackend(BaseSecretsBackend):
         """
         from airflow.models import Variable
 
+        log.debug("MetastoreBackend retrieving variable: %s (team=%s)", key, team_name)
         var_value = session.scalar(
             select(Variable)
             .where(Variable.key == key, or_(Variable.team_name == team_name, Variable.team_name.is_(None)))
             .limit(1)
         )
-        session.expunge_all()
         if var_value:
+            session.expunge(var_value)
+            log.debug("MetastoreBackend found and detached variable: %s", key)
             return var_value.val
+        log.debug("MetastoreBackend variable not found: %s", key)
         return None

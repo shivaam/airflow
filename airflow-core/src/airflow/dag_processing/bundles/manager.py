@@ -211,14 +211,6 @@ class DagBundlesManager(LoggingMixin):
     @provide_session
     def sync_bundles_to_db(self, *, session: Session = NEW_SESSION) -> None:
         self.log.debug("Syncing DAG bundles to the database")
-        from sqlalchemy import inspect as sa_inspect
-
-        self.log.warning(
-            "[DEBUG-SYNC] sync_bundles_to_db START — session id=%s, session.new=%d, session.dirty=%d",
-            id(session),
-            len(session.new),
-            len(session.dirty),
-        )
 
         def _extract_and_sign_template(bundle_name: str) -> tuple[str | None, dict]:
             bundle_instance = self.get_bundle(name)
@@ -239,54 +231,23 @@ class DagBundlesManager(LoggingMixin):
             return new_template_, new_params_
 
         stored = {b.name: b for b in session.scalars(select(DagBundleModel)).all()}
-        self.log.warning("[DEBUG-SYNC] Stored bundles already in DB: %s", list(stored.keys()))
         bundle_to_team = {
             bundle.name: bundle.teams[0].name if len(bundle.teams) == 1 else None
             for bundle in stored.values()
         }
 
         for name, config in self._bundle_config.items():
-            self.log.warning(
-                "[DEBUG-SYNC] Processing bundle '%s' (team_name=%s)", name, config.team_name
-            )
             team: Team | None = None
             if config.team_name:
                 team = session.scalars(select(Team).where(Team.name == config.team_name)).one_or_none()
                 if not team:
                     raise _bundle_item_exc(f"Team '{config.team_name}' does not exist")
-                self.log.warning(
-                    "[DEBUG-SYNC] Loaded team '%s' — persistent=%s, detached=%s",
-                    team.name,
-                    sa_inspect(team).persistent,
-                    sa_inspect(team).detached,
-                )
 
-            self.log.warning(
-                "[DEBUG-SYNC] BEFORE _extract_and_sign_template('%s') — session.new=%s, session id=%s",
-                name,
-                [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-                id(session),
-            )
             try:
                 new_template, new_params = _extract_and_sign_template(name)
             except Exception as e:
                 self.log.exception("Error creating bundle '%s': %s", name, e)
                 continue
-            self.log.warning(
-                "[DEBUG-SYNC] AFTER _extract_and_sign_template('%s') — session.new=%s",
-                name,
-                [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-            )
-            if team:
-                self.log.warning(
-                    "[DEBUG-SYNC] Team '%s' state after hook init — persistent=%s, detached=%s, "
-                    "expunged=%s, pending=%s",
-                    team.name,
-                    sa_inspect(team).persistent,
-                    sa_inspect(team).detached,
-                    sa_inspect(team).was_deleted,
-                    sa_inspect(team).pending,
-                )
 
             if bundle := stored.pop(name, None):
                 bundle.active = True
@@ -303,31 +264,11 @@ class DagBundlesManager(LoggingMixin):
 
                 session.add(bundle)
                 self.log.info("Added new DAG bundle %s to the database", name)
-                self.log.warning(
-                    "[DEBUG-SYNC] After session.add('%s') — session.new=%s",
-                    name,
-                    [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-                )
 
             if team and bundle_to_team.get(name) != config.team_name:
-                self.log.warning(
-                    "[DEBUG-SYNC] BEFORE bundle.teams=[team] for '%s' — "
-                    "bundle in session.new=%s, team persistent=%s, team detached=%s",
-                    name,
-                    bundle in session.new,
-                    sa_inspect(team).persistent,
-                    sa_inspect(team).detached,
-                )
                 # Change of team. It can be associating a team to a dag bundle that did not have one or
                 # swapping a team for another
                 bundle.teams = [team]
-                self.log.warning(
-                    "[DEBUG-SYNC] AFTER bundle.teams=[team] for '%s' — "
-                    "session.new=%s, session.dirty=%s",
-                    name,
-                    [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-                    [getattr(obj, "name", type(obj).__name__) for obj in session.dirty],
-                )
                 if bundle_to_team.get(name):
                     self.log.warning(
                         "Changing ownership of team '%s' from Dag bundle '%s' to '%s'",
@@ -341,12 +282,6 @@ class DagBundlesManager(LoggingMixin):
                     "Removing ownership of team '%s' from Dag bundle '%s'", bundle_to_team[name], name
                 )
                 bundle.teams = []
-
-        self.log.warning(
-            "[DEBUG-SYNC] sync_bundles_to_db END — session.new=%s, session.dirty=%s",
-            [getattr(obj, "name", type(obj).__name__) for obj in session.new],
-            [getattr(obj, "name", type(obj).__name__) for obj in session.dirty],
-        )
 
         # Import here to avoid circular import
         from airflow.models.errors import ParseImportError
