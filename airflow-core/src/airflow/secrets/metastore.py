@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import traceback
 from typing import TYPE_CHECKING
 
 from sqlalchemy import or_, select
@@ -33,6 +34,24 @@ if TYPE_CHECKING:
     from airflow.models import Connection
 
 log = logging.getLogger(__name__)
+
+
+def _get_caller_info() -> str:
+    """Extract a short caller chain from the stack trace for observability."""
+    stack = traceback.extract_stack()
+    # Walk up the stack, skip this function and the metastore methods themselves
+    callers = []
+    for frame in reversed(stack[:-2]):
+        # Skip internal sqlalchemy/airflow plumbing
+        if "sqlalchemy" in frame.filename or "session.py" in frame.filename:
+            continue
+        if "metastore.py" in frame.filename:
+            continue
+        short_file = frame.filename.rsplit("/", 2)[-2:]
+        callers.append(f"{'/'.join(short_file)}:{frame.lineno}({frame.name})")
+        if len(callers) >= 3:
+            break
+    return " <- ".join(callers) if callers else "unknown"
 
 
 class MetastoreBackend(BaseSecretsBackend):
@@ -52,7 +71,18 @@ class MetastoreBackend(BaseSecretsBackend):
         """
         from airflow.models import Connection
 
-        log.debug("MetastoreBackend retrieving connection: %s (team=%s)", conn_id, team_name)
+        caller = _get_caller_info()
+        log.info(
+            "[METASTORE] get_connection called — conn_id=%s, team=%s, session_id=%s, "
+            "session.new=%d, session.dirty=%d | caller: %s",
+            conn_id,
+            team_name,
+            id(session),
+            len(session.new),
+            len(session.dirty),
+            caller,
+        )
+
         conn = session.scalar(
             select(Connection)
             .where(
@@ -63,9 +93,16 @@ class MetastoreBackend(BaseSecretsBackend):
         )
         if conn:
             session.expunge(conn)
-            log.debug("MetastoreBackend found and detached connection: %s", conn_id)
+            log.info(
+                "[METASTORE] get_connection found and detached — conn_id=%s, conn_type=%s, "
+                "session.new=%d (preserved), session.dirty=%d (preserved)",
+                conn_id,
+                conn.conn_type,
+                len(session.new),
+                len(session.dirty),
+            )
         else:
-            log.debug("MetastoreBackend connection not found: %s", conn_id)
+            log.info("[METASTORE] get_connection not found — conn_id=%s", conn_id)
         return conn
 
     @provide_session
@@ -82,7 +119,18 @@ class MetastoreBackend(BaseSecretsBackend):
         """
         from airflow.models import Variable
 
-        log.debug("MetastoreBackend retrieving variable: %s (team=%s)", key, team_name)
+        caller = _get_caller_info()
+        log.info(
+            "[METASTORE] get_variable called — key=%s, team=%s, session_id=%s, "
+            "session.new=%d, session.dirty=%d | caller: %s",
+            key,
+            team_name,
+            id(session),
+            len(session.new),
+            len(session.dirty),
+            caller,
+        )
+
         var_value = session.scalar(
             select(Variable)
             .where(Variable.key == key, or_(Variable.team_name == team_name, Variable.team_name.is_(None)))
@@ -90,7 +138,13 @@ class MetastoreBackend(BaseSecretsBackend):
         )
         if var_value:
             session.expunge(var_value)
-            log.debug("MetastoreBackend found and detached variable: %s", key)
+            log.info(
+                "[METASTORE] get_variable found and detached — key=%s, "
+                "session.new=%d (preserved), session.dirty=%d (preserved)",
+                key,
+                len(session.new),
+                len(session.dirty),
+            )
             return var_value.val
-        log.debug("MetastoreBackend variable not found: %s", key)
+        log.info("[METASTORE] get_variable not found — key=%s", key)
         return None
