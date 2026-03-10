@@ -221,16 +221,27 @@ def worker(args):
 
     # Check if a worker with the same hostname already exists
     if args.celery_hostname:
-        inspect = celery_app.control.inspect()
-        active_workers = inspect.active_queues()
-        if active_workers:
-            active_worker_names = list(active_workers.keys())
-            # Check if any worker ends with @hostname
-            if any(name.endswith(f"@{args.celery_hostname}") for name in active_worker_names):
-                raise SystemExit(
-                    f"Error: A worker with hostname '{args.celery_hostname}' is already running. "
-                    "Please use a different hostname or stop the existing worker first."
-                )
+        from celery.utils.nodenames import default_nodename, host_format
+
+        # Expand Celery hostname format variables (%h, %n, %d) and resolve the
+        # full node name (adds "celery@" prefix when no "@" is present)
+        full_hostname = default_nodename(host_format(args.celery_hostname))
+
+        try:
+            inspect = celery_app.control.inspect(timeout=3.0)
+            active_workers = inspect.active_queues()
+        finally:
+            # Close broker connections opened during inspection to prevent them
+            # from being inherited by the worker's forked pool processes, which
+            # would cause tasks to be reserved but never executed.
+            # See: https://github.com/apache/airflow/issues/59707
+            celery_app.close()
+
+        if active_workers and full_hostname in active_workers:
+            raise SystemExit(
+                f"Error: A worker with hostname '{full_hostname}' is already running. "
+                "Please use a different hostname or stop the existing worker first."
+            )
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging

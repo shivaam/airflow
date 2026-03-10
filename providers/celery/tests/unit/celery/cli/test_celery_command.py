@@ -329,30 +329,37 @@ class TestWorkerDuplicateHostnameCheck:
             cls.parser = cli_parser.get_parser()
 
     @pytest.mark.db_test
-    @mock.patch("airflow.providers.celery.executors.celery_executor.app.control.inspect")
-    def test_worker_fails_when_hostname_already_exists(self, mock_inspect):
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_worker_fails_when_hostname_already_exists(self, mock_celery_app, mock_popen):
         """Test that worker command fails when trying to start a worker with a duplicate hostname."""
-        args = self.parser.parse_args(["celery", "worker", "--celery-hostname", "existing_host"])
+        from celery.utils.nodenames import default_nodename, host_format
 
-        # Mock the inspect to return an active worker with the same hostname
+        # Use a hostname that will match after format expansion
+        hostname = "existing_host"
+        full_hostname = default_nodename(host_format(hostname))
+
+        args = self.parser.parse_args(["celery", "worker", "--celery-hostname", hostname])
+
+        # Mock the inspect to return an active worker with the same full hostname
         mock_instance = MagicMock()
         mock_instance.active_queues.return_value = {
-            "celery@existing_host": [{"name": "queue1"}],
+            full_hostname: [{"name": "queue1"}],
         }
-        mock_inspect.return_value = mock_instance
+        mock_celery_app.control.inspect.return_value = mock_instance
 
         # Test that SystemExit is raised with appropriate error message
         with pytest.raises(SystemExit) as exc_info:
             celery_command.worker(args)
 
-        assert "existing_host" in str(exc_info.value)
         assert "already running" in str(exc_info.value)
+        # Verify that close() was called to clean up broker connections
+        mock_celery_app.close.assert_called_once()
 
     @pytest.mark.db_test
-    @mock.patch("airflow.providers.celery.executors.celery_executor.app.control.inspect")
     @mock.patch("airflow.providers.celery.cli.celery_command.Process")
     @mock.patch("airflow.providers.celery.executors.celery_executor.app")
-    def test_worker_starts_when_hostname_is_unique(self, mock_celery_app, mock_popen, mock_inspect):
+    def test_worker_starts_when_hostname_is_unique(self, mock_celery_app, mock_popen):
         """Test that worker command succeeds when the hostname is unique."""
         args = self.parser.parse_args(["celery", "worker", "--celery-hostname", "new_host"])
 
@@ -361,13 +368,58 @@ class TestWorkerDuplicateHostnameCheck:
         mock_instance.active_queues.return_value = {
             "celery@existing_host": [{"name": "queue1"}],
         }
-        mock_inspect.return_value = mock_instance
+        mock_celery_app.control.inspect.return_value = mock_instance
 
         # Worker should start successfully
         celery_command.worker(args)
 
         # Verify that worker_main was called
         assert mock_celery_app.worker_main.called
+        # Verify that close() was called to clean up broker connections
+        mock_celery_app.close.assert_called_once()
+
+    @pytest.mark.db_test
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_worker_closes_connections_after_inspect_even_on_error(self, mock_celery_app, mock_popen):
+        """Test that broker connections are closed even if the inspect call raises an exception."""
+        args = self.parser.parse_args(["celery", "worker", "--celery-hostname", "some_host"])
+
+        # Mock the inspect to raise an exception
+        mock_instance = MagicMock()
+        mock_instance.active_queues.side_effect = Exception("Broker connection failed")
+        mock_celery_app.control.inspect.return_value = mock_instance
+
+        with pytest.raises(Exception, match="Broker connection failed"):
+            celery_command.worker(args)
+
+        # Verify that close() was still called despite the exception
+        mock_celery_app.close.assert_called_once()
+
+    @pytest.mark.db_test
+    @mock.patch("celery.utils.nodenames.host_format")
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_worker_expands_hostname_format_variables(self, mock_celery_app, mock_popen, mock_host_format):
+        """Test that Celery hostname format variables like %h are expanded before comparison."""
+        # Simulate --celery-hostname "myworker@%h" where %h expands to "myhost.local"
+        mock_host_format.return_value = "myworker@myhost.local"
+
+        args = self.parser.parse_args(["celery", "worker", "--celery-hostname", "myworker@%h"])
+
+        # Mock inspect returning a worker with the expanded hostname
+        mock_instance = MagicMock()
+        mock_instance.active_queues.return_value = {
+            "myworker@myhost.local": [{"name": "queue1"}],
+        }
+        mock_celery_app.control.inspect.return_value = mock_instance
+
+        with pytest.raises(SystemExit) as exc_info:
+            celery_command.worker(args)
+
+        assert "myworker@myhost.local" in str(exc_info.value)
+        assert "already running" in str(exc_info.value)
+        mock_host_format.assert_called_once_with("myworker@%h")
 
 
 @pytest.mark.backend("mysql", "postgres")
