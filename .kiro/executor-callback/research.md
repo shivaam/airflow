@@ -98,6 +98,17 @@ The `task-sdk/src/airflow/sdk/execution_time/execute_workload.py` module current
 - The `attempt_task_runs()` method calls `self.log_task_event()` on failure, which expects a `TaskInstanceKey` — callbacks won't have that. Need to handle gracefully.
 - The `__handle_failed_task` and retry logic is tightly coupled to `TaskInstanceKey` — need to verify callbacks can flow through the same retry path.
 
-## Reference PRs
-- Batch executor callback support: #62984 → see [batch-executor-reference.md](./batch-executor-reference.md)
-- Lambda executor callback support: #63035 → see [lambda-executor-reference.md](./lambda-executor-reference.md)
+## Related PRs
+
+### Direct references (same pattern we're implementing)
+- **#62984** — Batch executor callback support (open) → see [batch-executor-reference.md](./batch-executor-reference.md)
+- **#63035** — Lambda executor callback support (open/draft) → see [lambda-executor-reference.md](./lambda-executor-reference.md)
+
+### Other PRs that may affect our work
+- **#62645** — "Move ExecutorCallback execution into a supervised process" (open) — could change how callbacks are executed on the worker side. If this merges first, the execution model changes.
+- **#63491** — "Unify executor workload queues" (open) — aims to simplify the dual-queue pattern (`queued_tasks` + `queued_callbacks`). If this merges first, our implementation gets simpler.
+- **#63454** — K8s executor callback support (open) — another container-based executor reference, may share patterns with ECS.
+- **#61153** — "Executor Synchronous callback workload" (merged) — the original PR that introduced the callback workload system. This is what we're building on.
+
+### Reviewer feedback
+- See [pr-review-feedback.md](./pr-review-feedback.md) for detailed reviewer comments from #62984 and #63035.

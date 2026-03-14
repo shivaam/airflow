@@ -50,10 +50,19 @@ def execute_workload(workload: ExecuteTask) -> None:
 
     configure_logging(output=sys.stdout.buffer, json_output=True)
 
+    if isinstance(workload, workloads.ExecuteCallback):
+        from airflow.executors.workloads.callback import execute_callback_workload
+
+        log.info("Executing callback workload", callback_id=workload.callback.id)
+        success, error_msg = execute_callback_workload(workload.callback, log)
+        if not success:
+            raise RuntimeError(error_msg or "Callback execution failed")
+        return
+
     if not isinstance(workload, workloads.ExecuteTask):
         raise ValueError(f"Executor does not know how to handle {type(workload)}")
 
-    log.info("Executing workload", workload=workload)
+    log.info("Executing task workload", workload=workload)
 
     base_url = conf.get("api", "base_url", fallback="/")
     # If it's a relative URL, use localhost:8080 as the default
