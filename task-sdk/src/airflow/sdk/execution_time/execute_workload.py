@@ -54,6 +54,36 @@ def execute_workload(workload: ExecuteTask) -> None:
         from airflow.executors.workloads.callback import execute_callback_workload
 
         log.info("Executing callback workload", callback_id=workload.callback.id)
+
+        # Set up the DAG bundle so user-defined callback code is importable.
+        # Same pattern as task_runner.py's parse() for tasks: get the bundle,
+        # initialize it (downloads from S3/remote), and add to sys.path.
+        # Wrapped in try/except so callbacks using installed packages (e.g.
+        # SlackWebhookNotifier) still work even if bundle setup fails.
+        try:
+            from airflow.dag_processing.bundles.manager import DagBundlesManager
+
+            bundle = DagBundlesManager().get_bundle(
+                name=workload.bundle_info.name,
+                version=workload.bundle_info.version,
+            )
+            bundle.initialize()
+            bundle_path = str(bundle.path)
+            if bundle_path not in sys.path:
+                sys.path.append(bundle_path)
+            log.info(
+                "DAG bundle initialized for callback",
+                bundle_name=workload.bundle_info.name,
+                bundle_path=bundle_path,
+            )
+        except Exception:
+            log.warning(
+                "Could not initialize DAG bundle for callback, "
+                "user-defined callback code may not be importable",
+                bundle_name=workload.bundle_info.name,
+                exc_info=True,
+            )
+
         success, error_msg = execute_callback_workload(workload.callback, log)
         if not success:
             raise RuntimeError(error_msg or "Callback execution failed")
