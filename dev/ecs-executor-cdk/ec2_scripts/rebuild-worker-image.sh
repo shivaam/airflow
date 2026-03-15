@@ -12,7 +12,7 @@ if ! docker info > /dev/null 2>&1; then
     DOCKER_CMD="sudo docker"
 fi
 
-BREEZE_TAG="apache/airflow:main-python3.12"
+BREEZE_TAG="ghcr.io/apache/airflow/main/prod/python3.12"
 FINAL_TAG="${ECR_REPO}:latest"
 
 log_step "Building prod image from source via Breeze"
