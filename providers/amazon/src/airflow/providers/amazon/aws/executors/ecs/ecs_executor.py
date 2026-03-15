@@ -27,7 +27,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import ClientError, NoCredentialsError
 
@@ -60,6 +60,9 @@ if TYPE_CHECKING:
         CommandType,
         ExecutorConfigType,
     )
+
+    if AIRFLOW_V_3_2_PLUS:
+        from airflow.executors.workloads.types import WorkloadKey
 
 INVALID_CREDENTIALS_EXCEPTIONS = [
     "ExpiredTokenException",
@@ -148,20 +151,20 @@ class AwsEcsExecutor(BaseExecutor):
     def _process_workloads(self, workloads: Sequence[workloads.All]) -> None:
         from airflow.executors import workloads as wl
 
-        for w in workloads:
-            if isinstance(w, wl.ExecuteTask):
-                command = [w]
-                key = w.ti.key
-                queue = w.ti.queue
-                executor_config = w.ti.executor_config or {}
+        for workload in workloads:
+            if isinstance(workload, wl.ExecuteTask):
+                command = [workload]
+                key = workload.ti.key
+                queue = workload.ti.queue
+                executor_config = workload.ti.executor_config or {}
 
                 del self.queued_tasks[key]
                 self.execute_async(key=key, command=command, queue=queue, executor_config=executor_config)
                 self.running.add(key)
 
-            elif AIRFLOW_V_3_2_PLUS and isinstance(w, wl.ExecuteCallback):
-                command = [w]
-                key = w.callback.id
+            elif AIRFLOW_V_3_2_PLUS and isinstance(workload, wl.ExecuteCallback):
+                command = [workload]
+                key = workload.callback.id
                 queue = None
 
                 del self.queued_callbacks[key]
@@ -169,7 +172,9 @@ class AwsEcsExecutor(BaseExecutor):
                 self.running.add(key)
 
             else:
-                raise RuntimeError(f"{type(self)} cannot handle workloads of type {type(w)}")
+                raise RuntimeError(
+                    f"{type(self)} cannot handle workloads of type {type(workload)}"
+                )
 
     def start(self):
         """Call this when the Executor is run for the first time by the scheduler."""
@@ -312,7 +317,7 @@ class AwsEcsExecutor(BaseExecutor):
                 task_state,
                 task.task_arn,
             )
-            self.success(task_key)  # type: ignore[arg-type]
+            self.success(cast("TaskInstanceKey", task_key))
             self.active_workers.pop_by_key(task_key)
 
     def __describe_tasks(self, task_arns):
@@ -384,7 +389,7 @@ class AwsEcsExecutor(BaseExecutor):
                 task_key,
                 failure_count,
             )
-            self.fail(task_key)  # type: ignore[arg-type]
+            self.fail(cast("TaskInstanceKey", task_key))
         self.active_workers.pop_by_key(task_key)
 
     def attempt_task_runs(self):
@@ -459,7 +464,7 @@ class AwsEcsExecutor(BaseExecutor):
                                 f"Marking as failed. Reasons: {reasons_str}"
                             ),
                         )
-                    self.fail(task_key)  # type: ignore[arg-type]
+                    self.fail(cast("TaskInstanceKey", task_key))
             elif not run_task_response["tasks"]:
                 self.log.error("ECS RunTask Response: %s", run_task_response)
                 if isinstance(task_key, tuple):
@@ -474,11 +479,11 @@ class AwsEcsExecutor(BaseExecutor):
             else:
                 task = run_task_response["tasks"][0]
                 self.active_workers.add_task(task, task_key, queue, cmd, exec_config, attempt_number)
-                self.running_state(task_key, task.task_arn)  # type: ignore[arg-type]
+                self.running_state(cast("TaskInstanceKey", task_key), task.task_arn)
 
     def _run_task(
         self,
-        task_id: TaskInstanceKey | str,
+        task_id: WorkloadKey,
         cmd: CommandType,
         queue: str | None,
         exec_config: ExecutorConfigType,
@@ -497,7 +502,7 @@ class AwsEcsExecutor(BaseExecutor):
 
     def _run_task_kwargs(
         self,
-        task_id: TaskInstanceKey | str,
+        task_id: WorkloadKey,
         cmd: CommandType,
         queue: str | None,
         exec_config: ExecutorConfigType,
@@ -520,7 +525,7 @@ class AwsEcsExecutor(BaseExecutor):
         return run_task_kwargs
 
     def execute_async(
-        self, key: TaskInstanceKey | str, command: CommandType, queue=None, executor_config=None
+        self, key: WorkloadKey, command: CommandType, queue=None, executor_config=None
     ):
         """Save the workload to be executed in the next sync by inserting the commands into a queue."""
         if executor_config and ("name" in executor_config or "command" in executor_config):
