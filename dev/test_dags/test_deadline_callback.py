@@ -55,19 +55,6 @@ from airflow.sdk.definitions.callback import SyncCallback
 from airflow.sdk.definitions.deadline import DeadlineAlert, DeadlineReference
 
 
-def deadline_missed_alert(**kwargs):
-    """Simple callback function that prints when a deadline is missed."""
-    import socket
-    from datetime import datetime
-
-    print("=" * 60)
-    print("DEADLINE MISSED — CALLBACK EXECUTED SUCCESSFULLY")
-    print(f"  Host:      {socket.gethostname()}")
-    print(f"  Timestamp: {datetime.now().isoformat()}")
-    print(f"  Context:   {kwargs}")
-    print("=" * 60)
-
-
 with DAG(
     dag_id="test_deadline_callback",
     schedule=None,
@@ -76,7 +63,7 @@ with DAG(
     deadline=DeadlineAlert(
         reference=DeadlineReference.DAGRUN_QUEUED_AT,
         interval=timedelta(seconds=30),
-        callback=SyncCallback(deadline_missed_alert),
+        callback=SyncCallback("deadline_callback_fn.deadline_missed_alert"),
     ),
 ):
 
