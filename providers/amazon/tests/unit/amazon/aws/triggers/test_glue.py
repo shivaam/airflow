@@ -30,7 +30,6 @@ from airflow.providers.amazon.aws.triggers.glue import (
     GlueDataQualityRuleSetEvaluationRunCompleteTrigger,
     GlueJobCompleteTrigger,
 )
-from airflow.providers.common.compat.sdk import AirflowException
 from airflow.triggers.base import TriggerEvent
 
 from unit.amazon.aws.utils.test_waiter import assert_expected_waiter_type
@@ -85,10 +84,21 @@ class TestGlueJobTrigger:
             waiter_delay=10,
         )
         generator = trigger.run()
+        event = await generator.asend(None)
 
-        with pytest.raises(AirflowException):
-            await generator.asend(None)
         assert_expected_waiter_type(mock_get_waiter, "job_complete")
+        assert event.payload["status"] == "error"
+        assert "message" in event.payload
+        assert event.payload["run_id"] == "JobRunId"
+
+    def test_status_queries_include_error_message(self):
+        trigger = GlueJobCompleteTrigger(
+            job_name="job_name",
+            run_id="JobRunId",
+            verbose=False,
+            aws_conn_id="aws_conn_id",
+        )
+        assert "JobRun.ErrorMessage" in trigger.status_queries
 
     def test_serialization(self):
         trigger = GlueJobCompleteTrigger(
