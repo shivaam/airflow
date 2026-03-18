@@ -28,10 +28,11 @@ if TYPE_CHECKING:
     from airflow.providers.amazon.aws.hooks.base_aws import AwsGenericHook
 
 from airflow.providers.amazon.aws.hooks.glue import (
-    DEFAULT_LOG_SUFFIX,
-    ERROR_LOG_SUFFIX,
+    _CLOUDWATCH_NOT_FOUND_WARNING,
     GlueDataQualityHook,
     GlueJobHook,
+    emit_glue_logs,
+    get_glue_log_group_names,
 )
 from airflow.providers.amazon.aws.hooks.glue_catalog import GlueCatalogHook
 from airflow.providers.amazon.aws.hooks.logs import AwsLogsHook
@@ -111,9 +112,7 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
         ):
             # Get log group name from job run metadata and initial state in one call
             job_run_resp = await glue_client.get_job_run(JobName=self.job_name, RunId=self.run_id)
-            log_group_prefix = job_run_resp["JobRun"].get("LogGroupName", "/aws-glue/jobs")
-            log_group_output = f"{log_group_prefix}/{DEFAULT_LOG_SUFFIX}"
-            log_group_error = f"{log_group_prefix}/{ERROR_LOG_SUFFIX}"
+            log_group_output, log_group_error = get_glue_log_group_names(job_run_resp["JobRun"])
 
             output_token: str | None = None
             error_token: str | None = None
@@ -164,6 +163,7 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
     ) -> str | None:
         """
         Fetch new CloudWatch log events and print them.
+
         Matches the format used by the synchronous GlueJobHook.print_job_logs.
         """
         fetched_logs: list[str] = []
@@ -178,11 +178,7 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
                 )
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                    self.log.warning(
-                        "No new Glue driver logs so far.\n"
-                        "If this persists, check the CloudWatch dashboard at: %r.",
-                        f"https://{self.region_name}.console.aws.amazon.com/cloudwatch/home",
-                    )
+                    self.log.warning(_CLOUDWATCH_NOT_FOUND_WARNING.format(region_name=self.region_name))
                     return None
                 raise
 
@@ -193,11 +189,7 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
                 break
             next_token = response["nextForwardToken"]
 
-        if fetched_logs:
-            messages = "\t".join(line.rstrip() + "\n" for line in fetched_logs)
-            self.log.info("Glue Job Run %s Logs:\n\t%s", log_group, messages)
-        else:
-            self.log.info("No new log from the Glue Job in %s", log_group)
+        emit_glue_logs(self.log, fetched_logs, log_group)
 
         return response.get("nextForwardToken")
 

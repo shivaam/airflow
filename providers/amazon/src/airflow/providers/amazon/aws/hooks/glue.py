@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import warnings
 from functools import cached_property
@@ -40,6 +41,62 @@ from airflow.providers.common.compat.sdk import AirflowException
 
 DEFAULT_LOG_SUFFIX = "output"
 ERROR_LOG_SUFFIX = "error"
+
+
+def get_glue_log_group_names(job_run: dict[str, Any]) -> tuple[str, str]:
+    """
+    Extract the output and error CloudWatch log group names from a Glue job run response.
+
+    :param job_run: The ``JobRun`` dict from a ``get_job_run`` API response.
+    :return: A tuple of (output_log_group, error_log_group).
+    """
+    log_group_prefix = job_run.get("LogGroupName", "/aws-glue/jobs")
+    return (
+        f"{log_group_prefix}/{DEFAULT_LOG_SUFFIX}",
+        f"{log_group_prefix}/{ERROR_LOG_SUFFIX}",
+    )
+
+
+def format_glue_logs(fetched_logs: list[str], log_group: str) -> str | None:
+    """
+    Format fetched CloudWatch log messages for display.
+
+    Shared between the synchronous ``GlueJobHook.print_job_logs`` and the
+    asynchronous ``GlueJobCompleteTrigger._forward_logs`` so that both paths
+    produce identical output.
+
+    :param fetched_logs: Raw log event messages collected from CloudWatch.
+    :param log_group: The CloudWatch log group name (used in the log prefix).
+    :return: A formatted string ready for ``log.info``, or *None* when there
+        are no new messages.
+    """
+    if fetched_logs:
+        # Add a tab to indent those logs and distinguish them from airflow logs.
+        # Log lines returned already contain a newline character at the end.
+        messages = "\t".join(line.rstrip() + "\n" for line in fetched_logs)
+        return f"Glue Job Run {log_group} Logs:\n\t{messages}"
+    return None
+
+
+def emit_glue_logs(logger: logging.Logger, fetched_logs: list[str], log_group: str) -> None:
+    """
+    Format and emit fetched CloudWatch log messages, or log that there are none.
+
+    Combines :func:`format_glue_logs` with the "no new log" fallback so that
+    callers don't need to duplicate the if/else.
+    """
+    formatted = format_glue_logs(fetched_logs, log_group)
+    if formatted:
+        logger.info(formatted)
+    else:
+        logger.info("No new log from the Glue Job in %s", log_group)
+
+
+_CLOUDWATCH_NOT_FOUND_WARNING = (
+    "No new Glue driver logs so far.\n"
+    "If this persists, check the CloudWatch dashboard at: "
+    "'https://{region_name}.console.aws.amazon.com/cloudwatch/home'."
+)
 
 
 class GlueJobHook(AwsBaseHook):
@@ -327,7 +384,7 @@ class GlueJobHook(AwsBaseHook):
 
         def display_logs_from(log_group: str, continuation_token: str | None) -> str | None:
             """Mutualize iteration over the 2 different log streams glue jobs write to."""
-            fetched_logs = []
+            fetched_logs: list[str] = []
             next_token = continuation_token
             try:
                 for response in paginator.paginate(
@@ -336,36 +393,24 @@ class GlueJobHook(AwsBaseHook):
                     startTime=start_time,
                     PaginationConfig={"StartingToken": continuation_token},
                 ):
-                    fetched_logs.extend([event["message"] for event in response["events"]])
+                    fetched_logs.extend(event["message"] for event in response["events"])
                     # if the response is empty there is no nextToken in it
                     next_token = response.get("nextToken") or next_token
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ResourceNotFoundException":
                     # we land here when the log groups/streams don't exist yet
-                    self.log.warning(
-                        "No new Glue driver logs so far.\n"
-                        "If this persists, check the CloudWatch dashboard at: %r.",
-                        f"https://{self.conn_region_name}.console.aws.amazon.com/cloudwatch/home",
-                    )
+                    self.log.warning(_CLOUDWATCH_NOT_FOUND_WARNING.format(region_name=self.conn_region_name))
                 else:
                     raise
 
-            if len(fetched_logs):
-                # Add a tab to indent those logs and distinguish them from airflow logs.
-                # Log lines returned already contain a newline character at the end.
-                messages = "\t".join(fetched_logs)
-                self.log.info("Glue Job Run %s Logs:\n\t%s", log_group, messages)
-            else:
-                self.log.info("No new log from the Glue Job in %s", log_group)
+            emit_glue_logs(self.log, fetched_logs, log_group)
             return next_token
 
-        log_group_prefix = job_run["LogGroupName"]
-        log_group_default = f"{log_group_prefix}/{DEFAULT_LOG_SUFFIX}"
-        log_group_error = f"{log_group_prefix}/{ERROR_LOG_SUFFIX}"
+        log_group_output, log_group_error = get_glue_log_group_names(job_run)
         # one would think that the error log group would contain only errors, but it actually contains
         # a lot of interesting logs too, so it's valuable to have both
         continuation_tokens.output_stream_continuation = display_logs_from(
-            log_group_default, continuation_tokens.output_stream_continuation
+            log_group_output, continuation_tokens.output_stream_continuation
         )
         continuation_tokens.error_stream_continuation = display_logs_from(
             log_group_error, continuation_tokens.error_stream_continuation

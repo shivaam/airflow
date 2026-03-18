@@ -28,7 +28,14 @@ from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
-from airflow.providers.amazon.aws.hooks.glue import GlueDataQualityHook, GlueJobHook
+from airflow.providers.amazon.aws.hooks.glue import (
+    _CLOUDWATCH_NOT_FOUND_WARNING,
+    GlueDataQualityHook,
+    GlueJobHook,
+    emit_glue_logs,
+    format_glue_logs,
+    get_glue_log_group_names,
+)
 from airflow.providers.amazon.aws.hooks.logs import AwsLogsHook
 from airflow.providers.common.compat.sdk import AirflowException
 
@@ -843,3 +850,56 @@ class TestGlueDataQualityHook:
             RunId=self.RUN_ID
         )
         assert rules in caplog.messages
+
+
+class TestGlueLogHelpers:
+    """Tests for the shared log formatting helpers used by both sync and async paths."""
+
+    def test_get_glue_log_group_names_default(self):
+        job_run = {"LogGroupName": "/aws-glue/python-jobs"}
+        output, error = get_glue_log_group_names(job_run)
+        assert output == "/aws-glue/python-jobs/output"
+        assert error == "/aws-glue/python-jobs/error"
+
+    def test_get_glue_log_group_names_custom(self):
+        job_run = {"LogGroupName": "/custom/log-group"}
+        output, error = get_glue_log_group_names(job_run)
+        assert output == "/custom/log-group/output"
+        assert error == "/custom/log-group/error"
+
+    def test_get_glue_log_group_names_missing_falls_back(self):
+        job_run = {}
+        output, error = get_glue_log_group_names(job_run)
+        assert output == "/aws-glue/jobs/output"
+        assert error == "/aws-glue/jobs/error"
+
+    def test_format_glue_logs_with_messages(self):
+        result = format_glue_logs(["line 1\n", "line 2\n"], "/aws-glue/python-jobs/output")
+        assert result is not None
+        assert "Glue Job Run /aws-glue/python-jobs/output Logs:" in result
+        assert "\tline 1" in result
+        assert "\tline 2" in result
+
+    def test_format_glue_logs_empty(self):
+        result = format_glue_logs([], "/aws-glue/python-jobs/output")
+        assert result is None
+
+    def test_format_glue_logs_strips_trailing_whitespace(self):
+        result = format_glue_logs(["line with spaces   "], "/aws-glue/jobs/output")
+        assert result is not None
+        assert "line with spaces\n" in result
+
+    def test_emit_glue_logs_with_messages(self, caplog):
+        with caplog.at_level(logging.INFO):
+            emit_glue_logs(logging.getLogger("test"), ["line 1\n"], "/aws-glue/jobs/output")
+        assert "Glue Job Run /aws-glue/jobs/output Logs:" in caplog.text
+
+    def test_emit_glue_logs_empty(self, caplog):
+        with caplog.at_level(logging.INFO):
+            emit_glue_logs(logging.getLogger("test"), [], "/aws-glue/jobs/output")
+        assert "No new log from the Glue Job in /aws-glue/jobs/output" in caplog.text
+
+    def test_cloudwatch_not_found_warning_format(self):
+        result = _CLOUDWATCH_NOT_FOUND_WARNING.format(region_name="us-west-2")
+        assert "No new Glue driver logs so far" in result
+        assert "us-west-2.console.aws.amazon.com/cloudwatch/home" in result
