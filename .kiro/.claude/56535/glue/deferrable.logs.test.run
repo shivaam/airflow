@@ -1,0 +1,116 @@
+::group::Log message source details sources=["/root/airflow/logs/dag_id=test_glue_verbose_bug/run_id=manual__2026-03-08T03:04:23.354849+00:00/task_id=glue_deferrable_verbose/attempt=1.log","/root/airflow/logs/dag_id=test_glue_verbose_bug/run_id=manual__2026-03-08T03:04:23.354849+00:00/task_id=glue_deferrable_verbose/attempt=1.log.trigger.8.log"] 
+::endgroup::
+[2026-03-08T03:04:24.415336Z] INFO - DAG bundles loaded: dags-folder
+[2026-03-08T03:04:24.416144Z] INFO - Filling up the DagBag from /files/dags/test_glue_verbose_bug.py
+[2026-03-08T03:04:24.906606Z] INFO - Initializing AWS Glue Job: test-verbose-logging-deferrable. Wait for completion: True
+[2026-03-08T03:04:24.907144Z] INFO - Checking if job already exists: test-verbose-logging-deferrable
+[2026-03-08T03:04:24.917952Z] WARNING - Unable to find AWS Connection ID 'aws_default', switching to empty.
+[2026-03-08T03:04:24.918264Z] INFO - No connection ID provided. Fallback on boto3 credential strategy (region_name='us-west-2'). See: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html
+[2026-03-08T03:04:24.928887Z] WARNING - ProvidersManager.hooks is deprecated. Use ProvidersManagerTaskRuntime.hooks from task-sdk instead. category=DeprecatedImportWarning 
+[2026-03-08T03:04:25.324447Z] INFO - Found credentials in shared credentials file: ~/.aws/credentials
+[2026-03-08T03:04:25.630566Z] INFO - You can monitor this Glue Job run at: https://console.aws.amazon.com/gluestudio/home?region=us-west-2#/job/test-verbose-logging-deferrable/run/jr_ae9362559f140f7f947e5987855e090b26af61b57f20e04becd7f1e7313567d7
+[2026-03-08T03:04:25.630780Z] INFO - Pausing task as DEFERRED.  dag_id=test_glue_verbose_bug  task_id=glue_deferrable_verbose  run_id=manual__2026-03-08T03:04:23.354849+00:00 
+[2026-03-08T03:04:27.567657Z] INFO - trigger test_glue_verbose_bug/manual__2026-03-08T03:04:23.354849+00:00/glue_deferrable_verbose/-1/1 (ID 1) starting
+[2026-03-08T03:04:27.583814Z] WARNING - Unable to find AWS Connection ID 'aws_default', switching to empty.
+[2026-03-08T03:04:27.584069Z] INFO - No connection ID provided. Fallback on boto3 credential strategy (region_name='us-west-2'). See: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html
+[2026-03-08T03:04:27.596784Z] INFO - Found credentials in shared credentials file: ~/.aws/credentials
+[2026-03-08T03:04:27.612248Z] WARNING - Unable to find AWS Connection ID 'aws_default', switching to empty.
+[2026-03-08T03:04:27.612434Z] INFO - No connection ID provided. Fallback on boto3 credential strategy (region_name='us-west-2'). See: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html
+[2026-03-08T03:04:27.624277Z] INFO - Found credentials in shared credentials file: ~/.aws/credentials
+[2026-03-08T03:04:27.872953Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:27.906066Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:27.906231Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: WAITING
+[2026-03-08T03:04:58.202837Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	SCRIPT_LOCATION = s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	file = s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	file to download from: s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	downloading s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py; attempt: 0...
+	Completed 303 Bytes/303 Bytes (2.3 KiB/s) with 1 file(s) remaining
+	download: s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py to glue-python-scripts-wP22/test_glue_script.py
+	downloaded s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py.
+	Setting python runtime env to 3.9 analytics (default)
+	Setup complete. Starting script execution: 
+ ----
+	Glue job started
+Processing step 1/20...
+
+[2026-03-08T03:04:58.215693Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:58.215804Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:05:28.372258Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 2/20...
+	Processing step 3/20...
+
+[2026-03-08T03:05:28.384164Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:28.384264Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:05:58.545080Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 4/20...
+	Processing step 5/20...
+	Processing step 6/20...
+
+[2026-03-08T03:05:58.559115Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:58.559227Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:06:28.745952Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 7/20...
+	Processing step 8/20...
+
+[2026-03-08T03:06:28.758279Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:28.758396Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:06:58.908463Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 9/20...
+	Processing step 10/20...
+
+[2026-03-08T03:06:58.920659Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:58.920811Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:07:29.137838Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 11/20...
+	Processing step 12/20...
+
+[2026-03-08T03:07:29.149822Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:29.149925Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:07:59.372563Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 13/20...
+	Processing step 14/20...
+
+[2026-03-08T03:07:59.381794Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:59.381894Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:08:29.535815Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 15/20...
+	Processing step 16/20...
+
+[2026-03-08T03:08:29.548220Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:29.548330Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:08:59.852898Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 17/20...
+	Processing step 18/20...
+
+[2026-03-08T03:08:59.864068Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:59.864168Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:09:30.066937Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 19/20...
+	Processing step 20/20...
+
+[2026-03-08T03:09:30.080370Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:30.080521Z] INFO - Polling for AWS Glue Job test-verbose-logging-deferrable current run state: RUNNING
+[2026-03-08T03:10:00.233380Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Glue job completed successfully
+
+[2026-03-08T03:10:00.245145Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:10:00.245245Z] INFO - Exiting Job test-verbose-logging-deferrable Run jr_ae9362559f140f7f947e5987855e090b26af61b57f20e04becd7f1e7313567d7 State: SUCCEEDED
+[2026-03-08T03:10:00.245443Z] INFO - Trigger fired event name=test_glue_verbose_bug/manual__2026-03-08T03:04:23.354849+00:00/glue_deferrable_verbose/-1/1 (ID 1)  result=TriggerEvent<{'status': 'success', 'run_id': 'jr_ae9362559f140f7f947e5987855e090b26af61b57f20e04becd7f1e7313567d7'}> 
+[2026-03-08T03:10:00.248843Z] INFO - trigger completed name=test_glue_verbose_bug/manual__2026-03-08T03:04:23.354849+00:00/glue_deferrable_verbose/-1/1 (ID 1) 
+[2026-03-08T03:10:02.275491Z] INFO - DAG bundles loaded: dags-folder
+[2026-03-08T03:10:02.276232Z] INFO - Filling up the DagBag from /files/dags/test_glue_verbose_bug.py
+[2026-03-08T03:10:02.754119Z] INFO - Pushing xcom ti=RuntimeTaskInstance(id=UUID('019ccb67-3048-7ceb-b279-422409cb6928'), task_id='glue_deferrable_verbose', dag_id='test_glue_verbose_bug', run_id='manual__2026-03-08T03:04:23.354849+00:00', try_number=1, dag_version_id=UUID('019cb4c4-e9c2-782a-b223-6a8670f89d82'), map_index=-1, hostname='979dafbb2315', context_carrier={}, task=<Task(GlueJobOperator): glue_deferrable_verbose>, bundle_instance=LocalDagBundle(name=dags-folder), max_tries=0, start_date=datetime.datetime(2026, 3, 8, 3, 10, 2, 184715, tzinfo=datetime.timezone.utc), end_date=None, state=<TaskInstanceState.RUNNING: 'running'>, is_mapped=False, rendered_map_index=None, sentry_integration='') 

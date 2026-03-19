@@ -1,0 +1,309 @@
+::group::Log message source details sources=["/root/airflow/logs/dag_id=test_glue_verbose_bug/run_id=manual__2026-03-08T03:04:23.354849+00:00/task_id=glue_sync_verbose/attempt=1.log"] 
+::endgroup::
+[2026-03-08T03:04:24.423245Z] INFO - DAG bundles loaded: dags-folder
+[2026-03-08T03:04:24.424016Z] INFO - Filling up the DagBag from /files/dags/test_glue_verbose_bug.py
+[2026-03-08T03:04:24.902334Z] INFO - Initializing AWS Glue Job: test-verbose-logging-sync. Wait for completion: True
+[2026-03-08T03:04:24.902891Z] INFO - Checking if job already exists: test-verbose-logging-sync
+[2026-03-08T03:04:24.915101Z] WARNING - Unable to find AWS Connection ID 'aws_default', switching to empty.
+[2026-03-08T03:04:24.915423Z] INFO - No connection ID provided. Fallback on boto3 credential strategy (region_name='us-west-2'). See: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html
+[2026-03-08T03:04:24.926098Z] WARNING - ProvidersManager.hooks is deprecated. Use ProvidersManagerTaskRuntime.hooks from task-sdk instead. category=DeprecatedImportWarning 
+[2026-03-08T03:04:25.322858Z] INFO - Found credentials in shared credentials file: ~/.aws/credentials
+[2026-03-08T03:04:25.693050Z] INFO - You can monitor this Glue Job run at: https://console.aws.amazon.com/gluestudio/home?region=us-west-2#/job/test-verbose-logging-sync/run/jr_4cacbc370b76d3bf47bdc49c5b7448e87bc98f0845772a34040f3e10e7ffa610
+[2026-03-08T03:04:25.741878Z] WARNING - Unable to find AWS Connection ID 'aws_default', switching to empty.
+[2026-03-08T03:04:25.742097Z] INFO - No connection ID provided. Fallback on boto3 credential strategy (region_name='us-west-2'). See: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html
+[2026-03-08T03:04:25.776134Z] INFO - Found credentials in shared credentials file: ~/.aws/credentials
+[2026-03-08T03:04:25.984069Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:25.984231Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:04:26.051664Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:26.051790Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:26.051849Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status WAITING
+[2026-03-08T03:04:32.266391Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:32.266579Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:04:32.330039Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:32.330153Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:32.330212Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:04:38.667746Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	SCRIPT_LOCATION = s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	file = s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	file to download from: s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py
+	downloading s3://airflow-test-rastoshi-1234/glue-scripts/test_glue_script.py; attempt: 0...
+
+[2026-03-08T03:04:38.682426Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:38.682546Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:38.682603Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:04:44.909356Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:04:44.924550Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:44.924657Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:44.924713Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:04:51.141439Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:04:51.159274Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:51.159390Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:51.159447Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:04:57.385863Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:04:57.404401Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:04:57.404536Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:04:57.404594Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:04.098811Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 2/20...
+
+[2026-03-08T03:05:04.118200Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:04.118307Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:04.118365Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:10.336237Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:05:10.353802Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:10.353924Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:10.353980Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:16.599330Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 3/20...
+
+[2026-03-08T03:05:16.619859Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:16.619966Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:16.620021Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:22.835190Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:05:22.851106Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:22.851227Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:22.851283Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:29.076476Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:05:29.091009Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:29.091120Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:29.091177Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:35.383724Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 4/20...
+
+[2026-03-08T03:05:35.404601Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:35.404712Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:35.404769Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:41.632254Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:05:41.649516Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:41.649637Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:41.649696Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:47.926294Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 5/20...
+
+[2026-03-08T03:05:47.948287Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:47.948422Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:47.948481Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:05:54.163335Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:05:54.182451Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:05:54.182600Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:05:54.182660Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:00.414981Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:00.431746Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:00.431884Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:00.431946Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:06.682886Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 6/20...
+
+[2026-03-08T03:06:06.701076Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:06.701236Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:06.701298Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:12.911593Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:12.927795Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:12.927919Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:12.927991Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:19.205065Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 7/20...
+
+[2026-03-08T03:06:19.222201Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:19.222322Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:19.222380Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:25.420842Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:25.437326Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:25.437454Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:25.437511Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:31.667402Z] INFO - Glue Job Run /aws-glue/python-jobs/output Logs:
+	Processing step 8/20...
+
+[2026-03-08T03:06:31.687118Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:31.687223Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:31.687278Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:37.999725Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:38.021347Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:38.021463Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:38.021522Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:44.227121Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:44.246077Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:44.246190Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:44.246248Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:50.502435Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:50.517582Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:50.517723Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:50.517782Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:06:56.743761Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:06:56.760650Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:06:56.760782Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:06:56.760841Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:02.960339Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:02.975108Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:02.975227Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:02.975285Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:09.183854Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:09.199874Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:09.199983Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:09.200038Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:15.428201Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:15.447647Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:15.447786Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:15.447844Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:21.631912Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:21.649086Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:21.649211Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:21.649270Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:27.853463Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:27.874296Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:27.874405Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:27.874459Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:34.090418Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:34.110821Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:34.110981Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:34.111039Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:40.312787Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:40.330916Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:40.331045Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:40.331103Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:46.541684Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:46.555291Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:46.555403Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:46.555458Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:52.802365Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:52.819631Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:52.819746Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:52.819802Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:07:59.018020Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:07:59.036988Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:07:59.037101Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:07:59.037158Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:05.267787Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:05.282270Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:05.282392Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:05.282451Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:11.477189Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:11.504893Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:11.505017Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:11.505071Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:17.711181Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:17.731149Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:17.731314Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:17.731377Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:23.970503Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:23.985800Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:23.985905Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:23.985961Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:30.184836Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:30.201668Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:30.201802Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:30.201860Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:36.399665Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:36.416060Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:36.416174Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:36.416232Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:42.648190Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:42.665490Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:42.665612Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:42.665669Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:48.892590Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:48.910266Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:48.910447Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:48.910536Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:08:55.108984Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:08:55.126936Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:08:55.127108Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:08:55.127199Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:01.350507Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:01.365983Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:01.366100Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:01.366156Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:07.603550Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:07.675357Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:07.675502Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:07.675586Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:13.900116Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:13.972634Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:13.972758Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:13.972817Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:20.166549Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:20.182907Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:20.183023Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:20.183082Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:26.420039Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:26.438736Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:26.438864Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:26.438921Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:32.638619Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:32.653924Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:32.654037Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:32.654092Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:38.870014Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:38.886624Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:38.886794Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:38.886881Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:45.140332Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:45.157644Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:45.157788Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:45.157870Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:51.355641Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:51.371888Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:51.372024Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:51.372083Z] INFO - Polling for AWS Glue Job test-verbose-logging-sync current run state with status RUNNING
+[2026-03-08T03:09:57.579768Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/output
+[2026-03-08T03:09:57.596891Z] WARNING - No new Glue driver logs so far.
+If this persists, check the CloudWatch dashboard at: 'https://us-west-2.console.aws.amazon.com/cloudwatch/home'.
+[2026-03-08T03:09:57.597021Z] INFO - No new log from the Glue Job in /aws-glue/python-jobs/error
+[2026-03-08T03:09:57.597078Z] INFO - Exiting Job jr_4cacbc370b76d3bf47bdc49c5b7448e87bc98f0845772a34040f3e10e7ffa610 Run State: SUCCEEDED
+[2026-03-08T03:09:57.597132Z] INFO - AWS Glue Job: test-verbose-logging-sync status: SUCCEEDED. Run Id: jr_4cacbc370b76d3bf47bdc49c5b7448e87bc98f0845772a34040f3e10e7ffa610
+[2026-03-08T03:09:57.597289Z] INFO - Pushing xcom ti=RuntimeTaskInstance(id=UUID('019ccb67-3047-7108-97e0-624bc0c4eb8d'), task_id='glue_sync_verbose', dag_id='test_glue_verbose_bug', run_id='manual__2026-03-08T03:04:23.354849+00:00', try_number=1, dag_version_id=UUID('019cb4c4-e9c2-782a-b223-6a8670f89d82'), map_index=-1, hostname='979dafbb2315', context_carrier={}, task=<Task(GlueJobOperator): glue_sync_verbose>, bundle_instance=LocalDagBundle(name=dags-folder), max_tries=0, start_date=datetime.datetime(2026, 3, 8, 3, 4, 24, 311738, tzinfo=datetime.timezone.utc), end_date=None, state=<TaskInstanceState.RUNNING: 'running'>, is_mapped=False, rendered_map_index=None, sentry_integration='') 
