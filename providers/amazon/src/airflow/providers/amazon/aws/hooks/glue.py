@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 import warnings
 from functools import cached_property
@@ -57,7 +56,7 @@ def get_glue_log_group_names(job_run: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def format_glue_logs(fetched_logs: list[str], log_group: str) -> str | None:
+def format_glue_logs(fetched_logs: list[str], log_group: str) -> str:
     """
     Format fetched CloudWatch log messages for display.
 
@@ -67,36 +66,14 @@ def format_glue_logs(fetched_logs: list[str], log_group: str) -> str | None:
 
     :param fetched_logs: Raw log event messages collected from CloudWatch.
     :param log_group: The CloudWatch log group name (used in the log prefix).
-    :return: A formatted string ready for ``log.info``, or *None* when there
-        are no new messages.
+    :return: A formatted string ready for ``log.info``.
     """
     if fetched_logs:
         # Add a tab to indent those logs and distinguish them from airflow logs.
         # Log lines returned already contain a newline character at the end.
         messages = "\t".join(line.rstrip() + "\n" for line in fetched_logs)
         return f"Glue Job Run {log_group} Logs:\n\t{messages}"
-    return None
-
-
-def emit_glue_logs(logger: logging.Logger, fetched_logs: list[str], log_group: str) -> None:
-    """
-    Format and emit fetched CloudWatch log messages, or log that there are none.
-
-    Combines :func:`format_glue_logs` with the "no new log" fallback so that
-    callers don't need to duplicate the if/else.
-    """
-    formatted = format_glue_logs(fetched_logs, log_group)
-    if formatted:
-        logger.info(formatted)
-    else:
-        logger.info("No new log from the Glue Job in %s", log_group)
-
-
-_CLOUDWATCH_NOT_FOUND_WARNING = (
-    "No new Glue driver logs so far.\n"
-    "If this persists, check the CloudWatch dashboard at: "
-    "'https://{region_name}.console.aws.amazon.com/cloudwatch/home'."
-)
+    return f"No new log from the Glue Job in {log_group}"
 
 
 class GlueJobHook(AwsBaseHook):
@@ -399,11 +376,15 @@ class GlueJobHook(AwsBaseHook):
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ResourceNotFoundException":
                     # we land here when the log groups/streams don't exist yet
-                    self.log.warning(_CLOUDWATCH_NOT_FOUND_WARNING.format(region_name=self.conn_region_name))
+                    self.log.warning(
+                        "No new Glue driver logs so far.\n"
+                        "If this persists, check the CloudWatch dashboard at: %r.",
+                        f"https://{self.conn_region_name}.console.aws.amazon.com/cloudwatch/home",
+                    )
                 else:
                     raise
 
-            emit_glue_logs(self.log, fetched_logs, log_group)
+            self.log.info(format_glue_logs(fetched_logs, log_group))
             return next_token
 
         log_group_output, log_group_error = get_glue_log_group_names(job_run)

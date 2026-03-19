@@ -28,10 +28,9 @@ if TYPE_CHECKING:
     from airflow.providers.amazon.aws.hooks.base_aws import AwsGenericHook
 
 from airflow.providers.amazon.aws.hooks.glue import (
-    _CLOUDWATCH_NOT_FOUND_WARNING,
     GlueDataQualityHook,
     GlueJobHook,
-    emit_glue_logs,
+    format_glue_logs,
     get_glue_log_group_names,
 )
 from airflow.providers.amazon.aws.hooks.glue_catalog import GlueCatalogHook
@@ -178,7 +177,11 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
                 )
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                    self.log.warning(_CLOUDWATCH_NOT_FOUND_WARNING.format(region_name=self.region_name))
+                    self.log.warning(
+                        "No new Glue driver logs so far.\n"
+                        "If this persists, check the CloudWatch dashboard at: %r.",
+                        f"https://{self.region_name}.console.aws.amazon.com/cloudwatch/home",
+                    )
                     return None
                 raise
 
@@ -189,7 +192,7 @@ class GlueJobCompleteTrigger(AwsBaseWaiterTrigger):
                 break
             next_token = response["nextForwardToken"]
 
-        emit_glue_logs(self.log, fetched_logs, log_group)
+        self.log.info(format_glue_logs(fetched_logs, log_group))
 
         return response.get("nextForwardToken")
 

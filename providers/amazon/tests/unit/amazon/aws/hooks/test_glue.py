@@ -29,10 +29,8 @@ from moto import mock_aws
 
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.hooks.glue import (
-    _CLOUDWATCH_NOT_FOUND_WARNING,
     GlueDataQualityHook,
     GlueJobHook,
-    emit_glue_logs,
     format_glue_logs,
     get_glue_log_group_names,
 )
@@ -882,24 +880,8 @@ class TestGlueLogHelpers:
 
     def test_format_glue_logs_empty(self):
         result = format_glue_logs([], "/aws-glue/python-jobs/output")
-        assert result is None
+        assert "No new log from the Glue Job in /aws-glue/python-jobs/output" in result
 
     def test_format_glue_logs_strips_trailing_whitespace(self):
         result = format_glue_logs(["line with spaces   "], "/aws-glue/jobs/output")
-        assert result is not None
         assert "line with spaces\n" in result
-
-    def test_emit_glue_logs_with_messages(self, caplog):
-        with caplog.at_level(logging.INFO):
-            emit_glue_logs(logging.getLogger("test"), ["line 1\n"], "/aws-glue/jobs/output")
-        assert "Glue Job Run /aws-glue/jobs/output Logs:" in caplog.text
-
-    def test_emit_glue_logs_empty(self, caplog):
-        with caplog.at_level(logging.INFO):
-            emit_glue_logs(logging.getLogger("test"), [], "/aws-glue/jobs/output")
-        assert "No new log from the Glue Job in /aws-glue/jobs/output" in caplog.text
-
-    def test_cloudwatch_not_found_warning_format(self):
-        result = _CLOUDWATCH_NOT_FOUND_WARNING.format(region_name="us-west-2")
-        assert "No new Glue driver logs so far" in result
-        assert "us-west-2.console.aws.amazon.com/cloudwatch/home" in result
