@@ -77,18 +77,13 @@ def deep_dump(label, app):
         amqp.producer_pool is amqp._producer_pool)
 
     # 5. kombu.pools global state
-    log("kombu.pools.connections = %s", dict(kombu.pools.connections))
-    log("kombu.pools.producers = %s", dict(kombu.pools.producers))
-    for key in kombu.pools.connections:
-        p = kombu.pools.connections[key]
-        log("  conn pool key=%s id=%s", key, id(p))
-    for key in kombu.pools.producers:
-        p = kombu.pools.producers[key]
-        log("  prod pool key=%s id=%s", key, id(p))
-
-    # 6. Check if app.pool IS the same object as kombu.pools entry
-    for key, kpool in kombu.pools.connections.items():
-        log("  app.pool is kombu.pools.connections[%s]: %s", key, pool is kpool)
+    log("kombu.pools.connections._data keys = %s", list(kombu.pools.connections._data.keys()))
+    log("kombu.pools.producers._data keys = %s", list(kombu.pools.producers._data.keys()))
+    for key, val in kombu.pools.connections._data.items():
+        log("  conn pool key=%s id=%s", list(key), id(val))
+        log("    is app.pool: %s", val is pool)
+    for key, val in kombu.pools.producers._data.items():
+        log("  prod pool key=%s id=%s", list(key), id(val))
 
     # 7. app.control
     ctrl = app.control
@@ -184,19 +179,54 @@ def compare():
     log("B.pool.connection is B.connection_for_write(): %s",
         b.pool.connection is b.connection_for_write())
 
-    log("A.pool is in kombu.pools.connections: %s",
-        any(a.pool is v for v in kombu.pools.connections.values()))
-    log("B.pool is in kombu.pools.connections: %s",
-        any(b.pool is v for v in kombu.pools.connections.values()))
+    # Check kombu.pools _data directly
+    log("")
+    log("kombu.pools.connections._data keys:")
+    for key in kombu.pools.connections._data:
+        log("  %s", list(key))
+    log("kombu.pools.producers._data keys:")
+    for key in kombu.pools.producers._data:
+        log("  %s", list(key))
 
-    log("kombu.pools.connections keys: %s", list(kombu.pools.connections.keys()))
-
-    # Check if they share the same pool in kombu.pools
-    log("len(kombu.pools.connections) = %s", len(kombu.pools.connections))
-    for key, pool in kombu.pools.connections.items():
-        log("  key=%s pool_id=%s", key, id(pool))
+    log("len(kombu.pools.connections._data) = %s", len(kombu.pools.connections._data))
+    for key, pool in kombu.pools.connections._data.items():
+        log("  key=%s pool_id=%s", list(key), id(pool))
         log("    is A.pool: %s", pool is a.pool)
         log("    is B.pool: %s", pool is b.pool)
+
+    # Now the critical test: do both apps share the SAME kombu pool?
+    log("")
+    log("=== CRITICAL: Do A and B share the same kombu.pools entry? ===")
+    log("A.pool id=%s", id(a.pool))
+    log("B.pool id=%s", id(b.pool))
+    log("A.pool is B.pool: %s", a.pool is b.pool)
+
+    # Access producer pools to force creation
+    ap = a.amqp.producer_pool
+    bp = b.amqp.producer_pool
+    log("A.amqp.producer_pool id=%s", id(ap))
+    log("B.amqp.producer_pool id=%s", id(bp))
+    log("A.amqp.producer_pool is B.amqp.producer_pool: %s", ap is bp)
+
+    log("")
+    log("After accessing both producer_pools:")
+    log("kombu.pools.connections._data has %s entries", len(kombu.pools.connections._data))
+    log("kombu.pools.producers._data has %s entries", len(kombu.pools.producers._data))
+    for key, pool in kombu.pools.connections._data.items():
+        log("  conn key=%s pool_id=%s", list(key), id(pool))
+        log("    is A.pool: %s, is B.pool: %s", pool is a.pool, pool is b.pool)
+
+    # The REAL test: does inspect() on A pollute B's state?
+    log("")
+    log("=== POLLUTION TEST: inspect() on A, does it affect B? ===")
+    log("B.amqp._producer_pool BEFORE A.inspect = %s (id=%s)", bp, id(bp))
+
+    a.control.inspect().active_queues()
+
+    bp_after = b.amqp._producer_pool
+    log("B.amqp._producer_pool AFTER A.inspect = %s (id=%s)", bp_after, id(bp_after) if bp_after else None)
+    log("B._producer_pool changed: %s", bp is not bp_after)
+    log("B._producer_pool is A._producer_pool: %s", bp_after is a.amqp._producer_pool)
 
     log("\nDONE")
 
