@@ -2441,6 +2441,11 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         for executor, stuck_tis in self._executor_to_workloads(tasks_stuck_in_queued, session).items():
             try:
                 for ti in stuck_tis:
+                    self.log.info(
+                        "[DEBUG-59707] _handle_tasks_stuck_in_queued: revoking %s "
+                        "(queued_dttm=%s, timeout=%s, external_executor_id=%s)",
+                        ti, ti.queued_dttm, self._task_queued_timeout, ti.external_executor_id,
+                    )
                     executor.revoke_task(ti=ti)
                     self._maybe_requeue_stuck_ti(
                         ti=ti,

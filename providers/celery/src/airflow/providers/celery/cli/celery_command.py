@@ -312,6 +312,14 @@ def worker(args):
     )
 
     def run_celery_worker():
+        log.info("[DEBUG-59707] worker_main options: %s", options)
+        log.info("[DEBUG-59707] All options are str: %s", all(isinstance(o, str) for o in options))
+        log.info("[DEBUG-59707] Registered tasks: %s", list(celery_app.tasks.keys()))
+        log.info(
+            "[DEBUG-59707] Celery app config: broker=%s, result_backend=%s",
+            celery_app.conf.broker_url,
+            celery_app.conf.result_backend,
+        )
         with _serve_logs(skip_serve_logs), _run_stale_bundle_cleanup():
             celery_app.worker_main(options)
 

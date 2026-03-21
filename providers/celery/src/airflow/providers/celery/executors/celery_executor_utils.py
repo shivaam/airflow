@@ -435,13 +435,15 @@ class BulkStateFetcher(LoggingMixin):
 
     def get_many(self, async_results: Collection[AsyncResult]) -> Mapping[str, EventBufferValueType]:
         """Get status for many Celery tasks using the best method available."""
+        backend_type = type(self.celery_app.backend).__name__
+        self.log.info("[DEBUG-59707] get_many: backend=%s, %d tasks", backend_type, len(async_results))
         if isinstance(self.celery_app.backend, BaseKeyValueStoreBackend):
             result = self._get_many_from_kv_backend(async_results)
         elif isinstance(self.celery_app.backend, DatabaseBackend):
             result = self._get_many_from_db_backend(async_results)
         else:
             result = self._get_many_using_multiprocessing(async_results)
-        self.log.debug("Fetched %d state(s) for %d task(s)", len(result), len(async_results))
+        self.log.info("[DEBUG-59707] get_many returned: %s", {k: v[0] for k, v in result.items()})
         return result
 
     def _get_many_from_kv_backend(

@@ -246,6 +246,11 @@ class CeleryExecutor(BaseExecutor):
         if not self.tasks:
             self.log.debug("No task to query celery, skipping sync")
             return
+        self.log.info(
+            "[DEBUG-59707] sync() called with %d tasks: %s",
+            len(self.tasks),
+            {k: v.task_id for k, v in self.tasks.items()},
+        )
         self.update_all_task_states()
 
     def debug_dump(self) -> None:
@@ -257,12 +262,19 @@ class CeleryExecutor(BaseExecutor):
 
     def update_all_task_states(self) -> None:
         """Update states of the tasks."""
-        self.log.debug("Inquiring about %s celery task(s)", len(self.tasks))
+        self.log.info(
+            "[DEBUG-59707] update_all_task_states: inquiring about %d celery task(s)", len(self.tasks)
+        )
         state_and_info_by_celery_task_id = self.bulk_state_fetcher.get_many(self.tasks.values())
 
-        self.log.debug("Inquiries completed.")
+        self.log.info(
+            "[DEBUG-59707] bulk_state_fetcher returned %d results: %s",
+            len(state_and_info_by_celery_task_id),
+            {k: v[0] for k, v in state_and_info_by_celery_task_id.items()},
+        )
         for key, async_result in list(self.tasks.items()):
             state, info = state_and_info_by_celery_task_id.get(async_result.task_id)
+            self.log.info("[DEBUG-59707] task %s (celery_id=%s) state=%s", key, async_result.task_id, state)
             if state:
                 self.update_task_state(key, state, info)
 
@@ -274,13 +286,16 @@ class CeleryExecutor(BaseExecutor):
 
     def update_task_state(self, key: TaskInstanceKey, state: str, info: Any) -> None:
         """Update state of a single task."""
+        self.log.info("[DEBUG-59707] update_task_state: key=%s state=%s info=%s", key, state, info)
         try:
             if state == celery_states.SUCCESS:
+                self.log.info("[DEBUG-59707] -> marking SUCCESS for %s", key)
                 self.success(key, info)
             elif state in (celery_states.FAILURE, celery_states.REVOKED):
+                self.log.info("[DEBUG-59707] -> marking FAIL (state=%s) for %s", state, key)
                 self.fail(key, info)
             elif state in (celery_states.STARTED, celery_states.PENDING, celery_states.RETRY):
-                pass
+                self.log.info("[DEBUG-59707] -> ignoring transient state %s for %s", state, key)
             else:
                 self.log.info("Unexpected state for %s: %s", key, state)
         except Exception:
@@ -374,9 +389,15 @@ class CeleryExecutor(BaseExecutor):
 
     def revoke_task(self, *, ti: TaskInstance):
         celery_async_result = self.tasks.pop(ti.key, None)
+        self.log.info(
+            "[DEBUG-59707] revoke_task called for %s, celery_result=%s",
+            ti.key,
+            celery_async_result.task_id if celery_async_result else None,
+        )
         if celery_async_result:
             try:
                 self.celery_app.control.revoke(celery_async_result.task_id)
+                self.log.info("[DEBUG-59707] revoke sent for celery task %s", celery_async_result.task_id)
             except Exception:
                 self.log.exception("Error revoking task instance %s from celery", ti.key)
         self.running.discard(ti.key)
