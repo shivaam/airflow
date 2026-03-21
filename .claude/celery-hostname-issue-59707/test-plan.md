@@ -707,3 +707,175 @@ class TestWorkerOptionsTypes:
    - Tests 4.3-4.5 — verify the fix
 4. **Add regression tests** (run in CI)
    - Tests 5.1-5.2 — prevent future breakage
+
+---
+
+## 7. Updated Root Cause Analysis (2026-03-21)
+
+### What We Discovered
+
+The original theories (int-to-str, Celery library bug) were **not the primary root cause**. Through investigation we identified the actual regression and root cause:
+
+### Regression Source
+
+**Commit `16829d7694`** — "Add duplicate hostname check for Celery workers (#58591)" — landed in **celery provider 3.14.0**. This is confirmed by:
+- `git log --oneline providers-celery/3.13.1..providers-celery/3.14.0 -- providers/celery/src/airflow/providers/celery/cli/celery_command.py` shows this is the **only** change to `celery_command.py` between 3.13.1 and 3.14.0
+- GitHub issue comments confirm: downgrading to 3.13.1 fixes the issue, and the bug persists through 3.15.2
+
+### Root Cause: `inspect()` Pre-initializes `app.amqp._producer_pool`
+
+The duplicate hostname check (lines 222-236 of `celery_command.py`) calls:
+```python
+inspect = celery_app.control.inspect()
+active_workers = inspect.active_queues()
+```
+
+This triggers lazy initialization of `celery_app.amqp._producer_pool` — a `kombu.pools.ProducerPool` that holds a Redis connection. Verified locally:
+
+```
+BEFORE inspect(): app.amqp._producer_pool = None
+AFTER  inspect(): app.amqp._producer_pool = <kombu.pools.ProducerPool object at 0x...>
+```
+
+When `worker_main()` subsequently starts and forks prefork pool workers:
+1. Child processes **inherit** the pre-initialized producer pool with its parent-process Redis connection
+2. Celery's `_after_fork_cleanup_control` only cleans `control.mailbox.producer_pool`, **not** `app.amqp._producer_pool`
+3. The forked pool workers use this stale inherited producer pool for internal pidbox/mailbox communication
+4. Consumer-to-pool task dispatch silently fails — consumer receives the task but can't hand it to a pool worker
+5. Tasks sit in RESERVED state with `acknowledged=False`, `worker_pid=None`, `time_start=None`
+
+### Why It Only Happens With `--celery-hostname`
+
+The duplicate hostname check is guarded by `if args.celery_hostname:` (line 223). Without `--celery-hostname`, the `inspect()` call never happens, `_producer_pool` stays `None`, and `worker_main()` initializes it fresh in the correct process context.
+
+### Why the int-to-str Fix Didn't Solve It
+
+The `str(args.concurrency)` fix (line 283) is technically correct — CLI args should be strings — but it's not the cause of the stuck tasks. Celery's Click-based parser handles int-to-str coercion. The worker banner showing `concurrency: 1 (prefork)` confirms Celery parsed the concurrency correctly even as an int.
+
+### Proposed Fix
+
+**Option A (minimal, 1 line):** Reset the producer pool after the inspect block:
+```python
+# After the duplicate hostname check block (after line 236)
+celery_app.amqp._producer_pool = None
+```
+
+**Option B (cleaner):** Use a separate throwaway Celery app for the inspection:
+```python
+if args.celery_hostname:
+    from celery import Celery
+    temp_app = Celery(broker=celery_app.conf.broker_url)
+    inspect = temp_app.control.inspect()
+    active_workers = inspect.active_queues()
+    ...
+```
+
+**Option C (safest):** Remove the duplicate hostname check entirely. Celery already handles duplicate hostnames by refusing to start. The check was added in #58591 to give a friendlier error message, but it introduced this critical bug.
+
+---
+
+## 8. Verification Plan for Root Cause Confirmation
+
+### Phase 1: Confirm Producer Pool Theory (Current Step)
+
+Debug logging has been added (commit `653d06b15e`) that traces `app.amqp._producer_pool` state at 4 points:
+
+1. **BEFORE duplicate hostname check** — expect `None`
+2. **AFTER inspect.active_queues()** — expect `<ProducerPool>` (only with `--celery-hostname`)
+3. **AFTER duplicate hostname check block** — expect `<ProducerPool>` still set
+4. **JUST BEFORE worker_main()** — expect `<ProducerPool>` still set (the smoking gun)
+
+Plus a CRITICAL log line:
+```
+[DEBUG-59707] CRITICAL: app.amqp._producer_pool is NON-NONE (BAD!) at worker_main() time.
+If non-None, prefork children will inherit a stale producer pool!
+```
+
+### Steps to Run
+
+```bash
+# 1. Start Breeze with CeleryExecutor
+breeze --backend postgres --executor CeleryExecutor
+
+# 2. TEST A: Worker WITH --celery-hostname (expect NON-NONE BAD)
+airflow celery worker --queues default --concurrency 1 --celery-hostname "test@%h"
+# Look for: [DEBUG-59707] CRITICAL: ... NON-NONE (BAD!)
+
+# 3. In another Breeze shell, trigger a task
+airflow dags trigger example_bash_operator
+
+# 4. Check if task is stuck
+celery -A airflow.providers.celery.executors.celery_executor_utils.app inspect reserved
+celery -A airflow.providers.celery.executors.celery_executor_utils.app inspect active
+
+# 5. Stop the worker (Ctrl+C)
+
+# 6. TEST B: Worker WITHOUT --celery-hostname (expect None GOOD)
+airflow celery worker --queues default --concurrency 1
+# Look for: [DEBUG-59707] CRITICAL: ... None (GOOD)
+
+# 7. Trigger a task again — should execute successfully
+airflow dags trigger example_bash_operator --run-id manual_test_2
+```
+
+### Expected Log Output
+
+**TEST A (with `--celery-hostname`):**
+```
+[DEBUG-59707] [BEFORE duplicate hostname check] app.amqp._producer_pool=None | app.pool(limit=10, dirty=0, qsize=10)
+[DEBUG-59707] Duplicate hostname check: calling inspect.active_queues() for hostname=test@%h
+[DEBUG-59707] [AFTER inspect.active_queues()] app.amqp._producer_pool=<ProducerPool> (limit=10) | app.pool(limit=10, dirty=0, qsize=10)
+[DEBUG-59707] [AFTER duplicate hostname check block] app.amqp._producer_pool=<ProducerPool> (limit=10) | ...
+[DEBUG-59707] [JUST BEFORE worker_main()] app.amqp._producer_pool=<ProducerPool> (limit=10) | ...
+[DEBUG-59707] CRITICAL: app.amqp._producer_pool is NON-NONE (BAD!) at worker_main() time.
+```
+→ Task gets stuck in RESERVED state.
+
+**TEST B (without `--celery-hostname`):**
+```
+[DEBUG-59707] [BEFORE duplicate hostname check] app.amqp._producer_pool=None | app.pool(limit=10, dirty=0, qsize=10)
+[DEBUG-59707] No --celery-hostname set, skipping duplicate check
+[DEBUG-59707] [AFTER duplicate hostname check block] app.amqp._producer_pool=None | ...
+[DEBUG-59707] [JUST BEFORE worker_main()] app.amqp._producer_pool=None | ...
+[DEBUG-59707] CRITICAL: app.amqp._producer_pool is None (GOOD) at worker_main() time.
+```
+→ Task executes successfully.
+
+### Phase 2: Confirm Fix Works
+
+After Phase 1 confirms the theory, add the one-liner fix:
+```python
+# After the duplicate hostname check block
+if celery_app.amqp._producer_pool is not None:
+    log.info("[DEBUG-59707] Resetting pre-initialized producer pool to prevent stale fork inheritance")
+    celery_app.amqp._producer_pool = None
+```
+
+Re-run TEST A — tasks should now execute with `--celery-hostname`.
+
+### Phase 3: Full Regression Testing
+
+After the fix is confirmed working:
+
+1. Run existing unit tests:
+   ```bash
+   uv run --project providers/celery pytest \
+       providers/celery/tests/unit/celery/cli/test_celery_command.py -xvs
+   ```
+
+2. Run the live E2E tests from Section 4 (Tests 4.1-4.5)
+
+3. Run the pure Celery integration tests from Section 3 (Tests 3.1A-D)
+
+4. Run multi-worker test (Test 4.5) to verify no regressions with multiple workers
+
+### Existing Debug Logs (for reference)
+
+The following `[DEBUG-59707]` logs are already committed across multiple files:
+
+| File | What it logs |
+|------|-------------|
+| `celery_command.py` | worker_main options, option types, registered tasks, celery config, **producer pool state** |
+| `celery_executor.py` | sync() calls, task state transitions (SUCCESS/FAIL/REVOKED/PENDING), revoke_task calls |
+| `scheduler_job_runner.py` | Tasks stuck in queued detection, revoke calls from scheduler |
+| `celery_executor_utils.py` | BulkStateFetcher backend type, state results for each task |
