@@ -752,25 +752,55 @@ The duplicate hostname check is guarded by `if args.celery_hostname:` (line 223)
 
 The `str(args.concurrency)` fix (line 283) is technically correct — CLI args should be strings — but it's not the cause of the stuck tasks. Celery's Click-based parser handles int-to-str coercion. The worker banner showing `concurrency: 1 (prefork)` confirms Celery parsed the concurrency correctly even as an int.
 
-### Proposed Fix
+### CRITICAL FINDING: `kombu.pools` Is GLOBAL, Keyed by Broker URL
 
-**Option A (minimal, 1 line):** Reset the producer pool after the inspect block:
+**Discovered 2026-03-21 via `dev/compare_constructors.py`**:
+
+```
+A.pool is B.pool: True
+A.amqp.producer_pool is B.amqp.producer_pool: True
+```
+
+`kombu.pools` is a **process-global** registry. Its keys are computed from the broker URL + transport_options, NOT from the app identity. This means:
+
+1. **ANY** Celery app connecting to the same broker URL shares the same connection pool and producer pool
+2. Creating a "throwaway temp app" for inspection would **still pollute** `kombu.pools` because it connects to the same Redis URL
+3. The `inspect()` call opens socket connections that get registered in `kombu.pools` — these sockets are then inherited by forked children via `worker_main()`
+
+**Evidence from EC2 dump**:
+```
+BEFORE inspect: socket FDs = {}
+AFTER inspect:  socket FDs = {8: 'socket:[360571]', 9: 'socket:[360572]', 11: 'socket:[360573]', 12: 'socket:[360176]'}
+```
+
+The `inspect()` call opens 4 TCP sockets to Redis. These survive in `kombu.pools` and get inherited by forked pool workers.
+
+### Proposed Fix (Updated)
+
+**Option B is INVALIDATED** — using a temp app doesn't help because `kombu.pools` is keyed by broker URL, not app identity.
+
+**Option A (minimal, correct):** Reset `kombu.pools` after the inspect block:
 ```python
 # After the duplicate hostname check block (after line 236)
-celery_app.amqp._producer_pool = None
+import kombu.pools
+kombu.pools.reset()
 ```
+This clears ALL global connection and producer pools, ensuring `worker_main()` starts with a clean slate. The pools will be lazily re-created when `worker_main()` needs them.
 
-**Option B (cleaner):** Use a separate throwaway Celery app for the inspection:
+**Option C (safest, simplest):** Remove the duplicate hostname check entirely. The check was added in #58591 to give a friendlier error message, but it introduced this critical bug. Celery already handles duplicate hostnames by refusing to start.
+
+**Option D (conservative):** Keep the check but add `kombu.pools.reset()` after it + reset `app.amqp._producer_pool = None`:
 ```python
 if args.celery_hostname:
-    from celery import Celery
-    temp_app = Celery(broker=celery_app.conf.broker_url)
-    inspect = temp_app.control.inspect()
+    inspect = celery_app.control.inspect()
     active_workers = inspect.active_queues()
-    ...
+    if active_workers:
+        ...  # existing check
+    # Clean up all global state created by inspect()
+    import kombu.pools
+    kombu.pools.reset()
+    celery_app.amqp._producer_pool = None
 ```
-
-**Option C (safest):** Remove the duplicate hostname check entirely. Celery already handles duplicate hostnames by refusing to start. The check was added in #58591 to give a friendlier error message, but it introduced this critical bug.
 
 ---
 
