@@ -248,6 +248,69 @@ def run_standalone(use_airflow_config=False, use_visibility_timeout=False):
     ])
 
 
+def run_standalone_config_source():
+    """Mimic Airflow's exact app construction: config_source= + task registration."""
+    from celery import Celery
+    import gc
+
+    log("Creating standalone app mimicking Airflow's _get_celery_app()...")
+    config = {
+        "accept_content": ["json"],
+        "event_serializer": "json",
+        "worker_prefetch_multiplier": 1,
+        "task_acks_late": True,
+        "task_default_queue": "default",
+        "task_track_started": True,
+        "broker_url": "redis://localhost:6379/0",
+        "result_backend": "redis://localhost:6379/1",
+        "worker_concurrency": 1,
+        "broker_transport_options": {"visibility_timeout": 86400},
+    }
+
+    # This is how Airflow creates the app — config_source= instead of conf.update()
+    app = Celery("airflow.providers.celery.executors.celery_executor", config_source=config)
+
+    @app.task(name="execute_workload")
+    def test_task(msg):
+        log("TASK EXECUTED: %s", msg)
+        return f"done: {msg}"
+
+    # Mimic Airflow's celery_import_modules signal
+    from celery.signals import celery_import_modules, worker_ready
+
+    @celery_import_modules.connect
+    def on_import(*args, **kwargs):
+        log("celery_import_modules signal fired — calling gc.freeze()")
+        gc.freeze()
+
+    @worker_ready.connect
+    def on_ready(*args, **kwargs):
+        log("worker_ready signal fired — calling gc.unfreeze()")
+        gc.unfreeze()
+
+    install_fork_hooks()
+    install_celery_signals()
+
+    dump_app_state("CONFIG-SOURCE BEFORE inspect", app)
+    dump_kombu_pools("CONFIG-SOURCE BEFORE inspect")
+
+    log("Calling app.control.inspect().active_queues()...")
+    result = app.control.inspect().active_queues()
+    log("inspect result: %s", result)
+
+    dump_app_state("CONFIG-SOURCE AFTER inspect", app)
+    dump_kombu_pools("CONFIG-SOURCE AFTER inspect")
+
+    log("Starting worker_main with --hostname...")
+    app.worker_main([
+        "worker", "-O", "fair",
+        "--queues", "default",
+        "--concurrency", "1",
+        "--loglevel", "INFO",
+        "--hostname", "debug@%h",
+    ])
+
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "help"
 
@@ -261,6 +324,8 @@ if __name__ == "__main__":
         run_standalone(use_airflow_config=True)
     elif mode == "standalone-vt":
         run_standalone(use_visibility_timeout=True)
+    elif mode == "standalone-config-source":
+        run_standalone_config_source()
     else:
         print("Usage: python3 deep_celery_debug.py <mode>")
         print()
@@ -269,4 +334,5 @@ if __name__ == "__main__":
         print("  standalone               - Fresh Celery app + inspect (WORKS)")
         print("  standalone-airflow-config - Fresh app with full Airflow config + inspect")
         print("  standalone-vt            - Fresh app with ONLY visibility_timeout + inspect")
+        print("  standalone-config-source - Mimics Airflow's exact app construction + gc.freeze")
         sys.exit(1)
