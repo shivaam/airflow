@@ -219,12 +219,56 @@ def worker(args):
     # Use team_config for config reads in multi-team mode, otherwise use global conf
     config = team_config if team_config else conf
 
+    def _debug_celery_app_state(label):
+        """Dump celery app internal state for debugging #59707."""
+        try:
+            pool = celery_app.pool
+            pool_dirty = len(getattr(pool, "_dirty", []))
+            pool_limit = getattr(pool, "limit", "N/A")
+            pool_qsize = getattr(getattr(pool, "_resource", None), "qsize", lambda: "N/A")()
+        except Exception as e:
+            pool_dirty = pool_limit = pool_qsize = f"error: {e}"
+
+        producer_pool = celery_app.amqp._producer_pool
+        producer_pool_details = "None"
+        if producer_pool is not None:
+            try:
+                pp_limit = getattr(producer_pool, "limit", "N/A")
+                pp_current = len(getattr(producer_pool, "_resource", {}).get("queue", []) if isinstance(getattr(producer_pool, "_resource", None), dict) else [])
+                producer_pool_details = f"{producer_pool} (limit={pp_limit})"
+            except Exception as e:
+                producer_pool_details = f"{producer_pool} (detail error: {e})"
+
+        log.info(
+            "[DEBUG-59707] [%s] app.amqp._producer_pool=%s | "
+            "app.pool(limit=%s, dirty=%s, qsize=%s) | "
+            "app.control.mailbox.namespace=%s",
+            label,
+            producer_pool_details,
+            pool_limit,
+            pool_dirty,
+            pool_qsize,
+            getattr(getattr(celery_app.control, "mailbox", None), "namespace", "N/A"),
+        )
+
+    _debug_celery_app_state("BEFORE duplicate hostname check")
+
     # Check if a worker with the same hostname already exists
     if args.celery_hostname:
+        log.info(
+            "[DEBUG-59707] Duplicate hostname check: calling inspect.active_queues() "
+            "for hostname=%s",
+            args.celery_hostname,
+        )
         inspect = celery_app.control.inspect()
         active_workers = inspect.active_queues()
+
+        _debug_celery_app_state("AFTER inspect.active_queues()")
+        log.info("[DEBUG-59707] inspect.active_queues() returned: %s", active_workers)
+
         if active_workers:
             active_worker_names = list(active_workers.keys())
+            log.info("[DEBUG-59707] Active worker names: %s", active_worker_names)
             celery_hostname = args.celery_hostname
             if any(
                 name == celery_hostname or name.endswith(f"@{celery_hostname}")
@@ -234,6 +278,10 @@ def worker(args):
                     f"Error: A worker with hostname '{celery_hostname}' is already running. "
                     "Please use a different hostname or stop the existing worker first."
                 )
+    else:
+        log.info("[DEBUG-59707] No --celery-hostname set, skipping duplicate check")
+
+    _debug_celery_app_state("AFTER duplicate hostname check block")
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging
@@ -314,11 +362,28 @@ def worker(args):
     def run_celery_worker():
         log.info("[DEBUG-59707] worker_main options: %s", options)
         log.info("[DEBUG-59707] All options are str: %s", all(isinstance(o, str) for o in options))
+        log.info(
+            "[DEBUG-59707] Option types: %s",
+            [(i, type(v).__name__, v) for i, v in enumerate(options)],
+        )
         log.info("[DEBUG-59707] Registered tasks: %s", list(celery_app.tasks.keys()))
         log.info(
             "[DEBUG-59707] Celery app config: broker=%s, result_backend=%s",
             celery_app.conf.broker_url,
             celery_app.conf.result_backend,
+        )
+        log.info(
+            "[DEBUG-59707] Celery app config: worker_prefetch_multiplier=%s, "
+            "task_acks_late=%s, task_track_started=%s",
+            celery_app.conf.worker_prefetch_multiplier,
+            celery_app.conf.task_acks_late,
+            celery_app.conf.task_track_started,
+        )
+        _debug_celery_app_state("JUST BEFORE worker_main()")
+        log.info(
+            "[DEBUG-59707] CRITICAL: app.amqp._producer_pool is %s at worker_main() time. "
+            "If non-None, prefork children will inherit a stale producer pool!",
+            "NON-NONE (BAD!)" if celery_app.amqp._producer_pool is not None else "None (GOOD)",
         )
         with _serve_logs(skip_serve_logs), _run_stale_bundle_cleanup():
             celery_app.worker_main(options)
