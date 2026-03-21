@@ -252,16 +252,43 @@ def worker(args):
 
     _debug_celery_app_state("BEFORE duplicate hostname check")
 
-    # Duplicate hostname check removed — it called celery_app.control.inspect()
-    # which lazily initialized internal connection pools (app.amqp._producer_pool,
-    # app.pool). When worker_main() subsequently forked prefork children, they
-    # inherited stale parent-process connections, breaking consumer-to-pool task
-    # dispatch. Tasks would sit in RESERVED state with acknowledged=False forever.
+    # Check if a worker with the same hostname already exists.
+    # IMPORTANT: Use a separate throwaway Celery app for the inspect() call.
+    # inspect() lazily initializes internal connection pools on the app it's
+    # called on (app.amqp._producer_pool, app.pool connections, mailbox.producer_pool).
+    # If we used celery_app directly, worker_main() would later fork prefork children
+    # that inherit those stale parent-process connections, breaking consumer-to-pool
+    # task dispatch (tasks stuck in RESERVED with acknowledged=False).
     # See: https://github.com/apache/airflow/issues/59707
-    #
-    # Celery itself already prevents duplicate worker hostnames at startup,
-    # so this check was only for providing a friendlier error message.
-    _debug_celery_app_state("BEFORE worker setup (no duplicate check)")
+    if args.celery_hostname:
+        from celery import Celery as _TempCelery
+
+        log.info(
+            "[DEBUG-59707] Duplicate hostname check using temp app for hostname=%s",
+            args.celery_hostname,
+        )
+        temp_app = _TempCelery(broker=celery_app.conf.broker_url)
+        try:
+            active_workers = temp_app.control.inspect().active_queues()
+            log.info("[DEBUG-59707] inspect via temp_app returned: %s", active_workers)
+            if active_workers:
+                active_worker_names = list(active_workers.keys())
+                celery_hostname = args.celery_hostname
+                if any(
+                    name == celery_hostname or name.endswith(f"@{celery_hostname}")
+                    for name in active_worker_names
+                ):
+                    raise SystemExit(
+                        f"Error: A worker with hostname '{celery_hostname}' is already running. "
+                        "Please use a different hostname or stop the existing worker first."
+                    )
+        finally:
+            temp_app.close()
+            del temp_app
+    else:
+        log.info("[DEBUG-59707] No --celery-hostname set, skipping duplicate check")
+
+    _debug_celery_app_state("AFTER duplicate hostname check (temp app — main app should be clean)")
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging
