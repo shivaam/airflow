@@ -248,12 +248,21 @@ def run_standalone(use_airflow_config=False, use_visibility_timeout=False):
     ])
 
 
-def run_standalone_config_source():
-    """Mimic Airflow's exact app construction: config_source= + task registration."""
+def run_standalone_config_source(
+    use_vt=True,
+    do_inspect=True,
+    use_gc_freeze=True,
+    use_hostname=True,
+    use_fair=True,
+):
+    """
+    Parameterized test mimicking Airflow's app construction.
+
+    Toggle each ingredient to isolate which combination triggers the bug.
+    """
     from celery import Celery
     import gc
 
-    log("Creating standalone app mimicking Airflow's _get_celery_app()...")
     config = {
         "accept_content": ["json"],
         "event_serializer": "json",
@@ -264,10 +273,14 @@ def run_standalone_config_source():
         "broker_url": "redis://localhost:6379/0",
         "result_backend": "redis://localhost:6379/1",
         "worker_concurrency": 1,
-        "broker_transport_options": {"visibility_timeout": 86400},
     }
+    if use_vt:
+        config["broker_transport_options"] = {"visibility_timeout": 86400}
 
-    # This is how Airflow creates the app — config_source= instead of conf.update()
+    log("config_source test: vt=%s inspect=%s gc_freeze=%s hostname=%s fair=%s",
+        use_vt, do_inspect, use_gc_freeze, use_hostname, use_fair)
+    log("config = %s", config)
+
     app = Celery("airflow.providers.celery.executors.celery_executor", config_source=config)
 
     @app.task(name="execute_workload")
@@ -275,41 +288,44 @@ def run_standalone_config_source():
         log("TASK EXECUTED: %s", msg)
         return f"done: {msg}"
 
-    # Mimic Airflow's celery_import_modules signal
-    from celery.signals import import_modules as celery_import_modules
-    from celery.signals import worker_ready
+    if use_gc_freeze:
+        from celery.signals import import_modules as celery_import_modules
+        from celery.signals import worker_ready
 
-    @celery_import_modules.connect
-    def on_import(*args, **kwargs):
-        log("celery_import_modules signal fired — calling gc.freeze()")
-        gc.freeze()
+        @celery_import_modules.connect
+        def on_import(*args, **kwargs):
+            log("celery_import_modules signal — gc.freeze()")
+            gc.freeze()
 
-    @worker_ready.connect
-    def on_ready(*args, **kwargs):
-        log("worker_ready signal fired — calling gc.unfreeze()")
-        gc.unfreeze()
+        @worker_ready.connect
+        def on_ready(*args, **kwargs):
+            log("worker_ready signal — gc.unfreeze()")
+            gc.unfreeze()
 
     install_fork_hooks()
     install_celery_signals()
 
-    dump_app_state("CONFIG-SOURCE BEFORE inspect", app)
-    dump_kombu_pools("CONFIG-SOURCE BEFORE inspect")
+    dump_app_state("CONFIG-SOURCE BEFORE", app)
+    dump_kombu_pools("CONFIG-SOURCE BEFORE")
 
-    log("Calling app.control.inspect().active_queues()...")
-    result = app.control.inspect().active_queues()
-    log("inspect result: %s", result)
+    if do_inspect:
+        log("Calling app.control.inspect().active_queues()...")
+        result = app.control.inspect().active_queues()
+        log("inspect result: %s", result)
+        dump_app_state("CONFIG-SOURCE AFTER inspect", app)
+        dump_kombu_pools("CONFIG-SOURCE AFTER inspect")
+    else:
+        log("SKIPPING inspect()")
 
-    dump_app_state("CONFIG-SOURCE AFTER inspect", app)
-    dump_kombu_pools("CONFIG-SOURCE AFTER inspect")
+    options = ["worker"]
+    if use_fair:
+        options.extend(["-O", "fair"])
+    options.extend(["--queues", "default", "--concurrency", "1", "--loglevel", "INFO"])
+    if use_hostname:
+        options.extend(["--hostname", "debug@%h"])
 
-    log("Starting worker_main with --hostname...")
-    app.worker_main([
-        "worker", "-O", "fair",
-        "--queues", "default",
-        "--concurrency", "1",
-        "--loglevel", "INFO",
-        "--hostname", "debug@%h",
-    ])
+    log("Starting worker_main with options: %s", options)
+    app.worker_main(options)
 
 
 if __name__ == "__main__":
@@ -327,13 +343,34 @@ if __name__ == "__main__":
         run_standalone(use_visibility_timeout=True)
     elif mode == "standalone-config-source":
         run_standalone_config_source()
+    # Isolation modes: toggle one variable at a time from the broken config-source case
+    elif mode == "cs-no-vt":
+        run_standalone_config_source(use_vt=False)
+    elif mode == "cs-no-inspect":
+        run_standalone_config_source(do_inspect=False)
+    elif mode == "cs-no-gc":
+        run_standalone_config_source(use_gc_freeze=False)
+    elif mode == "cs-no-hostname":
+        run_standalone_config_source(use_hostname=False)
+    elif mode == "cs-no-fair":
+        run_standalone_config_source(use_fair=False)
     else:
         print("Usage: python3 deep_celery_debug.py <mode>")
         print()
-        print("  airflow                  - Airflow's app + inspect before worker_main (BROKEN)")
-        print("  airflow-no-inspect       - Airflow's app, no inspect (WORKS - control)")
-        print("  standalone               - Fresh Celery app + inspect (WORKS)")
-        print("  standalone-airflow-config - Fresh app with full Airflow config + inspect")
-        print("  standalone-vt            - Fresh app with ONLY visibility_timeout + inspect")
-        print("  standalone-config-source - Mimics Airflow's exact app construction + gc.freeze")
+        print("Airflow modes:")
+        print("  airflow                  - Airflow's app + inspect (BROKEN)")
+        print("  airflow-no-inspect       - Airflow's app, no inspect (WORKS)")
+        print()
+        print("Standalone modes (Celery(broker=...) + conf.update):")
+        print("  standalone               - Minimal (WORKS)")
+        print("  standalone-vt            - + visibility_timeout (WORKS)")
+        print("  standalone-airflow-config - Full Airflow config (WORKS)")
+        print()
+        print("Config-source modes (Celery(name, config_source=...) — Airflow's pattern):")
+        print("  standalone-config-source - All ingredients (BROKEN)")
+        print("  cs-no-vt                 - Without visibility_timeout")
+        print("  cs-no-inspect            - Without inspect()")
+        print("  cs-no-gc                 - Without gc.freeze/unfreeze")
+        print("  cs-no-hostname           - Without --hostname")
+        print("  cs-no-fair               - Without -O fair")
         sys.exit(1)
