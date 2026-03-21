@@ -285,10 +285,23 @@ def worker(args):
         finally:
             temp_app.close()
             del temp_app
+            # The inspect() call registers connections in kombu's global
+            # module-level pools (kombu.pools.connections/producers), keyed
+            # by broker URL. These are shared across ALL Celery apps using
+            # the same broker. Reset them so worker_main() starts clean.
+            import kombu.pools
+
+            log.info(
+                "[DEBUG-59707] kombu.pools before reset: connections=%s producers=%s",
+                kombu.pools.connections,
+                kombu.pools.producers,
+            )
+            kombu.pools.reset()
+            log.info("[DEBUG-59707] kombu.pools.reset() done")
     else:
         log.info("[DEBUG-59707] No --celery-hostname set, skipping duplicate check")
 
-    _debug_celery_app_state("AFTER duplicate hostname check (temp app — main app should be clean)")
+    _debug_celery_app_state("AFTER duplicate hostname check (temp app + kombu.pools.reset)")
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging
