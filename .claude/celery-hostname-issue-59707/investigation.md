@@ -573,63 +573,90 @@ pip install "celery[redis]==5.5.1"
 
 ---
 
-## 8. Potential Fix Directions
+## 8. Confirmed Root Cause & Fix (2026-03-21)
 
-### Fix 1: Ensure `--concurrency` is a String
+### Regression Source
 
-The simplest check — ensure all options are strings:
+**Commit `16829d7694`** — "Add duplicate hostname check for Celery workers (#58591)" — landed in **celery provider 3.14.0**. Confirmed by:
+- `git log --oneline providers-celery/3.13.1..providers-celery/3.14.0 -- providers/celery/src/airflow/providers/celery/cli/celery_command.py` shows this is the **only** change between 3.13.1 and 3.14.0
+- GitHub issue comments confirm: downgrading to 3.13.1 fixes it
+
+### Root Cause Chain
+
+1. The duplicate hostname check (lines 222-236) calls `celery_app.control.inspect().active_queues()`
+2. This triggers lazy initialization of `celery_app.amqp._producer_pool` and opens TCP sockets to Redis
+3. These pools and sockets register in **`kombu.pools`** — a **process-global** registry keyed by broker URL (not app identity)
+4. `worker_main()` forks prefork pool workers — children inherit the parent's open socket file descriptors
+5. Multiple processes sharing the same Redis sockets causes silent communication failure
+6. The `-O fair` scheduling strategy requires consumer-to-pool IPC that depends on these connections
+7. Tasks are received but never dispatched to pool workers → stuck in RESERVED
+
+### Key Discovery: `kombu.pools` Is Global
 
 ```python
-# In celery_command.py, line 280
-"--concurrency",
-str(args.concurrency),  # Explicitly convert to string
+# From dev/compare_constructors.py output:
+A.pool is B.pool: True                           # Same object!
+A.amqp.producer_pool is B.amqp.producer_pool: True  # Same object!
 ```
 
-### Fix 2: Remove `-O fair` When `--hostname` is Used
+**Any Celery app** connecting to the same broker URL shares the same `kombu.pools` entry. This means:
+- Using a separate "temp app" for inspection still pollutes the global pools
+- The temp app's `inspect()` opens sockets that get registered under the same key
+- The only way to clean up is `kombu.pools.reset()` which clears everything
 
-If `-O fair` is the root cause of the interaction:
+### Evidence from EC2 State Dumps
 
-```python
-options = ["worker"]
-if not args.celery_hostname:
-    options.extend(["-O", "fair"])
-# ... rest of options
+**Socket FDs before/after inspect():**
+```
+BEFORE inspect(): socket FDs = {}
+AFTER inspect():  socket FDs = {8: 'socket:[360571]', 9: 'socket:[360572]', 11: 'socket:[360573]', 12: 'socket:[360176]'}
 ```
 
-This is a workaround, not a real fix. The `-O fair` flag is important for preventing task starvation.
+**`_producer_pool` state at `worker_main()` time:**
+```
+# BUG (no fix): _producer_pool is NON-NONE (BAD!) — tasks stuck
+# FIX (kombu.pools.reset()): _producer_pool is None (GOOD) — tasks execute
+```
 
-### Fix 3: Set Hostname via Celery Config Instead of CLI
+### The Fix
 
-Instead of passing `--hostname` via CLI options to `worker_main()`, set it in the Celery app configuration:
+Use a temporary Celery app for the `inspect()` call, then reset `kombu.pools` in a `finally` block:
 
 ```python
 if args.celery_hostname:
-    celery_app.conf.update(worker_hostname=args.celery_hostname)
-# Don't add --hostname to options list
+    from celery import Celery as _TempCelery
+    temp_app = _TempCelery(broker=celery_app.conf.broker_url)
+    try:
+        active_workers = temp_app.control.inspect().active_queues()
+        if active_workers:
+            celery_hostname = args.celery_hostname
+            if any(
+                name == celery_hostname or name.endswith(f"@{celery_hostname}")
+                for name in active_workers
+            ):
+                raise SystemExit(...)
+    finally:
+        temp_app.close()
+        import kombu.pools
+        kombu.pools.reset()  # CRITICAL: clear global pool state
 ```
 
-### Fix 4: Use `celery_app.Worker` Directly
+### Fix Verification on EC2
 
-Instead of `worker_main(options)` which does CLI-style parsing, create the worker programmatically:
+| Test | Hostname | `_producer_pool` at fork | Task Result |
+|------|----------|--------------------------|-------------|
+| Baseline (no `--celery-hostname`) | `celery@ip-10-0-2-61...` | `None` (GOOD) | **success** in 8s |
+| Bug repro (with hostname, no fix) | `myworker@ip-10-0-2-61...` | `<ProducerPool>` (BAD) | **stuck RESERVED** 60s+ |
+| Fix verified (with hostname + `kombu.pools.reset()`) | `myworker@ip-10-0-2-61...` | `None` (GOOD) | **success** in 2.6s |
 
-```python
-from celery.bin.worker import worker as celery_worker_cmd
+### Discarded Fix Ideas
 
-worker = celery_worker_cmd(app=celery_app)
-worker.run(
-    hostname=args.celery_hostname,
-    optimization="fair",
-    queues=args.queues,
-    concurrency=args.concurrency,
-    loglevel=celery_log_level,
-)
-```
-
-This avoids the CLI argument parsing entirely and passes parameters directly.
-
-### Fix 5: Report Upstream to Celery
-
-If the issue is confirmed to be in Celery's `worker_main()` + `--hostname` interaction, file a bug with the Celery project at https://github.com/celery/celery/issues.
+- **Fix 1 (int-to-str):** Correct but unrelated — Celery handles int coercion fine
+- **Fix 2 (remove `-O fair`):** Workaround, not a fix — `-O fair` is needed for production
+- **Fix 3 (config instead of CLI):** Doesn't address the root cause
+- **Fix 4 (programmatic Worker):** Over-engineering — the CLI path works fine without the inspect() pollution
+- **Temp app alone (no `kombu.pools.reset()`):** Doesn't work because pools are global
+- **Reset `_producer_pool = None` alone:** Insufficient — `kombu.pools` still holds open sockets
 
 ---
 
@@ -689,4 +716,150 @@ config = {
 def execute_workload(input: str) -> None:
     # Deserializes workload JSON and calls supervise()
     ...
+```
+
+---
+
+## Appendix B: Live Test Logs from EC2 (2026-03-21)
+
+### Environment
+
+- Instance: `i-06b68c955cf91ca55` (AirflowEc2-celery stack)
+- Branch: `investigate/celery-hostname-59707` (shivaam/airflow fork)
+- Airflow: 3.2.0.dev0 from source
+- Celery Provider: 3.17.1 from source
+- Celery: 5.6.2
+- Redis: 6.2.20 (localhost:6379)
+- PostgreSQL: RDS `airflowinfra-celery-db5d02a0a9-*.us-west-2.rds.amazonaws.com`
+- Executor: CeleryExecutor with Redis broker, PostgreSQL result backend
+
+### Test 1: Baseline — Worker WITHOUT `--celery-hostname` (PASSED)
+
+```
+Worker node: celery@ip-10-0-2-61.us-west-2.compute.internal
+Concurrency: 1 (prefork)
+Transport: redis://localhost:6379/0
+
+Connected to redis://localhost:6379/0
+mingle: searching for neighbors
+mingle: all alone
+celery@ip-10-0-2-61.us-west-2.compute.internal ready.
+
+Task execute_workload[36941a4e-77b1-4494-b3f7-628d3c95fd72] received
+[36941a4e...] Executing workload in Celery: ...task_id='say_hello'...dag_id='test_celery_hostname'...
+Task finished  exit_code=0  final_state=success
+Task execute_workload[36941a4e...] succeeded in 8.149s
+
+DB: test_celery_hostname | say_hello | success
+```
+
+### Test 2: Bug Reproduction — Worker WITH `--celery-hostname` (FAILED — Task Stuck)
+
+```
+Worker node: myworker@ip-10-0-2-61.us-west-2.compute.internal
+Concurrency: 1 (prefork)
+Transport: redis://localhost:6379/0
+
+Connected to redis://localhost:6379/0
+mingle: searching for neighbors
+mingle: all alone
+myworker@ip-10-0-2-61.us-west-2.compute.internal ready.
+
+Task execute_workload[5c97cd55-b026-4dbe-9805-faa7de4c7e4c] received
+<< NO FURTHER TASK OUTPUT — TASK NEVER DISPATCHED TO POOL WORKER >>
+
+celery inspect reserved:
+  myworker@ip-10-0-2-61...: OK
+    * {
+        'id': '5c97cd55-b026-4dbe-9805-faa7de4c7e4c',
+        'name': 'execute_workload',
+        'hostname': 'myworker@ip-10-0-2-61.us-west-2.compute.internal',
+        'time_start': None,
+        'acknowledged': False,
+        'worker_pid': None
+      }
+
+celery inspect active:
+  myworker@ip-10-0-2-61...: OK
+    - empty -
+
+DB: test_celery_hostname | say_hello | queued  (never progressed)
+```
+
+**Observation**: Task received but stuck in RESERVED — consumer received it from broker but never dispatched to a pool worker. `time_start=None`, `acknowledged=False`, `worker_pid=None` confirms the prefork pool never picked it up.
+
+### Test 3: Fix Verified — Worker WITH `--celery-hostname` + `kombu.pools.reset()` (PASSED)
+
+```
+[DEBUG-59707] CRITICAL: app.amqp._producer_pool is None (GOOD) at worker_main() time.
+
+Worker node: myworker@ip-10-0-2-61.us-west-2.compute.internal
+Concurrency: 1 (prefork)
+Transport: redis://localhost:6379/0
+
+Connected to redis://localhost:6379/0
+mingle: searching for neighbors
+mingle: all alone
+myworker@ip-10-0-2-61.us-west-2.compute.internal ready.
+
+Task execute_workload[b41f1956-047b-4ac7-a7bc-a289cc311e39] received
+[b41f1956...] Executing workload in Celery: ...task_id='say_hello'...dag_id='test_celery_hostname'...
+Secrets backends loaded for worker
+Found credentials from IAM Role: AirflowInfra-celery-Ec2Role2FD9A272-EiqCNmCgJtwZ
+Task finished  exit_code=0  final_state=success
+Task execute_workload[b41f1956...] succeeded in 2.596s
+
+DB: say_hello | success
+```
+
+### `dev/compare_constructors.py` Output (Key Findings)
+
+```
+=== CRITICAL: Do A and B share the same kombu.pools entry? ===
+A.pool id=139693214378960
+B.pool id=139693214378960
+A.pool is B.pool: True
+A.amqp.producer_pool is B.amqp.producer_pool: True
+
+Socket FDs BEFORE inspect(): {}
+Socket FDs AFTER inspect(): {8: 'socket:[360571]', 9: 'socket:[360572]', 11: 'socket:[360573]', 12: 'socket:[360176]'}
+```
+
+### How to Reproduce (on AWS EC2)
+
+```bash
+# 1. Deploy EC2 stack
+cd ~/workspace/airflow-ec2
+make deploy SUFFIX=celery
+
+# 2. SSH in
+make ssh SUFFIX=celery
+
+# 3. Setup (as ec2-user)
+bash /opt/airflow-scripts/setup-airflow.sh
+
+# 4. Install Redis + Celery
+sudo dnf install -y redis6 && sudo systemctl enable --now redis6
+source /opt/airflow-scripts/env.sh
+uv pip install ./providers/celery "celery[redis]"
+
+# 5. Configure CeleryExecutor (patch airflow.cfg)
+# Set executor=CeleryExecutor, broker_url=redis://localhost:6379/0,
+# result_backend=db+postgresql://${DB_USER}:${DB_PASS}@${DB_ENDPOINT}:5432/${DB_NAME}
+
+# 6. Restart services
+bash /opt/airflow-scripts/airflow-ctl.sh restart
+
+# 7. Create test DAG + upload to S3
+# (simple BashOperator DAG on queue="default")
+
+# 8. Start worker WITH hostname
+airflow celery worker --queues default --concurrency 1 --celery-hostname "myworker@%h"
+
+# 9. Trigger DAG
+airflow dags trigger test_celery_hostname
+
+# 10. After 60s, check:
+#   celery -A airflow.providers.celery.executors.celery_executor_utils.app inspect reserved
+#   -> Task stuck with acknowledged=False, worker_pid=None
 ```
