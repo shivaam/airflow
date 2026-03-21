@@ -225,10 +225,13 @@ def worker(args):
         active_workers = inspect.active_queues()
         if active_workers:
             active_worker_names = list(active_workers.keys())
-            # Check if any worker ends with @hostname
-            if any(name.endswith(f"@{args.celery_hostname}") for name in active_worker_names):
+            celery_hostname = args.celery_hostname
+            if any(
+                name == celery_hostname or name.endswith(f"@{celery_hostname}")
+                for name in active_worker_names
+            ):
                 raise SystemExit(
-                    f"Error: A worker with hostname '{args.celery_hostname}' is already running. "
+                    f"Error: A worker with hostname '{celery_hostname}' is already running. "
                     "Please use a different hostname or stop the existing worker first."
                 )
 
@@ -277,7 +280,7 @@ def worker(args):
         "--queues",
         args.queues,
         "--concurrency",
-        args.concurrency,
+        str(args.concurrency),
         "--loglevel",
         celery_log_level,
     ]

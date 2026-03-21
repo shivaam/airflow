@@ -176,7 +176,7 @@ class TestWorkerStart:
                 "--queues",
                 queues,
                 "--concurrency",
-                int(concurrency),
+                concurrency,
                 "--loglevel",
                 conf.get("logging", "CELERY_LOGGING_LEVEL"),
                 "--hostname",
@@ -189,6 +189,102 @@ class TestWorkerStart:
                 "prefork",
             ]
         )
+
+
+@pytest.mark.backend("mysql", "postgres")
+@pytest.mark.usefixtures("conf_stale_bundle_cleanup_disabled")
+class TestWorkerOptionsTypes:
+    """Regression tests: all options passed to worker_main must be strings (#59707)."""
+
+    @classmethod
+    def setup_class(cls):
+        with conf_vars({("core", "executor"): "CeleryExecutor"}):
+            importlib.reload(executor_loader)
+            importlib.reload(cli_parser)
+            cls.parser = cli_parser.get_parser()
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            pytest.param([], id="no-extra-args"),
+            pytest.param(["--celery-hostname", "myworker@%h"], id="hostname-with-format"),
+            pytest.param(["--celery-hostname", "worker1"], id="hostname-simple"),
+            pytest.param(["--autoscale", "10,3"], id="autoscale"),
+            pytest.param(["--without-mingle"], id="without-mingle"),
+            pytest.param(["--without-gossip"], id="without-gossip"),
+            pytest.param(
+                ["--celery-hostname", "w1@%h", "--without-mingle", "--without-gossip"],
+                id="all-optional-args",
+            ),
+        ],
+    )
+    @mock.patch("airflow.providers.celery.cli.celery_command.setup_locations")
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_all_options_are_strings(self, mock_celery_app, mock_popen, mock_locations, extra_args):
+        mock_locations.return_value = ("pid_file", None, None, None)
+        args = self.parser.parse_args(
+            ["celery", "worker", "--concurrency", "4", "--queues", "default"] + extra_args
+        )
+
+        celery_command.worker(args)
+
+        options = mock_celery_app.worker_main.call_args[0][0]
+        non_str = [(i, type(v).__name__, v) for i, v in enumerate(options) if not isinstance(v, str)]
+        assert not non_str, f"Non-string options found: {non_str}"
+
+    @mock.patch("airflow.providers.celery.cli.celery_command.setup_locations")
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_hostname_passed_to_worker_main(self, mock_celery_app, mock_popen, mock_locations):
+        """Hostname should appear as --hostname <value> in the options list."""
+        mock_locations.return_value = ("pid_file", None, None, None)
+        args = self.parser.parse_args(
+            [
+                "celery",
+                "worker",
+                "--concurrency",
+                "1",
+                "--queues",
+                "default",
+                "--celery-hostname",
+                "my-worker@%h",
+            ]
+        )
+
+        celery_command.worker(args)
+
+        options = mock_celery_app.worker_main.call_args[0][0]
+        assert "--hostname" in options
+        idx = options.index("--hostname")
+        assert options[idx + 1] == "my-worker@%h"
+
+    @mock.patch("airflow.providers.celery.cli.celery_command.setup_locations")
+    @mock.patch("airflow.providers.celery.cli.celery_command.Process")
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_no_hostname_when_not_specified(self, mock_celery_app, mock_popen, mock_locations):
+        """When --celery-hostname is not provided, --hostname should not appear in options."""
+        mock_locations.return_value = ("pid_file", None, None, None)
+        args = self.parser.parse_args(["celery", "worker", "--concurrency", "1", "--queues", "default"])
+
+        celery_command.worker(args)
+
+        options = mock_celery_app.worker_main.call_args[0][0]
+        assert "--hostname" not in options
+
+    @mock.patch("airflow.providers.celery.executors.celery_executor.app")
+    def test_duplicate_hostname_check_with_at_sign(self, mock_celery_app):
+        """Duplicate check should detect exact match when hostname contains @."""
+        mock_inspect = MagicMock()
+        mock_inspect.active_queues.return_value = {
+            "myworker@mymachine": [{"name": "default"}],
+        }
+        mock_celery_app.control.inspect.return_value = mock_inspect
+
+        args = self.parser.parse_args(["celery", "worker", "--celery-hostname", "myworker@mymachine"])
+
+        with pytest.raises(SystemExit, match="already running"):
+            celery_command.worker(args)
 
 
 @pytest.mark.backend("mysql", "postgres")
