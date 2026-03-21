@@ -190,7 +190,7 @@ def run_airflow_context(do_inspect=True):
     ])
 
 
-def run_standalone(use_airflow_config=False):
+def run_standalone(use_airflow_config=False, use_visibility_timeout=False):
     """Test with a fresh Celery app (not Airflow's)."""
     from celery import Celery
 
@@ -208,6 +208,13 @@ def run_standalone(use_airflow_config=False):
             task_track_started=True,
             result_backend="redis://localhost:6379/1",  # Use Redis not PG for standalone
             worker_concurrency=1,
+            broker_transport_options={"visibility_timeout": 86400},
+        )
+    elif use_visibility_timeout:
+        log("Creating standalone app WITH visibility_timeout (Airflow's key difference)...")
+        app = Celery("standalone_vt", broker=broker, backend="redis://localhost:6379/1")
+        app.conf.update(
+            broker_transport_options={"visibility_timeout": 86400},
         )
     else:
         log("Creating standalone app with minimal config...")
@@ -252,11 +259,14 @@ if __name__ == "__main__":
         run_standalone(use_airflow_config=False)
     elif mode == "standalone-airflow-config":
         run_standalone(use_airflow_config=True)
+    elif mode == "standalone-vt":
+        run_standalone(use_visibility_timeout=True)
     else:
-        print("Usage: python3 deep_celery_debug.py [airflow|airflow-no-inspect|standalone|standalone-airflow-config]")
+        print("Usage: python3 deep_celery_debug.py <mode>")
         print()
         print("  airflow                  - Airflow's app + inspect before worker_main (BROKEN)")
         print("  airflow-no-inspect       - Airflow's app, no inspect (WORKS - control)")
-        print("  standalone               - Fresh Celery app + inspect (works? or broken?)")
-        print("  standalone-airflow-config - Fresh app with Airflow's config + inspect")
+        print("  standalone               - Fresh Celery app + inspect (WORKS)")
+        print("  standalone-airflow-config - Fresh app with full Airflow config + inspect")
+        print("  standalone-vt            - Fresh app with ONLY visibility_timeout + inspect")
         sys.exit(1)

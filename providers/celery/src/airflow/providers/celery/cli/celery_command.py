@@ -219,64 +219,25 @@ def worker(args):
     # Use team_config for config reads in multi-team mode, otherwise use global conf
     config = team_config if team_config else conf
 
-    def _debug_celery_app_state(label):
-        """Dump celery app internal state for debugging #59707."""
-        try:
-            pool = celery_app.pool
-            pool_dirty = len(getattr(pool, "_dirty", []))
-            pool_limit = getattr(pool, "limit", "N/A")
-            pool_qsize = getattr(getattr(pool, "_resource", None), "qsize", lambda: "N/A")()
-        except Exception as e:
-            pool_dirty = pool_limit = pool_qsize = f"error: {e}"
-
-        producer_pool = celery_app.amqp._producer_pool
-        producer_pool_details = "None"
-        if producer_pool is not None:
-            try:
-                pp_limit = getattr(producer_pool, "limit", "N/A")
-                producer_pool_details = f"{producer_pool} (limit={pp_limit})"
-            except Exception as e:
-                producer_pool_details = f"{producer_pool} (detail error: {e})"
-
-        log.info(
-            "[DEBUG-59707] [%s] app.amqp._producer_pool=%s | "
-            "app.pool(limit=%s, dirty=%s, qsize=%s) | "
-            "app.control.mailbox.namespace=%s",
-            label,
-            producer_pool_details,
-            pool_limit,
-            pool_dirty,
-            pool_qsize,
-            getattr(getattr(celery_app.control, "mailbox", None), "namespace", "N/A"),
-        )
-
-    _debug_celery_app_state("BEFORE duplicate hostname check")
-
     # Check if a worker with the same hostname already exists.
-    # IMPORTANT: Use a separate throwaway Celery app for the inspect() call.
-    # inspect() lazily initializes internal connection pools on the app it's
-    # called on (app.amqp._producer_pool, app.pool connections, mailbox.producer_pool).
-    # If we used celery_app directly, worker_main() would later fork prefork children
-    # that inherit those stale parent-process connections, breaking consumer-to-pool
-    # task dispatch (tasks stuck in RESERVED with acknowledged=False).
+    # Use a separate throwaway Celery app for the inspect() call to avoid tainting
+    # the main app's connection state. inspect() lazily initializes connection pools,
+    # producer pools, and opens broker sockets on the app it's called on. If done on
+    # celery_app directly, worker_main() would later fork prefork children that inherit
+    # those stale parent-process connections, breaking consumer-to-pool task dispatch
+    # (tasks stuck in RESERVED with acknowledged=False, worker_pid=None).
     # See: https://github.com/apache/airflow/issues/59707
     if args.celery_hostname:
         from celery import Celery as _TempCelery
 
-        log.info(
-            "[DEBUG-59707] Duplicate hostname check using temp app for hostname=%s",
-            args.celery_hostname,
-        )
         temp_app = _TempCelery(broker=celery_app.conf.broker_url)
         try:
             active_workers = temp_app.control.inspect().active_queues()
-            log.info("[DEBUG-59707] inspect via temp_app returned: %s", active_workers)
             if active_workers:
-                active_worker_names = list(active_workers.keys())
                 celery_hostname = args.celery_hostname
                 if any(
                     name == celery_hostname or name.endswith(f"@{celery_hostname}")
-                    for name in active_worker_names
+                    for name in active_workers
                 ):
                     raise SystemExit(
                         f"Error: A worker with hostname '{celery_hostname}' is already running. "
@@ -284,24 +245,13 @@ def worker(args):
                     )
         finally:
             temp_app.close()
-            del temp_app
-            # The inspect() call registers connections in kombu's global
-            # module-level pools (kombu.pools.connections/producers), keyed
-            # by broker URL. These are shared across ALL Celery apps using
-            # the same broker. Reset them so worker_main() starts clean.
+            # The inspect() call registers connections in kombu's global module-level
+            # pools (kombu.pools.connections/producers), keyed by broker URL. These are
+            # shared across ALL Celery apps using the same broker. Reset them so
+            # worker_main() starts with a completely clean connection state.
             import kombu.pools
 
-            log.info(
-                "[DEBUG-59707] kombu.pools before reset: connections=%s producers=%s",
-                kombu.pools.connections,
-                kombu.pools.producers,
-            )
             kombu.pools.reset()
-            log.info("[DEBUG-59707] kombu.pools.reset() done")
-    else:
-        log.info("[DEBUG-59707] No --celery-hostname set, skipping duplicate check")
-
-    _debug_celery_app_state("AFTER duplicate hostname check (temp app + kombu.pools.reset)")
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging
