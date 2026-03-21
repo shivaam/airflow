@@ -276,7 +276,8 @@ def run_standalone_config_source():
         return f"done: {msg}"
 
     # Mimic Airflow's celery_import_modules signal
-    from celery.signals import celery_import_modules, worker_ready
+    from celery.signals import import_modules as celery_import_modules
+    from celery.signals import worker_ready
 
     @celery_import_modules.connect
     def on_import(*args, **kwargs):
