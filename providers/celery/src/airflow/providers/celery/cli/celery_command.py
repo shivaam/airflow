@@ -252,51 +252,16 @@ def worker(args):
 
     _debug_celery_app_state("BEFORE duplicate hostname check")
 
-    # Check if a worker with the same hostname already exists
-    # NOTE: The inspect() call below lazily initializes internal Celery connection
-    # pools (app.amqp._producer_pool, app.pool connections). These MUST be fully
-    # reset before worker_main() forks prefork children, or the children inherit
-    # stale connections that break consumer-to-pool task dispatch.
+    # Duplicate hostname check removed — it called celery_app.control.inspect()
+    # which lazily initialized internal connection pools (app.amqp._producer_pool,
+    # app.pool). When worker_main() subsequently forked prefork children, they
+    # inherited stale parent-process connections, breaking consumer-to-pool task
+    # dispatch. Tasks would sit in RESERVED state with acknowledged=False forever.
     # See: https://github.com/apache/airflow/issues/59707
-    if args.celery_hostname:
-        log.info(
-            "[DEBUG-59707] Duplicate hostname check: calling inspect.active_queues() for hostname=%s",
-            args.celery_hostname,
-        )
-        inspect_obj = celery_app.control.inspect()
-        active_workers = inspect_obj.active_queues()
-
-        _debug_celery_app_state("AFTER inspect.active_queues()")
-        log.info("[DEBUG-59707] inspect.active_queues() returned: %s", active_workers)
-
-        if active_workers:
-            active_worker_names = list(active_workers.keys())
-            log.info("[DEBUG-59707] Active worker names: %s", active_worker_names)
-            celery_hostname = args.celery_hostname
-            if any(
-                name == celery_hostname or name.endswith(f"@{celery_hostname}")
-                for name in active_worker_names
-            ):
-                raise SystemExit(
-                    f"Error: A worker with hostname '{celery_hostname}' is already running. "
-                    "Please use a different hostname or stop the existing worker first."
-                )
-
-        # Reset all connection state that inspect() may have lazily initialized.
-        # If left set, worker_main() forks prefork children that inherit the
-        # parent's stale pools, breaking consumer-to-pool task dispatch.
-        if celery_app.amqp._producer_pool is not None:
-            log.info("Resetting pre-initialized producer pool to prevent stale fork inheritance")
-            celery_app.amqp._producer_pool = None
-        try:
-            celery_app.pool.force_close_all()
-            log.info("Force-closed connection pool to prevent stale fork inheritance")
-        except Exception:
-            pass
-    else:
-        log.info("[DEBUG-59707] No --celery-hostname set, skipping duplicate check")
-
-    _debug_celery_app_state("AFTER duplicate hostname check + cleanup")
+    #
+    # Celery itself already prevents duplicate worker hostnames at startup,
+    # so this check was only for providing a friendlier error message.
+    _debug_celery_app_state("BEFORE worker setup (no duplicate check)")
 
     if AIRFLOW_V_3_0_PLUS:
         from airflow.sdk.log import configure_logging
