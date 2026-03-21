@@ -77,12 +77,11 @@ def deep_dump(label, app):
         amqp.producer_pool is amqp._producer_pool)
 
     # 5. kombu.pools global state
-    log("kombu.pools.connections._data keys = %s", list(kombu.pools.connections._data.keys()))
-    log("kombu.pools.producers._data keys = %s", list(kombu.pools.producers._data.keys()))
-    for key, val in kombu.pools.connections._data.items():
-        log("  conn pool key=%s id=%s", list(key), id(val))
-        log("    is app.pool: %s", val is pool)
-    for key, val in kombu.pools.producers._data.items():
+    log("kombu.pools.connections has %d entries", len(kombu.pools.connections))
+    log("kombu.pools.producers has %d entries", len(kombu.pools.producers))
+    for key, val in list(kombu.pools.connections.items()):
+        log("  conn pool key=%s id=%s is_app_pool=%s", list(key), id(val), val is pool)
+    for key, val in list(kombu.pools.producers.items()):
         log("  prod pool key=%s id=%s", list(key), id(val))
 
     # 7. app.control
@@ -179,20 +178,13 @@ def compare():
     log("B.pool.connection is B.connection_for_write(): %s",
         b.pool.connection is b.connection_for_write())
 
-    # Check kombu.pools _data directly
+    # Check kombu.pools directly
     log("")
-    log("kombu.pools.connections._data keys:")
-    for key in kombu.pools.connections._data:
-        log("  %s", list(key))
-    log("kombu.pools.producers._data keys:")
-    for key in kombu.pools.producers._data:
-        log("  %s", list(key))
-
-    log("len(kombu.pools.connections._data) = %s", len(kombu.pools.connections._data))
-    for key, pool in kombu.pools.connections._data.items():
-        log("  key=%s pool_id=%s", list(key), id(pool))
-        log("    is A.pool: %s", pool is a.pool)
-        log("    is B.pool: %s", pool is b.pool)
+    log("kombu.pools.connections has %d entries", len(kombu.pools.connections))
+    log("kombu.pools.producers has %d entries", len(kombu.pools.producers))
+    for key, pool in list(kombu.pools.connections.items()):
+        log("  conn key=%s pool_id=%s", list(key), id(pool))
+        log("    is A.pool: %s, is B.pool: %s", pool is a.pool, pool is b.pool)
 
     # Now the critical test: do both apps share the SAME kombu pool?
     log("")
