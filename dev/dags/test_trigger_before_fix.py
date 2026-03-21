@@ -15,25 +15,19 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-Test DAG: Demonstrates the BEFORE-FIX behavior (Path B) from GitHub discussion #63706.
+Test DAG: Simulates BEFORE-FIX behavior — GitHub discussion #63706.
 
-When a trigger's run() raises an exception instead of yielding a TriggerEvent,
-the triggerer framework catches it generically and marks the task failed with
-"Trigger failure". The on_failure_callback only sees TaskDeferralError("Trigger failure")
-instead of the actual error message.
+Demonstrates the bug: when a trigger's run() raises an exception instead of
+yielding a TriggerEvent, the triggerer catches it generically and the task
+fails with "Trigger failure". execute_complete() is never called.
 
-This replicates the GlueJobOperator bug where deferred mode loses detailed failure status.
-
-To run in Breeze:
+Run in Breeze:
     breeze run airflow dags trigger test_trigger_before_fix
 
-Expected behavior:
-    - Task defers to the trigger
-    - Trigger raises AirflowException("Glue job FAILED: Script failed with exit code 1")
-    - Triggerer catches it generically, sets next_method="__fail__"
-    - Worker raises TaskDeferralError("Trigger failure") — GENERIC, no details
-    - on_failure_callback sees context["exception"] = TaskDeferralError("Trigger failure")
-    - execute_complete() is NEVER called
+What to watch for in logs:
+    - on_failure_callback fires with exception type "TaskDeferralError"
+    - exception message is just "Trigger failure" — no Glue error details
+    - execute_complete() is NEVER called (you won't see its log line)
 """
 
 from __future__ import annotations
@@ -42,124 +36,82 @@ import asyncio
 import logging
 from typing import Any
 
+from airflow.exceptions import AirflowException
 from airflow.sdk import DAG
 from airflow.sdk.bases.operator import BaseOperator
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
 logger = logging.getLogger(__name__)
 
+SIMULATED_ERROR = (
+    "AWS Glue job failed.: FAILED - "
+    "Script failed with exit code 1: "
+    "java.lang.RuntimeException: Error in Spark transformation\n"
+    "Waiter job_complete failed: Waiter encountered a terminal failure state"
+)
 
-class GlueJobFailureTriggerBeforeFix(BaseTrigger):
+
+class FailingTriggerBeforeFix(BaseTrigger):
     """
-    Simulates the BEFORE-FIX behavior of AwsBaseWaiterTrigger.
+    Simulates AwsBaseWaiterTrigger.run() BEFORE the fix.
 
-    When the Glue job fails, async_wait() raises AirflowException.
-    Before the fix, this exception propagates uncaught from run(),
-    causing the triggerer to catch it generically and mark the task
-    failed with "Trigger failure".
+    async_wait() raises AirflowException on terminal failure.
+    Before the fix, this propagated uncaught — the triggerer catches
+    it generically and sets next_method="__fail__".
     """
 
-    def __init__(self, job_run_id: str, **kwargs):
+    def __init__(self, run_id: str, **kwargs):
         super().__init__(**kwargs)
-        self.job_run_id = job_run_id
+        self.run_id = run_id
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
-        return (
-            "dev.dags.test_trigger_before_fix.GlueJobFailureTriggerBeforeFix",
-            {"job_run_id": self.job_run_id},
-        )
+        return (self.__class__.__module__ + "." + self.__class__.__qualname__, {"run_id": self.run_id})
 
     async def run(self):
-        """
-        Simulate what AwsBaseWaiterTrigger.run() does BEFORE the fix.
-
-        The trigger polls for a while, then the waiter detects a terminal
-        failure and raises AirflowException. This exception propagates
-        uncaught — the triggerer framework catches it generically.
-        """
-        from airflow.exceptions import AirflowException
-
-        # Simulate a few seconds of polling
         await asyncio.sleep(2)
-
-        # Simulate what async_wait() does when it detects terminal failure:
-        # It raises AirflowException with the failure details.
-        # BEFORE THE FIX: This propagates uncaught from run()!
-        raise AirflowException(
-            f"Glue job {self.job_run_id} FAILED: "
-            f"JobRunState: FAILED, ErrorMessage: Script failed with exit code 1 - "
-            f"java.lang.RuntimeException: Error in Spark transformation"
-        )
-
-        # This yield is never reached, but Python needs it to make this an async generator
+        # BEFORE FIX: exception propagates uncaught from run()
+        raise AirflowException(SIMULATED_ERROR)
         yield TriggerEvent({})
 
 
-class GlueOperatorBeforeFix(BaseOperator):
-    """
-    Simulates GlueJobOperator in deferred mode BEFORE the fix.
-
-    Defers to GlueJobFailureTriggerBeforeFix, which raises an exception
-    instead of yielding a TriggerEvent. execute_complete() is never called.
-    """
+class DeferredOperatorBeforeFix(BaseOperator):
+    """Defers to FailingTriggerBeforeFix. execute_complete is never called."""
 
     def __init__(self, job_name: str, **kwargs):
         super().__init__(**kwargs)
         self.job_name = job_name
 
     def execute(self, context):
-        job_run_id = "jr_abc123def456"
-        self.log.info("Started Glue job %s, run ID: %s", self.job_name, job_run_id)
-        self.log.info("Deferring to trigger to wait for job completion...")
-
-        self.defer(
-            trigger=GlueJobFailureTriggerBeforeFix(job_run_id=job_run_id),
-            method_name="execute_complete",
-        )
+        self.log.info("Deferring to trigger (BEFORE-FIX simulation)...")
+        self.defer(trigger=FailingTriggerBeforeFix(run_id="jr_abc123"), method_name="execute_complete")
 
     def execute_complete(self, context, **kwargs):
-        """This method is NEVER called when the trigger raises an exception."""
-        event = kwargs.get("event", kwargs)
-        self.log.info("execute_complete called with event: %s", event)
-
+        self.log.info("execute_complete called — THIS SHOULD NOT APPEAR IN BEFORE-FIX")
+        event = kwargs
         if event.get("status") != "success":
-            from airflow.exceptions import AirflowException
-
-            raise AirflowException(f"Glue job failed: {event.get('message', 'unknown error')}")
-
-        self.log.info("Glue job completed successfully")
+            raise AirflowException(f"Glue job failed: {event.get('message', 'unknown')}")
 
 
-def failure_callback(context):
-    """
-    The on_failure_callback that the user sets up for alerting.
-
-    BEFORE THE FIX: context["exception"] is TaskDeferralError("Trigger failure")
-    — the actual Glue error message is lost.
-    """
+def failure_callback_before(context):
     exception = context.get("exception")
-    task_id = context.get("task_instance").task_id if context.get("task_instance") else "unknown"
-
-    logger.error("=" * 70)
-    logger.error("FAILURE CALLBACK FIRED for task: %s", task_id)
-    logger.error("Exception type: %s", type(exception).__name__ if exception else "None")
+    logger.error("=" * 60)
+    logger.error("BEFORE-FIX CALLBACK")
+    logger.error("Exception type : %s", type(exception).__name__ if exception else "None")
     logger.error("Exception message: %s", str(exception))
-    logger.error("")
-    logger.error("BUG: The actual Glue error is NOT in the exception message above!")
-    logger.error("The user only sees 'Trigger failure' — useless for alerting/monitoring.")
-    logger.error("The real error is buried in the task logs, not accessible to the callback.")
-    logger.error("=" * 70)
+    logger.error("-" * 60)
+    logger.error("BUG: Message is 'Trigger failure' — actual Glue error is lost!")
+    logger.error("execute_complete() was never called.")
+    logger.error("=" * 60)
 
 
 with DAG(
     dag_id="test_trigger_before_fix",
     schedule=None,
     catchup=False,
-    description="Demonstrates the BEFORE-FIX behavior: trigger raises → generic 'Trigger failure'",
-    tags=["test", "glue-fix", "before-fix", "issue-63706"],
+    tags=["test", "glue-fix", "issue-63706"],
 ) as dag:
-    GlueOperatorBeforeFix(
-        task_id="glue_job_before_fix",
+    DeferredOperatorBeforeFix(
+        task_id="glue_before_fix",
         job_name="my-etl-job",
-        on_failure_callback=failure_callback,
+        on_failure_callback=failure_callback_before,
     )

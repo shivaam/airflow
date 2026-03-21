@@ -15,23 +15,19 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-Test DAG: Demonstrates the AFTER-FIX behavior (Path A) from GitHub discussion #63706.
+Test DAG: Simulates AFTER-FIX behavior — GitHub discussion #63706.
 
-After the fix, AwsBaseWaiterTrigger.run() catches AirflowException from async_wait()
-and yields a TriggerEvent with status="error" and the actual error message.
-This ensures execute_complete() is always called, and the operator can surface
-meaningful error messages to on_failure_callback.
+Demonstrates the fix: when async_wait() raises, run() catches it and yields
+a TriggerEvent with the error details. execute_complete() IS called, and
+on_failure_callback gets the actual Glue error message.
 
-To run in Breeze:
+Run in Breeze:
     breeze run airflow dags trigger test_trigger_after_fix
 
-Expected behavior:
-    - Task defers to the trigger
-    - Trigger catches the exception and yields TriggerEvent(status="error", message="...")
-    - Triggerer sends the event to the scheduler normally
-    - Worker calls execute_complete(event={"status": "error", "message": "..."})
-    - execute_complete() raises AirflowException with the ACTUAL Glue error
-    - on_failure_callback sees context["exception"] with the real error message
+What to watch for in logs:
+    - execute_complete() IS called (you'll see its log line)
+    - on_failure_callback fires with exception type "AirflowException"
+    - exception message contains the actual Glue error text
 """
 
 from __future__ import annotations
@@ -40,133 +36,82 @@ import asyncio
 import logging
 from typing import Any
 
+from airflow.exceptions import AirflowException
 from airflow.sdk import DAG
 from airflow.sdk.bases.operator import BaseOperator
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 
 logger = logging.getLogger(__name__)
 
+SIMULATED_ERROR = (
+    "AWS Glue job failed.: FAILED - "
+    "Script failed with exit code 1: "
+    "java.lang.RuntimeException: Error in Spark transformation\n"
+    "Waiter job_complete failed: Waiter encountered a terminal failure state"
+)
 
-class GlueJobFailureTriggerAfterFix(BaseTrigger):
+
+class FailingTriggerAfterFix(BaseTrigger):
     """
-    Simulates the AFTER-FIX behavior of AwsBaseWaiterTrigger.
+    Simulates AwsBaseWaiterTrigger.run() AFTER the fix.
 
-    When the Glue job fails, async_wait() raises AirflowException.
-    After the fix, run() catches the exception and yields a TriggerEvent
-    with the error details, ensuring execute_complete() is called.
+    async_wait() raises AirflowException on terminal failure.
+    After the fix, run() catches it and yields TriggerEvent(status="error").
     """
 
-    def __init__(self, job_run_id: str, **kwargs):
+    def __init__(self, run_id: str, **kwargs):
         super().__init__(**kwargs)
-        self.job_run_id = job_run_id
+        self.run_id = run_id
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
-        return (
-            "dev.dags.test_trigger_after_fix.GlueJobFailureTriggerAfterFix",
-            {"job_run_id": self.job_run_id},
-        )
+        return (self.__class__.__module__ + "." + self.__class__.__qualname__, {"run_id": self.run_id})
 
     async def run(self):
-        """
-        Simulate what AwsBaseWaiterTrigger.run() does AFTER the fix.
-
-        The trigger polls for a while, then the waiter detects a terminal
-        failure. AFTER THE FIX: The exception is caught and a TriggerEvent
-        is yielded with the error details.
-        """
-        from airflow.exceptions import AirflowException
-
-        # Simulate a few seconds of polling
         await asyncio.sleep(2)
-
-        # Simulate what async_wait() does when it detects terminal failure
+        # AFTER FIX: catch exception, yield error event
         try:
-            raise AirflowException(
-                f"Glue job {self.job_run_id} FAILED: "
-                f"JobRunState: FAILED, ErrorMessage: Script failed with exit code 1 - "
-                f"java.lang.RuntimeException: Error in Spark transformation"
-            )
+            raise AirflowException(SIMULATED_ERROR)
         except AirflowException as e:
-            # AFTER THE FIX: Catch the exception and yield a TriggerEvent
-            # with error details. This ensures execute_complete() is called.
-            yield TriggerEvent({"status": "error", "message": str(e), "return_value": self.job_run_id})
+            yield TriggerEvent({"status": "error", "message": str(e), "run_id": self.run_id})
 
 
-class GlueOperatorAfterFix(BaseOperator):
-    """
-    Simulates GlueJobOperator in deferred mode AFTER the fix.
-
-    Defers to GlueJobFailureTriggerAfterFix, which catches exceptions and
-    yields a TriggerEvent. execute_complete() IS called with the error details.
-    """
+class DeferredOperatorAfterFix(BaseOperator):
+    """Defers to FailingTriggerAfterFix. execute_complete IS called."""
 
     def __init__(self, job_name: str, **kwargs):
         super().__init__(**kwargs)
         self.job_name = job_name
 
     def execute(self, context):
-        job_run_id = "jr_abc123def456"
-        self.log.info("Started Glue job %s, run ID: %s", self.job_name, job_run_id)
-        self.log.info("Deferring to trigger to wait for job completion...")
-
-        self.defer(
-            trigger=GlueJobFailureTriggerAfterFix(job_run_id=job_run_id),
-            method_name="execute_complete",
-        )
+        self.log.info("Deferring to trigger (AFTER-FIX simulation)...")
+        self.defer(trigger=FailingTriggerAfterFix(run_id="jr_abc123"), method_name="execute_complete")
 
     def execute_complete(self, context, **kwargs):
-        """
-        This method IS called after the fix.
-
-        The trigger yields a TriggerEvent with the error details,
-        so this method receives the actual error message and can
-        raise a meaningful exception.
-        """
-        from airflow.exceptions import AirflowException
-
-        status = kwargs.get("status")
-        message = kwargs.get("message")
-        job_run_id = kwargs.get("return_value")
-
-        self.log.info("execute_complete called with status=%s, message=%s", status, message)
-
-        if status != "success":
-            # This is the key difference: the actual error message is available!
-            raise AirflowException(f"Glue job {job_run_id} failed with status '{status}': {message}")
-
-        self.log.info("Glue job %s completed successfully", job_run_id)
+        self.log.info("execute_complete called with: %s", kwargs)
+        if kwargs.get("status") != "success":
+            raise AirflowException(f"Error in glue job: {kwargs}")
 
 
-def failure_callback(context):
-    """
-    The on_failure_callback that the user sets up for alerting.
-
-    AFTER THE FIX: context["exception"] contains AirflowException with the
-    actual Glue error message — useful for alerting and monitoring.
-    """
+def failure_callback_after(context):
     exception = context.get("exception")
-    task_id = context.get("task_instance").task_id if context.get("task_instance") else "unknown"
-
-    logger.error("=" * 70)
-    logger.error("FAILURE CALLBACK FIRED for task: %s", task_id)
-    logger.error("Exception type: %s", type(exception).__name__ if exception else "None")
+    logger.error("=" * 60)
+    logger.error("AFTER-FIX CALLBACK")
+    logger.error("Exception type : %s", type(exception).__name__ if exception else "None")
     logger.error("Exception message: %s", str(exception))
-    logger.error("")
-    logger.error("FIX: The actual Glue error IS in the exception message above!")
-    logger.error("The user can now extract meaningful error details in their callback")
-    logger.error("and send them to Slack/Teams/PagerDuty for immediate triage.")
-    logger.error("=" * 70)
+    logger.error("-" * 60)
+    logger.error("FIX: Message contains the actual Glue error details!")
+    logger.error("execute_complete() was called, error routed properly.")
+    logger.error("=" * 60)
 
 
 with DAG(
     dag_id="test_trigger_after_fix",
     schedule=None,
     catchup=False,
-    description="Demonstrates the AFTER-FIX behavior: trigger yields error event → meaningful exception",
-    tags=["test", "glue-fix", "after-fix", "issue-63706"],
+    tags=["test", "glue-fix", "issue-63706"],
 ) as dag:
-    GlueOperatorAfterFix(
-        task_id="glue_job_after_fix",
+    DeferredOperatorAfterFix(
+        task_id="glue_after_fix",
         job_name="my-etl-job",
-        on_failure_callback=failure_callback,
+        on_failure_callback=failure_callback_after,
     )
