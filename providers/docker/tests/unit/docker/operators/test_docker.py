@@ -121,6 +121,34 @@ def test_on_kill_client_created(docker_api_client_patcher, container_exists):
         docker_api_client_patcher.return_value.stop.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("auto_remove", "expect_remove"),
+    [
+        pytest.param("force", True, id="force-removes-container"),
+        pytest.param("success", False, id="success-does-not-remove"),
+        pytest.param("never", False, id="never-does-not-remove"),
+    ],
+)
+def test_on_kill_respects_auto_remove(docker_api_client_patcher, auto_remove, expect_remove):
+    """Test that on_kill removes the container when auto_remove='force'."""
+    op = DockerOperator(
+        image=TEST_IMAGE,
+        hostname=TEST_DOCKER_URL,
+        task_id="test_on_kill_auto_remove",
+        auto_remove=auto_remove,
+    )
+    op.container = {"Id": "some_id"}
+
+    op.hook.get_conn()
+    op.on_kill()
+
+    docker_api_client_patcher.return_value.stop.assert_called_once_with("some_id")
+    if expect_remove:
+        docker_api_client_patcher.return_value.remove_container.assert_called_once_with("some_id", force=True)
+    else:
+        docker_api_client_patcher.return_value.remove_container.assert_not_called()
+
+
 def test_on_kill_client_not_created(docker_api_client_patcher):
     """Test operator on_kill method if APIClient not created in case of error."""
     docker_api_client_patcher.side_effect = APIError("Fake Client Error")
