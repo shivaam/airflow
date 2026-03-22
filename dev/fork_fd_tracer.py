@@ -165,8 +165,9 @@ def main():
         _log("STATE", f"AFTER INSPECT: socket FDs = {_get_socket_fds()}")
 
         if args.reset:
-            _log("RESET", "Calling kombu.pools.reset()...")
+            _log("RESET", "Calling kombu.pools.reset() + app.amqp._producer_pool = None...")
             kombu.pools.reset()
+            app.amqp._producer_pool = None
             _log("STATE", f"AFTER RESET: app.amqp._producer_pool = {app.amqp._producer_pool}")
             _log("STATE", f"AFTER RESET: kombu.pools.connections has {len(kombu.pools.connections)} entries")
             _log("STATE", f"AFTER RESET: socket FDs = {_get_socket_fds()}")
