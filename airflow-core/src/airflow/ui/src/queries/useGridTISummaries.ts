@@ -47,10 +47,11 @@ export const useGridTiSummariesStream = ({
   const baseRefetchInterval = useAutoRefresh({ dagId });
   const hasActiveRuns = states?.some((state) => state !== undefined && isStatePending(state)) ?? false;
 
-  // Stable key so the effect only re-fires when the run list actually changes.
+  // Stable keys so the effect only re-fires when the run list or run states actually change.
   const runIdsKey = runIds.join(",");
+  const statesKey = states?.join(",") ?? "";
 
-  // Stream (or re-stream) whenever the run list or refresh tick changes.
+  // Stream (or re-stream) whenever the run list, run states, or refresh tick changes.
   useEffect(() => {
     if (!dagId || runIds.length === 0) {
       return undefined;
@@ -106,8 +107,8 @@ export const useGridTiSummariesStream = ({
       abortController.abort();
       void reader?.cancel();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runIdsKey (stable join) intentionally replaces runIds array to avoid spurious re-streams
-  }, [dagId, runIdsKey, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runIdsKey/statesKey (stable joins) intentionally replace arrays to avoid spurious re-streams
+  }, [dagId, runIdsKey, statesKey, refreshTick]);
 
   // Trigger a re-stream periodically while active runs are in flight.
   useEffect(() => {
