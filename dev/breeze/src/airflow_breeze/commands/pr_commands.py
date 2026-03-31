@@ -2364,6 +2364,9 @@ def _compute_default_action(
     elif not has_ci_failures and not has_conflicts and has_unresolved_comments:
         # CI passes, no conflicts, no LLM issues — only unresolved review comments; just add a comment
         action = TriageAction.COMMENT
+    elif not has_ci_failures and not has_conflicts and not has_unresolved_comments:
+        # Only soft violations (e.g. missing UI demo) — just comment, don't convert to draft
+        action = TriageAction.COMMENT
     else:
         action = TriageAction.DRAFT
 
@@ -4831,6 +4834,7 @@ def _review_ready_prs_review_mode(
         PRAssessment,
         assess_pr_checks,
         assess_pr_conflicts,
+        assess_pr_ui_demo,
         assess_pr_unresolved_comments,
     )
 
@@ -4932,8 +4936,9 @@ def _review_ready_prs_review_mode(
             comments_assessment = assess_pr_unresolved_comments(
                 pr.number, pr.unresolved_review_comments, pr.unresolved_threads
             )
+            ui_demo_assessment = assess_pr_ui_demo(pr.number, pr.labels, pr.body, pr.author_association)
 
-            if ci_assessment or conflict_assessment or comments_assessment:
+            if ci_assessment or conflict_assessment or comments_assessment or ui_demo_assessment:
                 violations = []
                 summaries = []
                 if conflict_assessment:
@@ -4945,6 +4950,9 @@ def _review_ready_prs_review_mode(
                 if comments_assessment:
                     violations.extend(comments_assessment.violations)
                     summaries.append(comments_assessment.summary)
+                if ui_demo_assessment:
+                    violations.extend(ui_demo_assessment.violations)
+                    summaries.append(ui_demo_assessment.summary)
 
                 assessment = PRAssessment(
                     should_flag=True,
@@ -6369,6 +6377,7 @@ def auto_triage(
         PRAssessment,
         assess_pr_checks,
         assess_pr_conflicts,
+        assess_pr_ui_demo,
         assess_pr_unresolved_comments,
     )
     from airflow_breeze.utils.llm_utils import (
@@ -6917,8 +6926,9 @@ def auto_triage(
             comments_assessment = assess_pr_unresolved_comments(
                 pr.number, pr.unresolved_review_comments, pr.unresolved_threads
             )
+            ui_demo_assessment = assess_pr_ui_demo(pr.number, pr.labels, pr.body, pr.author_association)
 
-            if ci_assessment or conflict_assessment or comments_assessment:
+            if ci_assessment or conflict_assessment or comments_assessment or ui_demo_assessment:
                 if pr.is_draft:
                     # Draft PRs with issues are skipped — the author is still working on them
                     skipped_drafts.append(pr)
@@ -6935,6 +6945,9 @@ def auto_triage(
                     if comments_assessment:
                         violations.extend(comments_assessment.violations)
                         summaries.append(comments_assessment.summary)
+                    if ui_demo_assessment:
+                        violations.extend(ui_demo_assessment.violations)
+                        summaries.append(ui_demo_assessment.summary)
                     assessments[pr.number] = PRAssessment(
                         should_flag=True,
                         violations=violations,
@@ -7250,7 +7263,8 @@ def auto_triage(
                 comments_assessment = assess_pr_unresolved_comments(
                     pr.number, pr.unresolved_review_comments, pr.unresolved_threads
                 )
-                if ci_assessment or conflict_assessment or comments_assessment:
+                ui_demo_assessment = assess_pr_ui_demo(pr.number, pr.labels, pr.body, pr.author_association)
+                if ci_assessment or conflict_assessment or comments_assessment or ui_demo_assessment:
                     if pr.is_draft:
                         continue
                     violations = []
@@ -7264,6 +7278,9 @@ def auto_triage(
                     if comments_assessment:
                         violations.extend(comments_assessment.violations)
                         summaries.append(comments_assessment.summary)
+                    if ui_demo_assessment:
+                        violations.extend(ui_demo_assessment.violations)
+                        summaries.append(ui_demo_assessment.summary)
                     batch_assessments[pr.number] = PRAssessment(
                         should_flag=True,
                         violations=violations,
