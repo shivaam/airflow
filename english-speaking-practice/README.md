@@ -1,76 +1,78 @@
 # SpeakFlow — English Speaking Practice CLI
 
-Practice and improve your spoken English with AI-powered feedback, YouTube shadowing, and intonation analysis.
+Practice and improve your spoken English with AI-powered feedback, YouTube shadowing, and Praat-powered intonation analysis.
 
-## Setup
-
-```bash
-cd english-speaking-practice
-uv sync    # or: pip install -e .
-```
-
-You'll also need `ffmpeg` for audio processing:
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-```
-
-## Usage
-
-### 1. Practice — Get vocabulary feedback
-
-Record yourself speaking on a prompt, get AI-powered suggestions for better vocabulary and phrasing.
+## Quick Start
 
 ```bash
-# Random prompt, 60 seconds
+# 1. Clone
+git clone https://github.com/shivaam/speakflow.git
+cd speakflow
+
+# 2. Install system deps
+brew install portaudio ffmpeg          # macOS
+# sudo apt install libportaudio2 ffmpeg  # Ubuntu/Debian
+
+# 3. Install (pick one)
+uv sync                                # if you have uv (recommended)
+pip install -e .                       # or plain pip
+
+# 4. Set your API key (for vocabulary feedback)
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 5. Go!
 speakflow practice
-
-# Custom topic, 30 seconds
-speakflow practice -d 30 -p "Tell me about your favorite hobby"
-
-# Use a better Whisper model for more accurate transcription
-speakflow practice -m small.en
 ```
 
-Requires `ANTHROPIC_API_KEY` environment variable (or `--api-key` flag).
+## Commands
 
-### 2. Analyze — Intonation and speech analysis
+### `speakflow practice` — Vocabulary Feedback
 
-Get detailed analysis of your pitch, speaking rate, pauses, and intonation patterns.
+Speak on a prompt for 1 minute. Get AI-powered suggestions for richer vocabulary and more natural phrasing.
 
 ```bash
-# 30 second recording
-speakflow analyze
-
-# Save pitch graph as PNG
-speakflow analyze --save-png pitch.png
-
-# Longer recording
-speakflow analyze -d 60
+speakflow practice                          # random prompt, 60s
+speakflow practice -d 30                    # 30 seconds
+speakflow practice -p "Describe your job"   # custom topic
+speakflow practice -m small.en              # more accurate transcription (slower)
 ```
 
-### 3. Shadow — YouTube video shadowing
+**Example output:**
+> "I ate the food so fast" → "I devoured the chicken" — *"devoured" conveys eating quickly and eagerly in one vivid word*
 
-Listen to a YouTube clip, repeat it, and compare your pitch/rhythm with the original.
+### `speakflow analyze` — Intonation Coach
+
+Record yourself and see your pitch contour, speaking rate, pauses, and intonation patterns as ASCII graphs in your terminal.
 
 ```bash
-# Shadow 30 seconds starting from the beginning
+speakflow analyze                           # 30s recording
+speakflow analyze -d 60                     # 60s recording
+speakflow analyze --save-png pitch.png      # export graph as image
+```
+
+### `speakflow shadow <url>` — YouTube Shadowing
+
+Listen to a YouTube clip, repeat it, and compare your pitch and rhythm against the original.
+
+```bash
 speakflow shadow "https://youtube.com/watch?v=..."
-
-# Start at 1 minute, shadow for 15 seconds
-speakflow shadow "https://youtube.com/watch?v=..." -s 60 -d 15
-
-# Save comparison graph
+speakflow shadow "https://youtube.com/watch?v=..." -s 60 -d 15   # start at 1:00, 15s
 speakflow shadow "https://youtube.com/watch?v=..." --save-png comparison.png
 ```
 
 ## Tech Stack
 
-- **Parselmouth (Praat)** — Gold-standard phonetics analysis
-- **faster-whisper** — Fast, accurate speech-to-text
-- **Claude API** — Vocabulary and phrasing feedback
-- **yt-dlp** — YouTube audio download
-- **plotext** — Terminal ASCII graphs
+| Tool | What it does |
+|---|---|
+| **Parselmouth (Praat)** | Gold-standard phonetics engine used by linguistics researchers |
+| **faster-whisper** | Fast, accurate speech-to-text with word-level timestamps |
+| **Claude API** | Vocabulary upgrades, grammar fixes, idiom suggestions |
+| **yt-dlp** | YouTube audio download for shadowing |
+| **plotext** | ASCII pitch/intensity graphs in your terminal |
+
+## Requirements
+
+- Python 3.10+
+- PortAudio (for mic access)
+- ffmpeg (for audio processing)
+- Anthropic API key (for the `practice` command only)
