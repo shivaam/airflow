@@ -324,3 +324,12 @@ class TestRdsHook:
         # This next line should exist outside of the pytest.raises() context manager or else it won't
         # get executed
         mock.assert_called_once_with(0)
+
+    def test_wait_for_state_error_includes_context(self, rds_hook: RdsHook):
+        def poke():
+            return "pending"
+
+        with pytest.raises(AirflowException, match="Target state: 'available'") as exc:
+            with patch("airflow.providers.amazon.aws.hooks.rds.time.sleep"):
+                rds_hook._wait_for_state(poke, target_state="available", check_interval=0, max_attempts=1)
+        assert "last observed state: 'pending'" in str(exc.value)

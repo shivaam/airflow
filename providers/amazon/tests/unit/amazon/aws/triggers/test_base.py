@@ -144,3 +144,21 @@ class TestAwsBaseWaiterTrigger:
         assert res.payload["status"] == "error"
         assert "AWS Glue job failed." in res.payload["message"]
         assert res.payload["hello"] == "world"
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        "airflow.providers.amazon.aws.triggers.base.async_wait",
+        side_effect=AirflowException("Waiter failed.\nSome error details"),
+    )
+    async def test_run_error_includes_traceback(self, wait_mock: MagicMock):
+        self.trigger.return_key = "value"
+        self.trigger.return_value = None
+
+        generator = self.trigger.run()
+        res: TriggerEvent = await generator.asend(None)
+
+        wait_mock.assert_called_once()
+        assert isinstance(res.payload, dict)
+        assert res.payload["status"] == "error"
+        assert "traceback" in res.payload
+        assert "AirflowException" in res.payload["traceback"]

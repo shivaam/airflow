@@ -366,8 +366,8 @@ class RdsHook(AwsGenericHook["RDSClient"]):
             self.log.info("Current state is %s", state)
             if tries >= max_attempts:
                 raise AirflowException(
-                    f"Max attempts ({max_attempts}) exceeded waiting for state '{target_state}'. "
-                    f"Last observed state: '{state}'"
+                    f"Max attempts exceeded ({max_attempts} attempts). "
+                    f"Target state: '{target_state}', last observed state: '{state}'"
                 )
             self.log.debug(
                 "Attempt %d/%d, sleeping %ds before next check", tries, max_attempts, check_interval

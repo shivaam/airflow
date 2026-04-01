@@ -340,6 +340,83 @@ class TestWaiter:
         assert mock_waiter.wait.call_count == 3
         mock_sleep.assert_called_with(123)
 
+    @mock.patch("time.sleep")
+    def test_wait_with_failure_preserves_exception_chain(self, mock_sleep):
+        mock_sleep.return_value = True
+        mock_waiter = mock.MagicMock()
+        failure_error = WaiterError(
+            name="test_waiter",
+            reason="terminal failure in waiter",
+            last_response=generate_response("Failure"),
+        )
+        mock_waiter.wait.side_effect = [failure_error]
+
+        with pytest.raises(AirflowException) as exc:
+            wait(
+                waiter=mock_waiter,
+                waiter_delay=0,
+                waiter_max_attempts=10,
+                args={"test_arg": "test_value"},
+                failure_message="test failure message",
+                status_message="test status message",
+                status_args=["Status.State"],
+            )
+
+        assert exc.value.__cause__ is failure_error
+
+    @pytest.mark.asyncio
+    async def test_async_wait_with_failure_preserves_exception_chain(self):
+        mock_waiter = mock.MagicMock()
+        failure_error = WaiterError(
+            name="test_waiter",
+            reason="terminal failure in waiter",
+            last_response=generate_response("Failure"),
+        )
+        mock_waiter.wait = AsyncMock()
+        mock_waiter.wait.side_effect = [failure_error]
+
+        with pytest.raises(AirflowException) as exc:
+            await async_wait(
+                waiter=mock_waiter,
+                waiter_delay=0,
+                waiter_max_attempts=10,
+                args={"test_arg": "test_value"},
+                failure_message="test failure message",
+                status_message="test status message",
+                status_args=["Status.State"],
+            )
+
+        assert exc.value.__cause__ is failure_error
+
+    @mock.patch("time.sleep")
+    def test_wait_with_unknown_failure_preserves_exception_chain(self, mock_sleep):
+        mock_sleep.return_value = True
+        mock_waiter = mock.MagicMock()
+        service_exception = WaiterError(
+            name="test_waiter",
+            reason="An error occurred",
+            last_response={
+                "Error": {
+                    "Message": "Not authorized",
+                    "Code": "AccessDeniedException",
+                }
+            },
+        )
+        mock_waiter.wait.side_effect = [service_exception]
+
+        with pytest.raises(AirflowException) as exc:
+            wait(
+                waiter=mock_waiter,
+                waiter_delay=0,
+                waiter_max_attempts=10,
+                args={"test_arg": "test_value"},
+                failure_message="test failure message",
+                status_message="test status message",
+                status_args=["Status.State"],
+            )
+
+        assert exc.value.__cause__ is service_exception
+
     @mock.patch.object(_LazyStatusFormatter, "__str__")
     def test_status_formatting_not_done_if_higher_log_level(self, status_format_mock: mock.MagicMock):
         status_format_mock.return_value = "test_status"
