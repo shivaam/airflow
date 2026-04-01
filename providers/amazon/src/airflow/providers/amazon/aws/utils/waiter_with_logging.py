@@ -80,14 +80,14 @@ def wait(
 
             if "terminal failure" in error_reason:
                 log.error("%s: %s", failure_message, _LazyStatusFormatter(status_args, last_response))
-                raise AirflowException(f"{failure_message}: {error}")
+                raise AirflowException(f"{failure_message}: {error}") from error
 
             if (
                 "An error occurred" in error_reason
                 and isinstance(last_response.get("Error"), dict)
                 and "Code" in last_response.get("Error")
             ):
-                raise AirflowException(f"{failure_message}: {error}")
+                raise AirflowException(f"{failure_message}: {error}") from error
 
             log.info("%s: %s", status_message, _LazyStatusFormatter(status_args, last_response))
         else:
@@ -146,14 +146,14 @@ async def async_wait(
             if "terminal failure" in error_reason:
                 raise AirflowException(
                     f"{failure_message}: {_LazyStatusFormatter(status_args, last_response)}\n{error}"
-                )
+                ) from error
 
             if (
                 "An error occurred" in error_reason
                 and isinstance(last_response.get("Error"), dict)
                 and "Code" in last_response.get("Error")
             ):
-                raise AirflowException(f"{failure_message}\n{last_response}\n{error}")
+                raise AirflowException(f"{failure_message}\n{last_response}\n{error}") from error
 
             log.info("%s: %s", status_message, _LazyStatusFormatter(status_args, last_response))
         else:

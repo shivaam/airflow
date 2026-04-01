@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import traceback
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -161,6 +162,13 @@ class AwsBaseWaiterTrigger(BaseTrigger):
                     self.status_queries,
                 )
             except AirflowException as e:
-                yield TriggerEvent({"status": "error", "message": str(e), self.return_key: self.return_value})
+                yield TriggerEvent(
+                    {
+                        "status": "error",
+                        "message": str(e),
+                        "traceback": traceback.format_exc(),
+                        self.return_key: self.return_value,
+                    }
+                )
             else:
                 yield TriggerEvent({"status": "success", self.return_key: self.return_value})
