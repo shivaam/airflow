@@ -17,13 +17,30 @@
  * under the License.
  */
 
-// Public API surface — @apache-airflow/ts-sdk (covered by SemVer).
+// Coordinator-mode public API. Re-exported through the package root.
 
-export { registerTask, listRegisteredTasks } from "./registry.js";
-export { startWorker } from "./worker.js";
 export {
     startCoordinatorRuntime,
+    parseArgs,
     type StartCoordinatorRuntimeOptions,
-} from "./coordinator/index.js";
-export type { TaskContext, TaskHandler, TaskHandlerArgs, StartWorkerOptions } from "./types.js";
-export { EdgeApiError, ExecutionApiError } from "./errors.js";
+} from "./runtime.js";
+export type {
+    LogChannel,
+    LogLevel,
+    LogRecord,
+} from "./log-channel.js";
+export type {
+    Frame,
+} from "./frames.js";
+export type {
+    StartupDetails,
+    DagFileParseRequest,
+    SucceedTask,
+    TaskStateMsg,
+    DagParsingResult,
+    TaskInstance,
+    BundleInfo,
+    TIRunContext,
+    MsgFromSupervisor,
+    MsgFromRuntime,
+} from "./protocol.js";

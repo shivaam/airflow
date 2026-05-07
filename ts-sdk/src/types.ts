@@ -48,10 +48,16 @@ export interface TaskContext {
 }
 
 /** Arguments passed to every task handler. Adding fields is non-breaking
- *  for consumers that destructure by name. */
+ *  for consumers that destructure by name.
+ *
+ *  `job` is Edge-mode-only and undefined when the handler is invoked
+ *  through the coordinator runtime (`startCoordinatorRuntime()`).
+ *  Handlers that need the raw Edge job payload should branch on
+ *  `args.job !== undefined`; handlers that only consume `ctx` work in
+ *  both modes unchanged. */
 export interface TaskHandlerArgs {
     ctx: TaskContext;
-    readonly job: EdgeJobFetched;
+    readonly job?: EdgeJobFetched;
 }
 
 // TODO(pr3): capture handler return value and push to XCom (currently
