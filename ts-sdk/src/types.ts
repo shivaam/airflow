@@ -55,6 +55,8 @@ export interface TaskContext {
  *  Handlers that need the raw Edge job payload should branch on
  *  `args.job !== undefined`; handlers that only consume `ctx` work in
  *  both modes unchanged. */
+//## The above comment needs to be cleaned. WE can probably rename job to edgeJob or something. Dont wanna copule tboth interfaces
+
 export interface TaskHandlerArgs {
     ctx: TaskContext;
     readonly job?: EdgeJobFetched;
