@@ -34,13 +34,11 @@
 //        - DagFileParseRequest → respond with DagParsingResult, exit
 //        - StartupDetails      → run task, respond Succeed or Fail, exit
 //
-// TODO(pr-followup): expose Client (xcom / variables / connections) to
-//   handlers when the Edge worker also gets it (matches the deferred
-//   work in `types.ts`).
 // TODO(pr-followup): bundle scanner / `provideDags()` API for the
 //   parse-mode path. Until then, parse mode emits an empty DAG list
 //   (sufficient for the Python-stub-DAG workflow Java SDK uses).
 
+import { createCoordinatorClient } from "./client.js";
 import { CommChannel } from "./comm-channel.js";
 import { LogChannel } from "./log-channel.js";
 import { asMsgFromSupervisor, type StartupDetails } from "./protocol.js";
@@ -169,7 +167,8 @@ async function handleTask(
     }
 
     const ctx = buildContext(details);
-    const args = { ctx } as TaskHandlerArgs;
+    const client = createCoordinatorClient(comm);
+    const args: TaskHandlerArgs = { ctx, client };
     logs.info("Running task", {
         dag_id: ctx.dagId,
         task_id: ctx.taskId,

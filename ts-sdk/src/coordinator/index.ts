@@ -44,3 +44,8 @@ export type {
     MsgFromSupervisor,
     MsgFromRuntime,
 } from "./protocol.js";
+export type {
+    CoordinatorClient,
+    GetXComOpts,
+    SetXComOpts,
+} from "./client.js";

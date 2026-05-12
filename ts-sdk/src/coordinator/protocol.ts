@@ -17,17 +17,13 @@
  * under the License.
  */
 
-// Task SDK message types (subset implemented in this PR).
+// Task SDK message types.
 //
 // Mirrors `task-sdk/src/airflow/sdk/execution_time/comms.py` and the
 // Kotlin SDK's `Comms.kt`. Each frame body is a map with a `type`
 // discriminator. `StartupDetails` and `DagFileParseRequest` are the
 // first frames the supervisor sends; everything else is request /
 // response between supervisor and runtime.
-//
-// Currently this PR implements only the minimum needed for task
-// dispatch + Succeed / Fail. XCom / Variables / Connections are
-// deferred to a follow-up — see TODOs in `runtime.ts`.
 
 // -------- TaskInstance shape (trimmed to fields a handler reads) --------
 
@@ -112,6 +108,64 @@ export interface DagParsingResult {
 }
 
 export type MsgFromRuntime = SucceedTask | TaskStateMsg | DagParsingResult;
+
+// -------- Mid-task RPC: runtime-initiated requests and their responses --------
+//
+// These are sent as arity-2 frames over the same comm socket. The runtime
+// awaits an arity-3 response frame with a matching id (see `comm-channel`).
+// Field names are snake_case to match the Python supervisor's pydantic
+// validator (`task-sdk/.../comms.py`).
+
+export interface GetVariableMsg {
+    type: "GetVariable";
+    key: string;
+}
+
+export interface VariableResult {
+    type: "VariableResult";
+    key: string;
+    /** `null` is wire-legal (variable exists with no value); a missing
+     *  variable comes back as `ErrorResponse`, not a null-valued result. */
+    value: string | null;
+}
+
+export interface GetXComMsg {
+    type: "GetXCom";
+    key: string;
+    dag_id: string;
+    run_id: string;
+    task_id: string;
+    map_index?: number | null;
+    include_prior_dates?: boolean;
+}
+
+export interface XComResult {
+    type: "XComResult";
+    key: string;
+    value: unknown;
+}
+
+export interface SetXComMsg {
+    type: "SetXCom";
+    key: string;
+    value: unknown;
+    dag_id: string;
+    run_id: string;
+    task_id: string;
+    map_index?: number | null;
+    /** Whether to mark this push as a dag-result XCom. Default false. */
+    dag_result?: boolean;
+    mapped_length?: number | null;
+}
+
+/** Supervisor response when an RPC fails (e.g. variable not found,
+ *  api-server error). Carries a structured error type plus optional
+ *  detail map. */
+export interface ErrorResponseBody {
+    type: "ErrorResponse";
+    error: string;
+    detail?: unknown;
+}
 
 // -------- Decoder: raw map → typed message --------
 

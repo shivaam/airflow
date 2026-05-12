@@ -38,7 +38,17 @@ import { clearRegistry, registerTask } from "../../src/registry.js";
 interface MockResult {
     firstResponse: { id: number; body: unknown; isResponse: boolean } | null;
     logRecords: Record<string, unknown>[];
+    runtimeRequests: { type: string; body: Record<string, unknown> }[];
 }
+
+/** Callback used by `driveSupervisor` to answer runtime-initiated
+ *  requests. Return `{ body, error? }` to reply with that arity-3
+ *  frame, or `null` to ignore the request (the runtime will hang
+ *  waiting for a response — only useful for negative tests). */
+type Responder = (
+    msgType: string,
+    body: Record<string, unknown>,
+) => { body: unknown; error?: unknown } | null;
 
 function frameBytes(id: number, body: unknown, isResponse: boolean): Buffer {
     const arr = isResponse ? [id, body, null] : [id, body];
@@ -98,8 +108,13 @@ async function acceptOne(server: Server): Promise<Socket> {
     return new Promise((resolve) => server.once("connection", resolve));
 }
 
+function xcomKey(body: Record<string, unknown>): string {
+    return [body["dag_id"], body["run_id"], body["task_id"], body["key"]].join("|");
+}
+
 async function driveSupervisor(
     initialFrame: unknown,
+    responder?: Responder,
 ): Promise<MockResult> {
     const comm = await listen();
     const logs = await listen();
@@ -120,6 +135,7 @@ async function driveSupervisor(
     commSock.write(frameBytes(0, initialFrame, true));
 
     let firstResponse: MockResult["firstResponse"] = null;
+    const runtimeRequests: MockResult["runtimeRequests"] = [];
     const logChunks: Buffer[] = [];
     let commBuf: Buffer = Buffer.from(new Uint8Array(0));
 
@@ -128,8 +144,24 @@ async function driveSupervisor(
         const taken = readFrames(commBuf);
         commBuf = taken.rest;
         for (const f of taken.frames) {
+            if (f.arity === 2) {
+                // Runtime-initiated request (mid-task RPC). Forward to the
+                // responder; reply on the same id with an arity-3 frame.
+                const body = (f.body ?? {}) as Record<string, unknown>;
+                const msgType = String(body["type"] ?? "");
+                runtimeRequests.push({ type: msgType, body });
+                if (responder) {
+                    const reply = responder(msgType, body);
+                    if (reply) {
+                        commSock.write(frameBytes(f.id, reply.body, true));
+                    }
+                }
+                continue;
+            }
+            // Arity-3: a response from the runtime. The terminal frame
+            // (SucceedTask / TaskState) lands here.
             if (firstResponse === null) {
-                firstResponse = { id: f.id, body: f.body, isResponse: f.arity >= 3 };
+                firstResponse = { id: f.id, body: f.body, isResponse: true };
             }
         }
     });
@@ -146,7 +178,7 @@ async function driveSupervisor(
     const lines = Buffer.concat(logChunks).toString("utf8").split("\n").filter(Boolean);
     const logRecords = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
 
-    return { firstResponse, logRecords };
+    return { firstResponse, logRecords, runtimeRequests };
 }
 
 describe("coordinator runtime integration", () => {
@@ -196,6 +228,101 @@ describe("coordinator runtime integration", () => {
             type: "TaskState",
             state: "removed",
         });
+    });
+
+    it("exposes a client that round-trips GetVariable / SetXCom / GetXCom", async () => {
+        const xcomStore = new Map<string, unknown>();
+        let observedGreeting: string | null = "<unset>";
+
+        registerTask("say_hello", async ({ ctx, client }) => {
+            // The coordinator-mode handler MUST receive a client.
+            if (!client) throw new Error("client missing in coordinator mode");
+
+            observedGreeting = await client.getVariable("e6_greeting");
+            await client.setXCom({
+                key: "echo",
+                value: `node says: ${observedGreeting}`,
+                dagId: ctx.dagId,
+                taskId: ctx.taskId,
+                runId: ctx.runId,
+            });
+            const back = await client.getXCom({
+                key: "echo",
+                dagId: ctx.dagId,
+                taskId: ctx.taskId,
+                runId: ctx.runId,
+            });
+            if (back !== `node says: ${observedGreeting}`) {
+                throw new Error(`xcom round-trip mismatch: ${back}`);
+            }
+        });
+
+        const responder: Responder = (msgType, body) => {
+            if (msgType === "GetVariable") {
+                return {
+                    body: {
+                        type: "VariableResult",
+                        key: body["key"],
+                        value: "hello from airflow",
+                    },
+                };
+            }
+            if (msgType === "SetXCom") {
+                const k = xcomKey(body);
+                xcomStore.set(k, body["value"]);
+                // Supervisor sends an empty arity-3 frame on success.
+                return { body: null };
+            }
+            if (msgType === "GetXCom") {
+                const k = xcomKey(body);
+                const value = xcomStore.get(k) ?? null;
+                return {
+                    body: { type: "XComResult", key: body["key"], value },
+                };
+            }
+            return null;
+        };
+
+        const result = await driveSupervisor(makeStartupDetails("say_hello"), responder);
+
+        expect(result.firstResponse!.body).toMatchObject({ type: "SucceedTask" });
+        expect(observedGreeting).toBe("hello from airflow");
+
+        const requestTypes = result.runtimeRequests.map((r) => r.type);
+        expect(requestTypes).toEqual(["GetVariable", "SetXCom", "GetXCom"]);
+
+        const setReq = result.runtimeRequests.find((r) => r.type === "SetXCom")!.body;
+        expect(setReq).toMatchObject({
+            key: "echo",
+            value: "node says: hello from airflow",
+            dag_id: "test_dag",
+            task_id: "say_hello",
+            run_id: "r1",
+        });
+    });
+
+    it("returns null from getVariable when the supervisor signals NOT_FOUND", async () => {
+        let observed: string | null = "<unset>";
+        registerTask("say_hello", async ({ client }) => {
+            observed = await client!.getVariable("missing_key");
+        });
+
+        const responder: Responder = (msgType) => {
+            if (msgType === "GetVariable") {
+                return {
+                    body: {
+                        type: "ErrorResponse",
+                        error: "VARIABLE_NOT_FOUND",
+                        detail: { key: "missing_key" },
+                    },
+                };
+            }
+            return null;
+        };
+
+        const result = await driveSupervisor(makeStartupDetails("say_hello"), responder);
+        expect(result.firstResponse!.body).toMatchObject({ type: "SucceedTask" });
+        expect(observed).toBeNull();
     });
 
     it("looks up handler by namespaced 'dag_id.task_id' before bare task_id", async () => {

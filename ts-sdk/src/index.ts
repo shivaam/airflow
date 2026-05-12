@@ -23,7 +23,10 @@ export { registerTask, listRegisteredTasks } from "./registry.js";
 export { startWorker } from "./worker.js";
 export {
     startCoordinatorRuntime,
-    type StartCoordinatorRuntimeOptions, // needs to separate types
+    type StartCoordinatorRuntimeOptions,
+    type CoordinatorClient,
+    type GetXComOpts,
+    type SetXComOpts,
 } from "./coordinator/index.js";
 export type { TaskContext, TaskHandler, TaskHandlerArgs, StartWorkerOptions } from "./types.js";
 export { EdgeApiError, ExecutionApiError } from "./errors.js";

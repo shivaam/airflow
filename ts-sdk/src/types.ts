@@ -32,6 +32,7 @@
  *  (XCom, Variables, Connections, dag_run.conf, etc.). */
 
 import type { EdgeJobFetched } from "./edge-client.js";
+import type { CoordinatorClient } from "./coordinator/client.js";
 
 export interface TaskContext {
     readonly dagId: string;
@@ -50,16 +51,15 @@ export interface TaskContext {
 /** Arguments passed to every task handler. Adding fields is non-breaking
  *  for consumers that destructure by name.
  *
- *  `job` is Edge-mode-only and undefined when the handler is invoked
- *  through the coordinator runtime (`startCoordinatorRuntime()`).
- *  Handlers that need the raw Edge job payload should branch on
- *  `args.job !== undefined`; handlers that only consume `ctx` work in
- *  both modes unchanged. */
-//## The above comment needs to be cleaned. WE can probably rename job to edgeJob or something. Dont wanna copule tboth interfaces
-
+ *  Mode-specific fields are optional so a handler that only consumes
+ *  `ctx` works in both modes unchanged:
+ *  - `job` is present in Edge worker mode only (`startWorker`).
+ *  - `client` is present in coordinator mode only (`startCoordinatorRuntime`);
+ *    the Edge-mode equivalent ships in a follow-up. */
 export interface TaskHandlerArgs {
     ctx: TaskContext;
     readonly job?: EdgeJobFetched;
+    readonly client?: CoordinatorClient;
 }
 
 // TODO(pr3): capture handler return value and push to XCom (currently
