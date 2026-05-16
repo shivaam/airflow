@@ -131,11 +131,19 @@ function isErrorFrame(frame: MaybeErrorFrame): boolean {
     return body?.type === "ErrorResponse";
 }
 
+// Exact supervisor ErrorType codes that mean "absent", not "failed".
+// Matches `airflow.sdk.exceptions.ErrorType` — a substring test would
+// misread a value/error that merely contains "NOT_FOUND". See
+// DESIGN.md CD-2.
+const NOT_FOUND_CODES = new Set([
+    "VARIABLE_NOT_FOUND",
+    "XCOM_NOT_FOUND",
+    "CONNECTION_NOT_FOUND",
+]);
+
 function isNotFoundError(frame: MaybeErrorFrame): boolean {
     const err = extractError(frame);
-    // ErrorType in the SDK is a free-form string; supervisor uses
-    // "VARIABLE_NOT_FOUND" and "XCOM_NOT_FOUND" for the not-found paths.
-    return typeof err === "string" && err.toUpperCase().includes("NOT_FOUND");
+    return err != null && NOT_FOUND_CODES.has(err);
 }
 
 function rpcError(op: string, frame: MaybeErrorFrame): Error {
