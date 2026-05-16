@@ -91,12 +91,17 @@ export function decodePayload(payload: Buffer): Frame {
     if (typeof id !== "number") {
         throw new Error(`Frame id must be number, got ${typeof id}`);
     }
-    const isResponse = arity >= 3;
-    const frame: Frame = { id, body, isResponse };
-    if (error !== undefined && error !== null) {
-        frame.error = error;
-    }
-    return frame;
+    // Specific per-failure messages above are deliberate — this is a
+    // cross-language wire boundary and a vague decode error there costs
+    // hours. Construction itself is a single expression: error is
+    // omitted (not set to null) when absent so `"error" in frame`
+    // stays a faithful arity signal.
+    return {
+        id,
+        body,
+        isResponse: arity >= 3,
+        ...(error != null ? { error } : {}),
+    };
 }
 
 /**
