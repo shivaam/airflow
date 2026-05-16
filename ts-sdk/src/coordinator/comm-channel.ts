@@ -31,63 +31,87 @@ import {
 
 type FrameHandler = (frame: Frame) => void | Promise<void>;
 
+/** What `CommChannel.connect` resolves to: the live channel plus the
+ *  supervisor's first frame (StartupDetails / DagFileParseRequest),
+ *  already in hand so there is no "frame arrived with no consumer"
+ *  window for the caller to mishandle. */
+export interface CommConnection {
+    channel: CommChannel;
+    firstFrame: Frame;
+}
+
 export class CommChannel {
     private readonly sock: Socket;
     private readonly reader = new FrameReader();
     private nextId = 0;
     private pendingReplies = new Map<number, (frame: Frame) => void>();
-    private waitingForFrame: ((frame: Frame) => void) | null = null;
     private closed = false;
     private closeError: Error | null = null;
-    private inbox: Frame[] = [];
-    private onIncoming: FrameHandler | null = null;
+    // First-frame one-shot latch. The supervisor's opening frame can
+    // arrive before `connect()` attaches its awaiter, so it is stashed
+    // here rather than dropped (the only buffering this channel does —
+    // exactly one frame, never an unbounded queue).
+    private firstFrameSeen = false;
+    private stashedFirstFrame: Frame | null = null;
+    private onFirstFrame: ((frame: Frame) => void) | null = null;
+    // Supervisor-initiated frames AFTER the first one. The current
+    // protocol pushes none; a richer supervisor might.
+    private onSupervisorFrame: FrameHandler | null = null;
 
-    constructor(sock: Socket) {
+    private constructor(sock: Socket) {
         this.sock = sock;
         sock.on("data", (chunk) => this.handleData(chunk));
         sock.on("close", () => this.handleClose(null));
         sock.on("error", (err) => this.handleClose(err));
     }
 
-    static async connect(addr: string): Promise<CommChannel> {
+    /** Connect and wait for the supervisor's first frame. Resolving
+     *  only once that frame is in hand collapses the old
+     *  waitForFrame/inbox/setIncomingHandler tangle: the timing gap
+     *  they patched no longer exists. */
+    static async connect(addr: string): Promise<CommConnection> {
         const [host, portStr] = splitHostPort(addr);
-        return new Promise((resolve, reject) => {
-            const sock = new Socket();
-            sock.once("connect", () => {
-                sock.setNoDelay(true);
-                resolve(new CommChannel(sock));
+        const sock: Socket = await new Promise((resolve, reject) => {
+            const s = new Socket();
+            s.once("connect", () => {
+                s.setNoDelay(true);
+                resolve(s);
             });
-            sock.once("error", reject);
-            sock.connect(Number.parseInt(portStr, 10), host);
+            s.once("error", reject);
+            s.connect(Number.parseInt(portStr, 10), host);
         });
+        const channel = new CommChannel(sock);
+        const firstFrame = await channel.awaitFirstFrame();
+        return { channel, firstFrame };
     }
 
-    /** Install a handler for incoming supervisor-initiated frames (e.g.
-     *  the first StartupDetails / DagFileParseRequest). */
-    setIncomingHandler(handler: FrameHandler): void {
-        this.onIncoming = handler;
-        while (this.inbox.length > 0) {
-            const frame = this.inbox.shift()!;
-            void this.dispatchIncoming(frame);
-        }
-    }
-
-    /** Wait for exactly one incoming supervisor-initiated frame. */
-    waitForFrame(): Promise<Frame> {
-        if (this.inbox.length > 0) {
-            return Promise.resolve(this.inbox.shift()!);
+    private awaitFirstFrame(): Promise<Frame> {
+        if (this.stashedFirstFrame) {
+            return Promise.resolve(this.stashedFirstFrame);
         }
         if (this.closed) {
-            return Promise.reject(this.closeError ?? new Error("Comm channel closed"));
+            return Promise.reject(
+                this.closeError ?? new Error("Comm channel closed before first frame"),
+            );
         }
         return new Promise((resolve, reject) => {
-            this.waitingForFrame = (frame) => resolve(frame);
+            this.onFirstFrame = resolve;
             this.sock.once("close", () => {
-                if (this.waitingForFrame) {
-                    reject(this.closeError ?? new Error("Comm channel closed"));
+                if (!this.firstFrameSeen) {
+                    reject(
+                        this.closeError ??
+                            new Error("Comm channel closed before first frame"),
+                    );
                 }
             });
         });
+    }
+
+    /** Register a handler for supervisor-initiated frames that arrive
+     *  after the first one. Without a handler such a frame is logged
+     *  and dropped — never silently buffered. */
+    onSupervisorInitiatedFrame(handler: FrameHandler): void {
+        this.onSupervisorFrame = handler;
     }
 
     /** Send a request to the supervisor and await its matching response. */
@@ -136,9 +160,13 @@ export class CommChannel {
     }
 
     private route(frame: Frame): void {
-        // Frame ARITY (response vs request) is authoritative. Supervisor
-        // and runtime keep independent id counters that both start at 0,
-        // so collision across directions is normal — never route by id alone.
+        // Two cases, arity-authoritative. (1) An answer to a question
+        // we asked: an arity-3 response whose id matches a pending
+        // request. (2) Everything else is supervisor-initiated —
+        // including the arity-3 StartupDetails wart, which is
+        // structurally a response but has no matching pending request.
+        // Independent per-direction id counters (both start at 0) mean
+        // id alone can never be the discriminator.
         if (frame.isResponse) {
             const pending = this.pendingReplies.get(frame.id);
             if (pending) {
@@ -146,29 +174,26 @@ export class CommChannel {
                 pending(frame);
                 return;
             }
-            // No pending request matches. The Airflow coordinator's
-            // `_send_startup_details` emits a `_ResponseFrame` (arity 3)
-            // to deliver the initial StartupDetails — semantically a
-            // supervisor-initiated request. Fall through so the runtime
-            // can still dispatch.
         }
-        if (this.waitingForFrame) {
-            const cb = this.waitingForFrame;
-            this.waitingForFrame = null;
-            cb(frame);
+        if (!this.firstFrameSeen) {
+            this.firstFrameSeen = true;
+            if (this.onFirstFrame) this.onFirstFrame(frame);
+            else this.stashedFirstFrame = frame;
             return;
         }
-        if (this.onIncoming) {
-            void this.dispatchIncoming(frame);
+        if (this.onSupervisorFrame) {
+            void this.dispatchSupervisorFrame(frame);
             return;
         }
-        this.inbox.push(frame);
+        process.stderr.write(
+            `[comm-channel] dropped supervisor-initiated frame id=${frame.id} (no handler)\n`,
+        );
     }
 
-    private async dispatchIncoming(frame: Frame): Promise<void> {
-        if (!this.onIncoming) return;
+    private async dispatchSupervisorFrame(frame: Frame): Promise<void> {
+        if (!this.onSupervisorFrame) return;
         try {
-            await this.onIncoming(frame);
+            await this.onSupervisorFrame(frame);
         } catch (err) {
             process.stderr.write(
                 `[comm-channel] handler error for frame id=${frame.id}: ${

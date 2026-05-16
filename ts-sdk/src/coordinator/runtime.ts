@@ -91,11 +91,10 @@ export async function startCoordinatorRuntime(
         registered_tasks: listRegisteredTasks().length,
     });
 
-    const comm = await CommChannel.connect(parsed.commAddr);
+    const { channel: comm, firstFrame } = await CommChannel.connect(parsed.commAddr);
     logs.debug("Connected comm socket", { commAddr: parsed.commAddr });
 
     try {
-        const firstFrame = await comm.waitForFrame();
         const body = asMsgFromSupervisor(firstFrame.body);
         logs.debug("First frame received", { type: body.type });
 
