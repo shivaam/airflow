@@ -45,7 +45,10 @@ export type {
     MsgFromRuntime,
 } from "./protocol.js";
 export type {
+    TaskClient,
+    /** @deprecated use TaskClient */
     CoordinatorClient,
     GetXComOpts,
     SetXComOpts,
 } from "./client.js";
+export { VariableNotFoundError } from "./client.js";

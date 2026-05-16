@@ -32,7 +32,7 @@
  *  (XCom, Variables, Connections, dag_run.conf, etc.). */
 
 import type { EdgeJobFetched } from "./edge-client.js";
-import type { CoordinatorClient } from "./coordinator/client.js";
+import type { TaskClient } from "./coordinator/client.js";
 
 export interface TaskContext {
     readonly dagId: string;
@@ -59,7 +59,7 @@ export interface TaskContext {
 export interface TaskHandlerArgs {
     ctx: TaskContext;
     readonly job?: EdgeJobFetched;
-    readonly client?: CoordinatorClient;
+    readonly client?: TaskClient;
 }
 
 // TODO(pr3): capture handler return value and push to XCom (currently

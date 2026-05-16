@@ -167,7 +167,7 @@ async function handleTask(
     }
 
     const ctx = buildContext(details);
-    const client = createCoordinatorClient(comm);
+    const client = createCoordinatorClient(comm, ctx);
     const args: TaskHandlerArgs = { ctx, client };
     logs.info("Running task", {
         dag_id: ctx.dagId,
