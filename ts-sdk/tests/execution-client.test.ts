@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { makeExecutionClient } from "../src/execution-client.js";
+import { makeExecutionClient } from "../src/edge/execution-client.js";
 import { ExecutionApiError } from "../src/errors.js";
 
 const BASE_URL = "http://airflow.test";

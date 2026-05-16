@@ -20,7 +20,7 @@
 // Public API surface — @apache-airflow/ts-sdk (covered by SemVer).
 
 export { registerTask, listRegisteredTasks } from "./registry.js";
-export { startWorker } from "./worker.js";
+export { startWorker } from "./edge/worker.js";
 export {
     startCoordinatorRuntime,
     type StartCoordinatorRuntimeOptions,

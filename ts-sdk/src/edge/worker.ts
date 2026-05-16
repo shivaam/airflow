@@ -33,10 +33,10 @@ import {
     type EdgeJobFetched,
 } from "./edge-client.js";
 import { makeExecutionClient } from "./execution-client.js";
-import { ExecutionApiError, formatError } from "./errors.js";
-import { getRegisteredTask } from "./registry.js";
-import type { StartWorkerOptions, TaskContext } from "./types.js";
-import { sleepAbortable } from "./utils/retry.js";
+import { ExecutionApiError, formatError } from "../errors.js";
+import { getRegisteredTask } from "../registry.js";
+import type { StartWorkerOptions, TaskContext } from "../types.js";
+import { sleepAbortable } from "../utils/retry.js";
 import { resolveWorkerOptions } from "./worker-options.js";
 
 const AIRFLOW_VERSION = process.env.AIRFLOW__EDGE__AIRFLOW_VERSION ?? "3.3.0";

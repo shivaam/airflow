@@ -21,7 +21,7 @@
 
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
-import type { StartWorkerOptions } from "./types.js";
+import type { StartWorkerOptions } from "../types.js";
 
 export const DEFAULTS = {
     pollIntervalInMs: 5_000,

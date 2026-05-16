@@ -34,9 +34,9 @@
 // TODO(pr3): getVariable, getConnection, XCom push/pull.
 
 import createClient, { type Middleware } from "openapi-fetch";
-import type { paths } from "./generated/execution.js";
-import { ExecutionApiError } from "./errors.js";
-import { withRetry, type RetryConfig } from "./utils/retry.js";
+import type { paths } from "../generated/execution.js";
+import { ExecutionApiError } from "../errors.js";
+import { withRetry, type RetryConfig } from "../utils/retry.js";
 
 /** TI lifecycle states written on the wire. */
 export const TI_STATE = {

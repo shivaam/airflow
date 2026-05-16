@@ -22,10 +22,10 @@
 // Edge API uses FastAPI's raw Header dependency.
 
 import createClient, { type Middleware } from "openapi-fetch";
-import type { paths, components } from "./generated/edge.js";
-import { EdgeApiError } from "./errors.js";
-import { signEdgeJwt, pathToEdgeMethod } from "./utils/jwt.js";
-import { withRetry, type RetryConfig } from "./utils/retry.js";
+import type { paths, components } from "../generated/edge.js";
+import { EdgeApiError } from "../errors.js";
+import { signEdgeJwt, pathToEdgeMethod } from "../utils/jwt.js";
+import { withRetry, type RetryConfig } from "../utils/retry.js";
 
 const EDGE_PREFIX = "/edge_worker/v1";
 type EDGE_PREFIX = typeof EDGE_PREFIX;

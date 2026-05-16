@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { makeEdgeClient, type WorkerStateBody } from "../src/edge-client.js";
+import { makeEdgeClient, type WorkerStateBody } from "../src/edge/edge-client.js";
 import { EdgeApiError } from "../src/errors.js";
 
 const SECRET = "test-secret-not-for-prod";

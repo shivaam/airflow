@@ -31,7 +31,7 @@
  *  Minimal in PR #1 — see TODOs above for the APIs user tasks will need
  *  (XCom, Variables, Connections, dag_run.conf, etc.). */
 
-import type { EdgeJobFetched } from "./edge-client.js";
+import type { EdgeJobFetched } from "./edge/edge-client.js";
 import type { TaskClient } from "./coordinator/client.js";
 
 export interface TaskContext {
