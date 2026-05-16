@@ -20,7 +20,13 @@ mechanism.**
 
 ---
 
-## 1. comm-channel: collapse the Category-B receive side — AGREED
+## 1. comm-channel: collapse the Category-B receive side — DONE
+> DONE 2026-05-12 (commit `2f3ce280fd`, Option A). Chose A. One first-
+> frame latch retained (the supervisor frame can land before
+> `connect()` attaches its awaiter) — not an unbounded inbox. `route`
+> is the 2-branch arity decision as planned. The "tiny state machine"
+> stayed a single parse-vs-task branch in runtime.ts (deliberately did
+> NOT build a 2-state FSM abstraction — name for the consumer).
 
 Today there are **four** mechanisms for one direction (supervisor-initiated
 frames): `waitForFrame`, `onIncoming`, `inbox`, `dispatchIncoming`, plus a
@@ -41,13 +47,18 @@ Plan:
   primitive we don't need; the connect()-returns-first-frame shape is
   simpler and queue-free).
 
-## 2. Naming: `onIncoming` → `onSupervisorInitiatedFrame` — AGREED
+## 2. Naming: `onIncoming` → `onSupervisorInitiatedFrame` — DONE
+> DONE 2026-05-12 (folded into commit `2f3ce280fd`).
 
 `onIncoming` is vague — *everything* off the socket is "incoming",
 including responses to our own requests. The name should say it's the
 supervisor starting a conversation we didn't start.
 
-## 3. Naming: `CoordinatorClient` interface → mode-agnostic — AGREED
+## 3. Naming: `CoordinatorClient` interface → mode-agnostic — DONE
+> DONE 2026-05-12 (commit `d6deaaf38f`). Picked `TaskClient`.
+> `CoordinatorClient` kept as a `@deprecated` alias for one release.
+> Done together with the parking-lot ergonomics item (context-bound
+> client) so the whole surface settled in one pass.
 
 The **interface** is the cross-mode contract that edge mode will also
 implement; naming it after one mode will read as a lie once
@@ -57,7 +68,9 @@ implement; naming it after one mode will read as a lie once
 - Keep `createCoordinatorClient(comm)` and (future) `createEdgeClient(edge)`
   as the two transport implementations of that interface.
 
-## 4. Folder symmetry: add `src/edge/` — AGREED
+## 4. Folder symmetry: add `src/edge/` — DONE
+> DONE 2026-05-12 (commit `b1ad8684ef`). git-tracked as renames.
+> package.json exports/files are dir-level — public entry unchanged.
 
 `coordinator/` is a folder; edge-mode files are loose at `src/` root.
 Mirror the structure:
@@ -82,7 +95,9 @@ it *benefits* from item 1 — if `connect()` returns the first frame,
 runtime.ts:94-98 collapse into one line and `waitForFrame` disappears from
 its surface. No standalone runtime.ts refactor.
 
-## 6. `decodePayload` validation tidy — DEFERRED
+## 6. `decodePayload` validation tidy — DONE
+> DONE 2026-05-12 (commit `d9c07de68b`). Option 2 as planned;
+> per-failure messages kept; single return + conditional spread.
 
 User said "later modify". Chosen shape = "option 2": keep
 **specific per-failure error messages** (valuable at a cross-language wire
@@ -94,51 +109,67 @@ internal cleanup, no wire change.
 
 ## Robustness / failure topics to work through
 
-Workflow: Shivam reasons from intuition FIRST, then we audit whether the
-code handles it. Do not pre-spoil with answers. Status per item:
-`TODO` (not discussed) · `DISCUSSED` · `AUDITED` (checked vs code) ·
-`GAP` (code does NOT handle — becomes a refactor item) · `OK`.
+Workflow note: the original intent was Shivam-reasons-first, then
+audit. For the autonomous polish push these were audited straight
+against code (research+log only, no fixes) — see the full evidence in
+`airflow-task-sdk/experiments/coordinator/ROBUSTNESS-AUDIT.md`. The
+Socratic walk-through is still worth doing for L1/L2/X1 when those get
+fixed; the verdicts below won't change, but the reasoning is good to
+internalize.
+
+Status: `AUDITED` done · `GAP` code does not handle (future fix) ·
+`GAP*` gap by design/documented · `OK`.
 
 Lifecycle / hangs
-- [TODO] L1: supervisor never sends first frame — does `waitForFrame()`
-  hang forever? startup timeout?
-- [TODO] L2: `request()` sent, supervisor never replies — hang forever?
-  per-request timeout?
-- [TODO] L3: after task finishes, does the Node process actually exit, or
-  do dangling sockets/listeners keep the event loop alive?
+- [GAP] L1: no startup timeout — connected-but-silent supervisor hangs
+  Node forever. High. (release blocker)
+- [GAP] L2: no per-request timeout — never-answered RPC hangs the
+  handler forever. High. (release blocker)
+- [OK] L3: clean exit — finally ends both sockets, no unref'd timers.
 
 Connection death
-- [TODO] C1: socket closes mid-frame (partial frame buffered in
-  FrameReader) — buffered bytes + waiters?
-- [TODO] C2: `handleClose` rejects `pendingReplies` — does it also wake
-  `waitForFrame` / `inbox` waiters, or can they hang?
-- [TODO] C3: Node crashes mid-task (uncaught throw) — supervisor gets clean
-  failure or hangs?
+- [OK] C1: partial-frame buffer GC'd, pending rejected, no hang.
+- [OK] C2: **improved by item 1** — first-frame awaiter has its own
+  close→reject; `pendingReplies` rejected. No stranded waiter.
+- [OK] C3: handler throw → TaskState{failed} (tested); hard crash →
+  supervisor derives FAILED from exit (E4-proven, no zombie).
 
 Backpressure / volume
-- [TODO] B1: Node logs faster than supervisor drains — log channel buffer
-  unbounded (memory)?
-- [TODO] B2: `sock.write()` with full kernel buffer — Node writable
-  backpressure handled?
-- [TODO] B3: very large XCom value (multi-MB frame) — framing sane?
-  (relates to the `Buffer.concat` O(n^2) note in item-1 discussion)
+- [GAP] B1: `LogChannel.send` ignores `sock.write` backpressure —
+  unbounded log buffering for a chatty/long task. Medium.
+- [OK] B2: comm path is lockstep small frames; only the log channel
+  (= B1) is exposed.
+- [GAP] B3: correctness OK (uint32 framing matches Python 2^32);
+  `FrameReader` `Buffer.concat`-per-chunk is O(n²) for large frames.
+  Low–Med.
 
 Cancellation
-- [TODO] X1: execution timeout / SIGTERM while task hangs — `buildContext`
-  admits "no SIGTERM-drain story"; what happens to in-flight work +
-  the response frame?
+- [GAP*] X1: by design — `ctx.signal` never aborts in coordinator
+  mode; SIGTERM → FAILED, no zombie (E4). No graceful drain / handler
+  cleanup hook. Documented in COORDINATOR.md "Deferred".
 
 Concurrency correctness
-- [TODO] N1: many `request()`s in flight (pipelining) — id↔response
-  correlation stays correct? any accidental FIFO-ordering assumption?
+- [OK] N1: id-map + arity correlation, no FIFO assumption. Design-
+  correct; add a pipelining stress test when hardening.
 
 ## Parking lot / open questions
 
-- Client ergonomics: `GetXComOpts` makes the user re-pass
-  `dagId/taskId/runId` on every call, but those are already in
-  `TaskContext`. Consider binding the client to the context so calls are
-  `client.getXCom({ key })`. Bigger API decision — revisit when the edge
-  client lands (so both modes get the same ergonomic shape).
-- Confirm item 1 Option A doesn't complicate the parse-vs-task branch
-  (runtime.ts:102-105) — it shouldn't, the branch just moves to consume the
-  returned `firstFrame`.
+- [DONE 2026-05-12, commit `d6deaaf38f`] Client ergonomics: client is
+  now bound to `TaskContext` — `client.getXCom({ key })` works;
+  `dagId/taskId/runId` optional, default from ctx, explicit override
+  still allowed for cross-task XCom. Promoted out of the parking lot
+  and done with item 3 (one API-surface pass) rather than waiting for
+  the edge client; the edge `createEdgeClient` will implement the same
+  `TaskClient` interface so both modes still converge.
+- [CONFIRMED] Item 1 Option A did not complicate the parse-vs-task
+  branch — `runtime.ts` just consumes the returned `firstFrame`;
+  integration regression oracle 6/6 unchanged.
+
+## Remaining for a future hardening push (not this scope)
+
+Robustness GAPs from the audit (see
+`airflow-task-sdk/experiments/coordinator/ROBUSTNESS-AUDIT.md`),
+ordered: **L1** (startup timeout), **L2** (per-request timeout) —
+release blockers — then **B1** (log backpressure), **B3** (O(n²)
+large-frame reassembly), **X1** (graceful SIGTERM drain / cancellation,
+by-design gap). Plus a pipelining stress test for N1.
