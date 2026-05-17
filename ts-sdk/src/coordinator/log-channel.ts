@@ -26,7 +26,8 @@
 // `event`, `level`, `logger`, `timestamp`. Extra fields pass through
 // as structured log keys.
 
-import { Socket } from "node:net";
+import type { Socket } from "node:net";
+import { connectTcp } from "./tcp-connect.js";
 
 export type LogLevel = "debug" | "info" | "warning" | "error";
 
@@ -46,16 +47,7 @@ export class LogChannel {
     }
 
     static async connect(addr: string): Promise<LogChannel> {
-        const [host, portStr] = splitHostPort(addr);
-        return new Promise((resolve, reject) => {
-            const sock = new Socket();
-            sock.once("connect", () => {
-                sock.setNoDelay(true);
-                resolve(new LogChannel(sock));
-            });
-            sock.once("error", reject);
-            sock.connect(Number.parseInt(portStr, 10), host);
-        });
+        return new LogChannel(await connectTcp(addr));
     }
 
     send(record: Omit<LogRecord, "timestamp"> & { timestamp?: string }): void {
@@ -87,10 +79,4 @@ export class LogChannel {
             this.sock.end(() => resolve());
         });
     }
-}
-
-function splitHostPort(addr: string): [string, string] {
-    const idx = addr.lastIndexOf(":");
-    if (idx < 0) throw new Error(`Address must be host:port, got ${addr}`);
-    return [addr.slice(0, idx), addr.slice(idx + 1)];
 }

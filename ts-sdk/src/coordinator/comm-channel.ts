@@ -21,13 +21,14 @@
 // Mirrors the supervisor side of `task-sdk/.../comms.py` and the Kotlin
 // SDK's `CoordinatorComm` in `Comms.kt`.
 
-import { Socket } from "node:net";
+import type { Socket } from "node:net";
 import {
     encodeRequest,
     encodeResponse,
     FrameReader,
     type Frame,
 } from "./frames.js";
+import { connectTcp } from "./tcp-connect.js";
 
 type FrameHandler = (frame: Frame) => void | Promise<void>;
 
@@ -70,16 +71,7 @@ export class CommChannel {
      *  waitForFrame/inbox/setIncomingHandler tangle: the timing gap
      *  they patched no longer exists. */
     static async connect(addr: string): Promise<CommConnection> {
-        const [host, portStr] = splitHostPort(addr);
-        const sock: Socket = await new Promise((resolve, reject) => {
-            const s = new Socket();
-            s.once("connect", () => {
-                s.setNoDelay(true);
-                resolve(s);
-            });
-            s.once("error", reject);
-            s.connect(Number.parseInt(portStr, 10), host);
-        });
+        const sock = await connectTcp(addr);
         const channel = new CommChannel(sock);
         const firstFrame = await channel.awaitFirstFrame();
         return { channel, firstFrame };
@@ -216,10 +208,4 @@ export class CommChannel {
         }
         this.pendingReplies.clear();
     }
-}
-
-function splitHostPort(addr: string): [string, string] {
-    const idx = addr.lastIndexOf(":");
-    if (idx < 0) throw new Error(`Address must be host:port, got ${addr}`);
-    return [addr.slice(0, idx), addr.slice(idx + 1)];
 }
