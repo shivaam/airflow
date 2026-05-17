@@ -47,8 +47,22 @@ Plan:
   primitive we don't need; the connect()-returns-first-frame shape is
   simpler and queue-free).
 
-## 2. Naming: `onIncoming` → `onSupervisorInitiatedFrame` — DONE
+## 2. Naming: `onIncoming` → `onSupervisorInitiatedFrame` — DONE, then REMOVED
 > DONE 2026-05-12 (folded into commit `2f3ce280fd`).
+> UPDATE 2026-05-16: the renamed hook (`onSupervisorInitiatedFrame` +
+> `onSupervisorFrame` field + `dispatchSupervisorFrame` + the
+> `FrameHandler` type) was **removed entirely** — speculative YAGNI,
+> not protocol-faithful. Checked the two reference implementations the
+> header cites: Python `comms.py:26-28` is normative — *"No messages
+> are sent to task process except in response to a request"* (supervisor
+> only ever writes `_ResponseFrame`; the sole unprompted frame is the
+> `StartupDetails` greeting). The Kotlin `CoordinatorComm` (`Comms.kt`)
+> has only a greeting branch then strict request/reply — no
+> post-greeting supervisor-initiated path. Zero callers in `ts-sdk`.
+> The naming *lesson* stands (name for the consumer, not the mechanism);
+> the *capability* it named did not exist. `deliverSupervisorFrame` now
+> models exactly greeting→replies and logs any other post-greeting
+> supervisor frame as the protocol anomaly it is (never buffers).
 
 `onIncoming` is vague — *everything* off the socket is "incoming",
 including responses to our own requests. The name should say it's the

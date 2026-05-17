@@ -44,7 +44,9 @@ export class Deferred<T> {
         });
     }
 
-    /** True once `resolve` or `reject` has fired (further calls no-op). */
+    /** Whether `resolve`/`reject` has fired — for callers that need to
+     *  branch on it. Not needed to guard `resolve`/`reject`; those are
+     *  already idempotent. */
     get settled(): boolean {
         return this.done;
     }

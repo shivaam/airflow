@@ -26,9 +26,10 @@ describe("splitHostPort", () => {
         ["127.0.0.1:8080", "127.0.0.1", "8080"],
         ["localhost:5432", "localhost", "5432"],
         // Splits on the LAST colon, so a bare IPv6 host survives intact.
+        // (Result feeds Node's connect() as-is; the bracketed "[::1]"
+        // form is intentionally not handled — Node doesn't strip
+        // brackets, so it wouldn't connect anyway.)
         ["::1:8080", "::1", "8080"],
-        // ...and the bracketed IPv6 form does too.
-        ["[::1]:9000", "[::1]", "9000"],
     ])("splits %s into host=%s port=%s", (addr, host, port) => {
         expect(splitHostPort(addr)).toEqual([host, port]);
     });

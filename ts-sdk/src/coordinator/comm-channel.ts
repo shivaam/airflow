@@ -21,17 +21,13 @@
 // Mirrors the supervisor side of `task-sdk/.../comms.py` and the Kotlin
 // SDK's `CoordinatorComm` in `Comms.kt`.
 //
-// Mental model: a phone call.
-//   - You ask questions and await the matching answers
-//     (`request()` → reply correlated by id).
-//   - The other side can also say something unprompted
-//     (`onSupervisorInitiatedFrame`).
-//   - The first thing they say is the greeting — exposed as the
-//     `greeting` promise, which `connect()` awaits.
-//
-// There is exactly ONE reader on the socket (this channel). The
-// greeting is simply the first supervisor-initiated frame, pre-caught
-// into a promise; no separate consumer, no pause/resume, no replay.
+// The channel is the sole reader on the socket. The task sends
+// requests and awaits id-correlated replies. The supervisor's only
+// unprompted frame is the greeting (StartupDetails /
+// DagFileParseRequest), pre-caught into the `greeting` promise that
+// `connect()` awaits — the protocol sends nothing else
+// supervisor-initiated (comms.py: "No messages are sent to task
+// process except in response to a request").
 
 import type { Socket } from "node:net";
 import {
@@ -42,8 +38,6 @@ import {
 } from "./frames.js";
 import { connectTcp } from "./tcp-connect.js";
 import { Deferred } from "./deferred.js";
-
-type FrameHandler = (frame: Frame) => void | Promise<void>;
 
 /** What `CommChannel.connect` resolves to: the live channel plus the
  *  supervisor's first frame (StartupDetails / DagFileParseRequest),
@@ -62,44 +56,31 @@ export class CommChannel {
     private closed = false;
     private closeError: Error | null = null;
 
-    // The greeting: the first supervisor-initiated frame, pre-caught.
-    // A promise IS the buffer — if the frame arrives before `connect()`
-    // awaits, it just settles and the value is retained. The
-    // settle-once invariant is the Deferred's, not hand-maintained
-    // across the two settle sites below.
+    // The greeting (first supervisor-initiated frame). The promise is
+    // its own buffer: arriving before `connect()` awaits is fine — it
+    // stays settled with the value, so there is no race to handle.
     private readonly greeting = new Deferred<Frame>();
-
-    // Supervisor-initiated frames AFTER the greeting. The current
-    // protocol pushes none; a richer supervisor might.
-    private onSupervisorFrame: FrameHandler | null = null;
 
     private constructor(sock: Socket) {
         this.sock = sock;
-        // The single reader. `connectTcp` returns a raw paused socket;
-        // attaching `data` here (synchronously, before any async data
-        // event can fire) is what starts the flow — nothing is missed,
-        // nothing is double-read.
+        // A `new Socket()` (from `connectTcp`) starts paused: it buffers
+        // inbound bytes and emits no `data` until a listener attaches
+        // and flips it to flowing. Attaching synchronously here — same
+        // tick as construction, before the event loop can deliver a
+        // read, and as the only reader — loses nothing, double-reads
+        // nothing.
         sock.on("data", (chunk) => this.handleData(chunk));
         sock.on("close", () => this.handleClose(null));
         sock.on("error", (err) => this.handleClose(err));
     }
 
-    /** Connect and wait for the supervisor's greeting. The channel is
-     *  the only socket reader; `greeting` settles as soon as the first
-     *  supervisor-initiated frame arrives (or rejects if the socket
-     *  dies first). */
+    /** Connect and wait for the supervisor's greeting; rejects if the
+     *  socket dies before it arrives. */
     static async connect(addr: string): Promise<CommConnection> {
         const sock = await connectTcp(addr);
         const channel = new CommChannel(sock);
         const firstFrame = await channel.greeting.promise;
         return { channel, firstFrame };
-    }
-
-    /** Register a handler for supervisor-initiated frames that arrive
-     *  after the greeting. Without a handler such a frame is logged and
-     *  dropped — never silently buffered. */
-    onSupervisorInitiatedFrame(handler: FrameHandler): void {
-        this.onSupervisorFrame = handler;
     }
 
     /** Send a request to the supervisor and await its matching response. */
@@ -148,11 +129,10 @@ export class CommChannel {
     }
 
     private route(frame: Frame): void {
-        // Arity-authoritative, two ways only: (1) an answer to a
-        // request we sent — an arity-3 response whose id matches a
-        // pending request; (2) everything else is supervisor-initiated.
-        // Independent per-direction id counters (both start at 0) mean
-        // id alone can never be the discriminator.
+        // Arity-authoritative (per-direction id counters both start at
+        // 0, so id alone can't discriminate): (1) an arity-3 response
+        // whose id matches a pending request → that reply;
+        // (2) anything else → supervisor-initiated.
         if (frame.isResponse) {
             const pending = this.pendingReplies.get(frame.id);
             if (pending) {
@@ -165,45 +145,28 @@ export class CommChannel {
     }
 
     private deliverSupervisorFrame(frame: Frame): void {
-        // The first supervisor-initiated frame is the greeting (this is
-        // the only "first" logic anywhere — and it reads like the
-        // mental model: the first thing they say).
+        // The supervisor's only unprompted frame is the greeting.
         if (!this.greeting.settled) {
             this.greeting.resolve(frame);
             return;
         }
-        if (this.onSupervisorFrame) {
-            void this.dispatchSupervisorFrame(frame);
-            return;
-        }
+        // Anything else supervisor-initiated is a protocol anomaly —
+        // comms.py guarantees "No messages are sent to task process
+        // except in response to a request". Surface it; never buffer.
         process.stderr.write(
-            `[comm-channel] dropped supervisor-initiated frame id=${frame.id} (no handler)\n`,
+            `[comm-channel] unexpected supervisor-initiated frame id=${frame.id} after greeting\n`,
         );
-    }
-
-    private async dispatchSupervisorFrame(frame: Frame): Promise<void> {
-        if (!this.onSupervisorFrame) return;
-        try {
-            await this.onSupervisorFrame(frame);
-        } catch (err) {
-            process.stderr.write(
-                `[comm-channel] handler error for frame id=${frame.id}: ${
-                    (err as Error).stack ?? err
-                }\n`,
-            );
-        }
     }
 
     private handleClose(err: Error | null): void {
         this.closed = true;
         this.closeError = err;
-        // Socket died before the greeting → `connect()`'s await throws,
-        // exactly as the old in-channel awaiter did.
-        if (!this.greeting.settled) {
-            this.greeting.reject(
-                err ?? new Error("Comm channel closed before first frame"),
-            );
-        }
+        // Before the greeting this rejects so `connect()` throws;
+        // after it, a no-op — the Deferred settles at most once, so no
+        // guard is needed here.
+        this.greeting.reject(
+            err ?? new Error("Comm channel closed before first frame"),
+        );
         for (const [, resolver] of this.pendingReplies) {
             resolver({
                 id: -1,
