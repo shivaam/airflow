@@ -41,40 +41,9 @@ import {
     type Frame,
 } from "./frames.js";
 import { connectTcp } from "./tcp-connect.js";
+import { Deferred } from "./deferred.js";
 
 type FrameHandler = (frame: Frame) => void | Promise<void>;
-
-/** A promise whose settlement is triggered from outside its executor
- *  (the classic "deferred"). Used for the greeting: produced by the
- *  socket data path, consumed by `connect()`'s await. Owns the
- *  settle-at-most-once invariant so callers don't hand-maintain it. */
-class Deferred<T> {
-    readonly promise: Promise<T>;
-    private done = false;
-    private res!: (v: T) => void;
-    private rej!: (e: Error) => void;
-    constructor() {
-        this.promise = new Promise<T>((res, rej) => {
-            this.res = res;
-            this.rej = rej;
-        });
-    }
-    get settled(): boolean {
-        return this.done;
-    }
-    resolve(v: T): void {
-        if (!this.done) {
-            this.done = true;
-            this.res(v);
-        }
-    }
-    reject(e: Error): void {
-        if (!this.done) {
-            this.done = true;
-            this.rej(e);
-        }
-    }
-}
 
 /** What `CommChannel.connect` resolves to: the live channel plus the
  *  supervisor's first frame (StartupDetails / DagFileParseRequest),
