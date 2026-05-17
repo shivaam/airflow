@@ -21,13 +21,17 @@
 // Mirrors the supervisor side of `task-sdk/.../comms.py` and the Kotlin
 // SDK's `CoordinatorComm` in `Comms.kt`.
 //
-// Mental model: a phone call. You ask questions and await the matching
-// answers (`request()` → reply correlated by id); the other side can
-// also just say something unprompted (`onSupervisorInitiatedFrame`).
-// The very first thing the supervisor says is the greeting — and that
-// is read by the handshake (`connect()`) BEFORE this channel is built,
-// so the channel itself has no notion of a "first frame": `route()` is
-// a flat two-way decision forever.
+// Mental model: a phone call.
+//   - You ask questions and await the matching answers
+//     (`request()` → reply correlated by id).
+//   - The other side can also say something unprompted
+//     (`onSupervisorInitiatedFrame`).
+//   - The first thing they say is the greeting — exposed as the
+//     `greeting` promise, which `connect()` awaits.
+//
+// There is exactly ONE reader on the socket (this channel). The
+// greeting is simply the first supervisor-initiated frame, pre-caught
+// into a promise; no separate consumer, no pause/resume, no replay.
 
 import type { Socket } from "node:net";
 import {
@@ -42,9 +46,8 @@ type FrameHandler = (frame: Frame) => void | Promise<void>;
 
 /** What `CommChannel.connect` resolves to: the live channel plus the
  *  supervisor's first frame (StartupDetails / DagFileParseRequest),
- *  read by the handshake before the channel exists so there is never a
- *  "frame arrived with no consumer" window for the caller to
- *  mishandle. */
+ *  already in hand so the caller never has to manage a "frame arrived
+ *  with no consumer" window. */
 export interface CommConnection {
     channel: CommChannel;
     firstFrame: Frame;
@@ -52,57 +55,54 @@ export interface CommConnection {
 
 export class CommChannel {
     private readonly sock: Socket;
-    private readonly reader: FrameReader;
+    private readonly reader = new FrameReader();
     private nextId = 0;
     private pendingReplies = new Map<number, (frame: Frame) => void>();
     private closed = false;
     private closeError: Error | null = null;
-    // Supervisor-initiated frames (the supervisor starting a
-    // conversation we didn't). The current protocol pushes none after
-    // the greeting; a richer supervisor might.
+
+    // The greeting: the first supervisor-initiated frame, pre-caught.
+    // A promise IS the buffer — if the frame arrives before `connect()`
+    // awaits, it just settles and the value is retained. Resolver/
+    // rejecter are nulled once the greeting is delivered (or the socket
+    // dies first).
+    private readonly greeting: Promise<Frame>;
+    private resolveGreeting: ((frame: Frame) => void) | null = null;
+    private rejectGreeting: ((err: Error) => void) | null = null;
+
+    // Supervisor-initiated frames AFTER the greeting. The current
+    // protocol pushes none; a richer supervisor might.
     private onSupervisorFrame: FrameHandler | null = null;
 
-    // Built only by `connect()`, AFTER the handshake has the greeting.
-    // `reader` is handed over already primed: one TCP chunk can carry
-    // the greeting plus the start of the next frame, so its buffered
-    // remainder must survive the handshake→channel seam or that next
-    // frame is corrupted. The socket is paused on entry and resumed by
-    // `connect()` once listeners are attached (no reattach race).
-    private constructor(sock: Socket, reader: FrameReader) {
+    private constructor(sock: Socket) {
         this.sock = sock;
-        this.reader = reader;
+        this.greeting = new Promise<Frame>((resolve, reject) => {
+            this.resolveGreeting = resolve;
+            this.rejectGreeting = reject;
+        });
+        // The single reader. `connectTcp` returns a raw paused socket;
+        // attaching `data` here (synchronously, before any async data
+        // event can fire) is what starts the flow — nothing is missed,
+        // nothing is double-read.
         sock.on("data", (chunk) => this.handleData(chunk));
         sock.on("close", () => this.handleClose(null));
         sock.on("error", (err) => this.handleClose(err));
     }
 
-    /** Connect, then run the opening handshake: read frames until the
-     *  supervisor's greeting is complete, hand the primed reader +
-     *  paused socket to a fresh channel, replay anything that arrived
-     *  bundled with the greeting, and resume. "First frame" exists only
-     *  here — never inside the channel. */
+    /** Connect and wait for the supervisor's greeting. The channel is
+     *  the only socket reader; `greeting` settles as soon as the first
+     *  supervisor-initiated frame arrives (or rejects if the socket
+     *  dies first). */
     static async connect(addr: string): Promise<CommConnection> {
         const sock = await connectTcp(addr);
-        const reader = new FrameReader();
-        const frames = await receiveGreeting(sock, reader);
-        // A coalesced TCP chunk can deliver the greeting AND following
-        // frame(s) at once; `FrameReader.push` returns them all in one
-        // array, so the greeting alone is `frames[0]`. Keep it, and
-        // replay any extras through the live channel exactly as the old
-        // single-consumer receive loop did. None are expected in
-        // today's protocol (the supervisor sends the greeting then
-        // waits); this only preserves behaviour under TCP coalescing or
-        // a future supervisor that pushes.
-        const [firstFrame, ...rest] = frames;
-        const channel = new CommChannel(sock, reader);
-        for (const frame of rest) channel.route(frame);
-        sock.resume();
+        const channel = new CommChannel(sock);
+        const firstFrame = await channel.greeting;
         return { channel, firstFrame };
     }
 
-    /** Register a handler for supervisor-initiated frames. Without a
-     *  handler such a frame is logged and dropped — never silently
-     *  buffered. */
+    /** Register a handler for supervisor-initiated frames that arrive
+     *  after the greeting. Without a handler such a frame is logged and
+     *  dropped — never silently buffered. */
     onSupervisorInitiatedFrame(handler: FrameHandler): void {
         this.onSupervisorFrame = handler;
     }
@@ -156,10 +156,8 @@ export class CommChannel {
         // Arity-authoritative, two ways only: (1) an answer to a
         // request we sent — an arity-3 response whose id matches a
         // pending request; (2) everything else is supervisor-initiated.
-        // The arity-3 StartupDetails greeting never reaches here — the
-        // handshake consumes it before the channel exists. Independent
-        // per-direction id counters (both start at 0) mean id alone can
-        // never be the discriminator.
+        // Independent per-direction id counters (both start at 0) mean
+        // id alone can never be the discriminator.
         if (frame.isResponse) {
             const pending = this.pendingReplies.get(frame.id);
             if (pending) {
@@ -172,6 +170,16 @@ export class CommChannel {
     }
 
     private deliverSupervisorFrame(frame: Frame): void {
+        // The first supervisor-initiated frame is the greeting (this is
+        // the only "first" logic anywhere — and it reads like the
+        // mental model: the first thing they say).
+        if (this.resolveGreeting) {
+            const resolve = this.resolveGreeting;
+            this.resolveGreeting = null;
+            this.rejectGreeting = null;
+            resolve(frame);
+            return;
+        }
         if (this.onSupervisorFrame) {
             void this.dispatchSupervisorFrame(frame);
             return;
@@ -197,6 +205,14 @@ export class CommChannel {
     private handleClose(err: Error | null): void {
         this.closed = true;
         this.closeError = err;
+        // Socket died before the greeting → `connect()`'s await throws,
+        // exactly as the old in-channel awaiter did.
+        if (this.rejectGreeting) {
+            const reject = this.rejectGreeting;
+            this.resolveGreeting = null;
+            this.rejectGreeting = null;
+            reject(err ?? new Error("Comm channel closed before first frame"));
+        }
         for (const [, resolver] of this.pendingReplies) {
             resolver({
                 id: -1,
@@ -207,44 +223,4 @@ export class CommChannel {
         }
         this.pendingReplies.clear();
     }
-}
-
-/** Read from a freshly-connected socket until the supervisor's first
- *  frame (the greeting) is complete, then PAUSE the socket and stop
- *  listening. Resolves with every frame the final chunk yielded (the
- *  greeting is `[0]`); rejects if the socket errors or closes before
- *  any frame arrives — `connect()` then throws, exactly as the old
- *  in-channel awaiter did. Leaving the socket paused lets the caller
- *  hand it (and the primed reader) to the channel with no
- *  listener-reattach race. */
-function receiveGreeting(
-    sock: Socket,
-    reader: FrameReader,
-): Promise<[Frame, ...Frame[]]> {
-    return new Promise<[Frame, ...Frame[]]>((resolve, reject) => {
-        const onData = (chunk: Buffer) => {
-            const frames = reader.push(chunk);
-            if (frames.length === 0) return; // partial greeting — keep reading
-            detach();
-            sock.pause();
-            // length checked just above, so the list is non-empty here.
-            resolve(frames as [Frame, ...Frame[]]);
-        };
-        const onError = (err: Error) => {
-            detach();
-            reject(err);
-        };
-        const onClose = () => {
-            detach();
-            reject(new Error("Comm channel closed before first frame"));
-        };
-        function detach() {
-            sock.off("data", onData);
-            sock.off("error", onError);
-            sock.off("close", onClose);
-        }
-        sock.on("data", onData);
-        sock.once("error", onError);
-        sock.once("close", onClose);
-    });
 }
