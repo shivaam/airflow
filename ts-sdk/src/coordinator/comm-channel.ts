@@ -44,6 +44,38 @@ import { connectTcp } from "./tcp-connect.js";
 
 type FrameHandler = (frame: Frame) => void | Promise<void>;
 
+/** A promise whose settlement is triggered from outside its executor
+ *  (the classic "deferred"). Used for the greeting: produced by the
+ *  socket data path, consumed by `connect()`'s await. Owns the
+ *  settle-at-most-once invariant so callers don't hand-maintain it. */
+class Deferred<T> {
+    readonly promise: Promise<T>;
+    private done = false;
+    private res!: (v: T) => void;
+    private rej!: (e: Error) => void;
+    constructor() {
+        this.promise = new Promise<T>((res, rej) => {
+            this.res = res;
+            this.rej = rej;
+        });
+    }
+    get settled(): boolean {
+        return this.done;
+    }
+    resolve(v: T): void {
+        if (!this.done) {
+            this.done = true;
+            this.res(v);
+        }
+    }
+    reject(e: Error): void {
+        if (!this.done) {
+            this.done = true;
+            this.rej(e);
+        }
+    }
+}
+
 /** What `CommChannel.connect` resolves to: the live channel plus the
  *  supervisor's first frame (StartupDetails / DagFileParseRequest),
  *  already in hand so the caller never has to manage a "frame arrived
@@ -63,12 +95,10 @@ export class CommChannel {
 
     // The greeting: the first supervisor-initiated frame, pre-caught.
     // A promise IS the buffer — if the frame arrives before `connect()`
-    // awaits, it just settles and the value is retained. Resolver/
-    // rejecter are nulled once the greeting is delivered (or the socket
-    // dies first).
-    private readonly greeting: Promise<Frame>;
-    private resolveGreeting: ((frame: Frame) => void) | null = null;
-    private rejectGreeting: ((err: Error) => void) | null = null;
+    // awaits, it just settles and the value is retained. The
+    // settle-once invariant is the Deferred's, not hand-maintained
+    // across the two settle sites below.
+    private readonly greeting = new Deferred<Frame>();
 
     // Supervisor-initiated frames AFTER the greeting. The current
     // protocol pushes none; a richer supervisor might.
@@ -76,10 +106,6 @@ export class CommChannel {
 
     private constructor(sock: Socket) {
         this.sock = sock;
-        this.greeting = new Promise<Frame>((resolve, reject) => {
-            this.resolveGreeting = resolve;
-            this.rejectGreeting = reject;
-        });
         // The single reader. `connectTcp` returns a raw paused socket;
         // attaching `data` here (synchronously, before any async data
         // event can fire) is what starts the flow — nothing is missed,
@@ -96,7 +122,7 @@ export class CommChannel {
     static async connect(addr: string): Promise<CommConnection> {
         const sock = await connectTcp(addr);
         const channel = new CommChannel(sock);
-        const firstFrame = await channel.greeting;
+        const firstFrame = await channel.greeting.promise;
         return { channel, firstFrame };
     }
 
@@ -173,11 +199,8 @@ export class CommChannel {
         // The first supervisor-initiated frame is the greeting (this is
         // the only "first" logic anywhere — and it reads like the
         // mental model: the first thing they say).
-        if (this.resolveGreeting) {
-            const resolve = this.resolveGreeting;
-            this.resolveGreeting = null;
-            this.rejectGreeting = null;
-            resolve(frame);
+        if (!this.greeting.settled) {
+            this.greeting.resolve(frame);
             return;
         }
         if (this.onSupervisorFrame) {
@@ -207,11 +230,10 @@ export class CommChannel {
         this.closeError = err;
         // Socket died before the greeting → `connect()`'s await throws,
         // exactly as the old in-channel awaiter did.
-        if (this.rejectGreeting) {
-            const reject = this.rejectGreeting;
-            this.resolveGreeting = null;
-            this.rejectGreeting = null;
-            reject(err ?? new Error("Comm channel closed before first frame"));
+        if (!this.greeting.settled) {
+            this.greeting.reject(
+                err ?? new Error("Comm channel closed before first frame"),
+            );
         }
         for (const [, resolver] of this.pendingReplies) {
             resolver({
