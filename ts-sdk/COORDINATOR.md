@@ -32,6 +32,76 @@ The coordinator passes the address of two TCP sockets: one for
 length-prefixed msgpack frames (the comm channel — task lifecycle and
 RPC), one for newline-JSON log records.
 
+## Running it
+
+### Reviewing this branch (no Airflow, no Python needed)
+
+The coordinator-client logic is fully exercised by an in-process
+integration test that mirrors what Airflow's real
+`BaseCoordinator._runtime_subprocess_entrypoint` does:
+
+```bash
+pnpm install
+pnpm test           # vitest — includes tests/coordinator/integration.test.ts
+pnpm run typecheck
+```
+
+`tests/coordinator/integration.test.ts` spins up an in-process TCP
+"supervisor", connects the runtime over `--comm`/`--logs`, and walks it
+through success, handler failure, and unknown-task scenarios. No Python
+or Airflow install is required to verify the protocol end of this work.
+
+### End-to-end against real Airflow (the full picture)
+
+This branch is the **TypeScript side**. The runnable end-to-end path
+also needs the Python-side `TypescriptCoordinator` (a `BaseCoordinator`
+subclass from [PR #65958](https://github.com/apache/airflow/pull/65958),
+not in this branch) plus a Python stub DAG. High level:
+
+1. **Author a handler and bundle it** (one self-contained `.mjs`):
+
+   ```ts
+   import { registerTask, startCoordinatorRuntime } from "@apache-airflow/ts-sdk";
+
+   registerTask("hello_typescript.say_hello", async ({ ctx, client }) => {
+     const greeting = await client.getVariable("greeting");
+     await client.setXCom({ key: "echo", value: `node says: ${greeting}` });
+     return greeting;
+   });
+
+   await startCoordinatorRuntime();
+   ```
+
+   ```bash
+   esbuild bundle-src.ts --bundle --platform=node --format=esm \
+     --outfile=/path/to/bundles/bundle.mjs
+   ```
+
+2. **Register the Python coordinator** (`airflow.cfg`, worker-side):
+
+   ```ini
+   [sdk]
+   coordinators = [{"name": "ts",
+     "classpath": "airflow.sdk.coordinators.typescript.TypescriptCoordinator",
+     "kwargs": {"node_executable": "node", "bundles_folder": "/path/to/bundles"}}]
+   queue_to_coordinator = {"ts-runtime": "ts"}
+   ```
+
+3. **Write a Python stub DAG** — the task body is in the bundle, not Python:
+
+   ```python
+   @stub(queue="ts-runtime")
+   def say_hello(): ...
+   ```
+
+4. **Trigger it.** Scheduler → `queue="ts-runtime"` → `TypescriptCoordinator`
+   → `node bundle.mjs --comm=… --logs=…` → handler runs, XCom flows back
+   through the Execution API.
+
+This full path (including a Java + TypeScript + Python polyglot DAG
+exchanging XCom across all three runtimes) is the dev-call demo, not
+reproducible from this branch alone.
+
 ## How it differs from Edge worker mode
 
 | Concern | Edge worker | Coordinator runtime |
