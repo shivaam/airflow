@@ -24,6 +24,7 @@
 import type { CommChannel } from "./comm-channel.js";
 import type { TaskContext } from "../types.js";
 import {
+    type Connection,
     type TaskClient,
     type GetXComOpts,
     type SetXComOpts,
@@ -102,6 +103,22 @@ export function createCoordinatorClient(
                     map_index: opts.mapIndex ?? ctxMapIndex,
                 },
                 () => undefined,
+            );
+        },
+
+        async getConnection(connId: string): Promise<Connection | null> {
+            return rpc("GetConnection", "ConnectionResult",
+                { type: "GetConnection", conn_id: connId },
+                (body) => ({
+                    connId: body!.conn_id as string,
+                    connType: body!.conn_type as string,
+                    host: (body!.host as string) ?? null,
+                    schema: (body!.schema as string) ?? null,
+                    login: (body!.login as string) ?? null,
+                    password: (body!.password as string) ?? null,
+                    port: (body!.port as number) ?? null,
+                    extra: (body!.extra as string) ?? null,
+                }),
             );
         },
     };

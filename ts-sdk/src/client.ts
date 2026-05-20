@@ -23,6 +23,20 @@
 // over HTTP) implement this interface. User task handlers receive it
 // via `TaskHandlerArgs.client` and never know which transport backs it.
 
+/** Airflow connection — credentials and configuration for an external
+ *  system (database, API, cloud service, etc.). Stored centrally in
+ *  Airflow and looked up by connection ID at runtime. */
+export interface Connection {
+    readonly connId: string;
+    readonly connType: string;
+    readonly host: string | null;
+    readonly schema: string | null;
+    readonly login: string | null;
+    readonly password: string | null;
+    readonly port: number | null;
+    readonly extra: string | null;
+}
+
 /** XCom locator. `dagId`/`taskId`/`runId` default to the running
  *  task's own context — pass them only to pull another task's XCom. */
 export interface GetXComOpts {
@@ -73,6 +87,10 @@ export interface TaskClient {
     /** Push an XCom value. Resolves once the value has been persisted.
      *  Target fields default to the current task's context. */
     setXCom(opts: SetXComOpts): Promise<void>;
+
+    /** Look up an Airflow Connection by ID. Returns `null` when the
+     *  connection doesn't exist. Throws on any other error. */
+    getConnection(connId: string): Promise<Connection | null>;
 }
 
 /** Thrown by {@link TaskClient.getVariableOrThrow} on a missing key. */

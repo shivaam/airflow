@@ -22,7 +22,7 @@
 // (with bearer auth + token refresh) from the ExecutionClient.
 
 import type { TaskContext } from "../types.js";
-import type { GetXComOpts, SetXComOpts, TaskClient } from "../client.js";
+import type { Connection, GetXComOpts, SetXComOpts, TaskClient } from "../client.js";
 import { VariableNotFoundError } from "../client.js";
 import { ExecutionApiError, formatError } from "../errors.js";
 import type { ExecutionHttpClient } from "./execution-client.js";
@@ -99,6 +99,25 @@ export function createEdgeTaskClient(
                 },
             );
             if (error !== undefined) throwApiError("POST", path, response.status, error);
+        },
+
+        async getConnection(connId: string): Promise<Connection | null> {
+            const { data, error, response } = await http.GET(
+                "/connections/{connection_id}",
+                { params: { path: { connection_id: connId } } },
+            );
+            if (response.status === 404) return null;
+            if (error !== undefined) throwApiError("GET", `/connections/${connId}`, response.status, error);
+            return {
+                connId: data!.conn_id,
+                connType: data!.conn_type,
+                host: data!.host ?? null,
+                schema: data!.schema ?? null,
+                login: data!.login ?? null,
+                password: data!.password ?? null,
+                port: data!.port ?? null,
+                extra: data!.extra ?? null,
+            };
         },
     };
     return client;

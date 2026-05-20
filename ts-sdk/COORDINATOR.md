@@ -151,8 +151,12 @@ registerTask("my_task", async ({ client }) => {
   const val = await client.getVariable("my_key");       // null if missing
   const val2 = await client.getVariableOrThrow("key");  // throws if missing
 
-  // XCom
-  const data = await client.getXCom({ key: "upstream_data", taskId: "extract" });
+  // Connections
+  const conn = await client.getConnection("my_postgres"); // null if missing
+  // conn.host, conn.port, conn.login, conn.password, conn.extra, ...
+
+  // XCom (generic — caller specifies expected type)
+  const data = await client.getXCom<{ count: number }>({ key: "upstream_data", taskId: "extract" });
   await client.setXCom({ key: "result", value: { count: 42 } });
 
   return "done"; // auto-pushed as XCom "return_value"
@@ -250,10 +254,8 @@ spike's runbook at
 
 ### Near-term (complete the client surface)
 
-- [ ] **`getConnection(connId)`** — add to `TaskClient` interface + both
-  implementations. Both Python and Java SDKs have it. Needed for tasks
-  that access external services (databases, AWS, APIs) through Airflow's
-  secrets management.
+- [x] **`getConnection(connId)`** — added to `TaskClient` interface + both
+  implementations. Returns `Connection | null`.
 
 ### Medium-term (full DAG support — no Python needed)
 

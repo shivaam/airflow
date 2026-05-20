@@ -21,7 +21,6 @@
 // TODO(pr2): extend TaskContext with TIRunContext fields (`dagRunConf`,
 //            `maxTries`, `taskRescheduleCount`, etc.) — requires `enterRunning`
 //            to return the response body instead of `Promise<void>`.
-// TODO(future): add `getConnection` to TaskClient.
 // TODO(pr4): add `log` (forwarded to Edge API) to TaskHandlerArgs.
 
 /** Per-task context delivered to every task handler invocation. */

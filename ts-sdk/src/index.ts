@@ -26,6 +26,7 @@ export {
     type StartCoordinatorRuntimeOptions,
 } from "./coordinator/index.js";
 export {
+    type Connection,
     type TaskClient,
     type GetXComOpts,
     type SetXComOpts,
