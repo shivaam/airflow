@@ -24,8 +24,13 @@
 import type { TaskContext } from "../types.js";
 import type { GetXComOpts, SetXComOpts, TaskClient } from "../client.js";
 import { VariableNotFoundError } from "../client.js";
-import { ExecutionApiError } from "../errors.js";
+import { ExecutionApiError, formatError } from "../errors.js";
 import type { ExecutionHttpClient } from "./execution-client.js";
+
+/** Throw an ExecutionApiError from an openapi-fetch error response. */
+function throwApiError(method: string, path: string, status: number, error: unknown): never {
+    throw new ExecutionApiError(method, path, status, formatError(error));
+}
 
 export function createEdgeTaskClient(
     http: ExecutionHttpClient,
@@ -40,12 +45,7 @@ export function createEdgeTaskClient(
                 { params: { path: { variable_key: key } } },
             );
             if (response.status === 404) return null;
-            if (error !== undefined) {
-                throw new ExecutionApiError(
-                    "GET", `/variables/${key}`, response.status,
-                    typeof error === "string" ? error : JSON.stringify(error),
-                );
-            }
+            if (error !== undefined) throwApiError("GET", `/variables/${key}`, response.status, error);
             return data?.value ?? null;
         },
 
@@ -55,11 +55,12 @@ export function createEdgeTaskClient(
             return value;
         },
 
-        async getXCom(opts: GetXComOpts): Promise<unknown> {
+        async getXCom<T = unknown>(opts: GetXComOpts): Promise<T | null> {
             const dagId = opts.dagId ?? ctx.dagId;
             const runId = opts.runId ?? ctx.runId;
             const taskId = opts.taskId ?? ctx.taskId;
             const mapIndex = opts.mapIndex ?? ctxMapIndex;
+            const path = `/xcoms/${dagId}/${runId}/${taskId}/${opts.key}`;
 
             const { data, error, response } = await http.GET(
                 "/xcoms/{dag_id}/{run_id}/{task_id}/{key}",
@@ -74,14 +75,8 @@ export function createEdgeTaskClient(
                 },
             );
             if (response.status === 404) return null;
-            if (error !== undefined) {
-                throw new ExecutionApiError(
-                    "GET", `/xcoms/${dagId}/${runId}/${taskId}/${opts.key}`,
-                    response.status,
-                    typeof error === "string" ? error : JSON.stringify(error),
-                );
-            }
-            return data?.value ?? null;
+            if (error !== undefined) throwApiError("GET", path, response.status, error);
+            return (data?.value as T) ?? null;
         },
 
         async setXCom(opts: SetXComOpts): Promise<void> {
@@ -89,6 +84,7 @@ export function createEdgeTaskClient(
             const runId = opts.runId ?? ctx.runId;
             const taskId = opts.taskId ?? ctx.taskId;
             const mapIndex = opts.mapIndex ?? ctxMapIndex;
+            const path = `/xcoms/${dagId}/${runId}/${taskId}/${opts.key}`;
 
             const { error, response } = await http.POST(
                 "/xcoms/{dag_id}/{run_id}/{task_id}/{key}",
@@ -97,16 +93,12 @@ export function createEdgeTaskClient(
                         path: { dag_id: dagId, run_id: runId, task_id: taskId, key: opts.key },
                         query: { map_index: mapIndex },
                     },
+                    // openapi-fetch expects the body type from the spec (JsonValue).
+                    // XCom values must be JSON-serializable.
                     body: opts.value as Record<string, unknown>,
                 },
             );
-            if (error !== undefined) {
-                throw new ExecutionApiError(
-                    "POST", `/xcoms/${dagId}/${runId}/${taskId}/${opts.key}`,
-                    response.status,
-                    typeof error === "string" ? error : JSON.stringify(error),
-                );
-            }
+            if (error !== undefined) throwApiError("POST", path, response.status, error);
         },
     };
     return client;

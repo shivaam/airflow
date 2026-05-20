@@ -34,20 +34,18 @@ export function formatError(err: unknown): string {
     }
 }
 
-/** Error from the Edge Worker API (/edge_worker/v1/*). */
-export class EdgeApiError extends Error {
-    readonly method: string;
-    readonly path: string;
-    readonly status: number;
-    readonly body: string;
-
-    constructor(method: string, path: string, status: number, body: string) {
-        super(`Edge API ${method} ${path} → ${status}: ${body.slice(0, 200)}`);
-        this.name = "EdgeApiError";
-        this.method = method;
-        this.path = path;
-        this.status = status;
-        this.body = body;
+/** Base class for Airflow API errors. Distinguishes transient (5xx,
+ *  network) from permanent (4xx) so retry logic can fail fast. */
+abstract class AirflowApiError extends Error {
+    constructor(
+        readonly method: string,
+        readonly path: string,
+        readonly status: number,
+        readonly body: string,
+    ) {
+        const label = new.target === EdgeApiError ? "Edge API" : "Execution API";
+        super(`${label} ${method} ${path} → ${status}: ${body.slice(0, 200)}`);
+        this.name = new.target.name;
     }
 
     /** Transient errors (5xx, 0/unknown, network) should be retried. */
@@ -61,26 +59,11 @@ export class EdgeApiError extends Error {
     }
 }
 
+/** Error from the Edge Worker API (/edge_worker/v1/*). */
+export class EdgeApiError extends AirflowApiError {}
+
 /** Error from the Execution API (/execution/*). */
-export class ExecutionApiError extends Error {
-    readonly method: string;
-    readonly path: string;
-    readonly status: number;
-    readonly body: string;
-
-    constructor(method: string, path: string, status: number, body: string) {
-        super(`Execution API ${method} ${path} → ${status}: ${body.slice(0, 200)}`);
-        this.name = "ExecutionApiError";
-        this.method = method;
-        this.path = path;
-        this.status = status;
-        this.body = body;
-    }
-
-    get isTransient(): boolean {
-        return this.status >= 500 || this.status === 0;
-    }
-
+export class ExecutionApiError extends AirflowApiError {
     /** 409 "invalid_state" — TI is already terminal; our transition is a no-op. */
     get isInvalidState(): boolean {
         return this.status === 409 && this.body.includes("invalid_state");
@@ -90,10 +73,5 @@ export class ExecutionApiError extends Error {
     /** 403 with "Signature has expired" — the per-task JWT (10-min TTL) aged out. */
     get isTokenExpired(): boolean {
         return this.status === 403 && this.body.includes("Signature has expired");
-    }
-
-    /** 404 — the requested resource does not exist. */
-    get isNotFound(): boolean {
-        return this.status === 404;
     }
 }

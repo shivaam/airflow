@@ -108,6 +108,30 @@ npx tsx worker.ts                # any Node 22+
 The worker registers with the Edge API, polls for jobs on `ts-tasks`,
 runs the registered handler, and reports success/failure back.
 
+## Coordinator mode
+
+The SDK also supports **coordinator mode** — Airflow spawns a short-lived
+Node subprocess per task, communicating over TCP + msgpack. Same handlers,
+different runtime:
+
+```ts
+import { registerTask, startCoordinatorRuntime } from "@apache-airflow/ts-sdk";
+
+registerTask("say_hello", async ({ ctx, client }) => {
+  const greeting = await client.getVariable("greeting");
+  return { message: `Hello from ${ctx.taskId}: ${greeting}` };
+});
+
+await startCoordinatorRuntime();
+```
+
+Coordinator mode works with any Airflow executor (Local, Celery, K8s) —
+Node.js just needs to be available on the worker machine. Tasks share
+the same `TaskClient` for Variables and XCom, regardless of mode.
+
+See [`COORDINATOR.md`](COORDINATOR.md) for the full architecture,
+wire protocol, and setup guide.
+
 ## Testing
 
 See [`TESTING.md`](TESTING.md) for the full end-to-end recipe (breeze

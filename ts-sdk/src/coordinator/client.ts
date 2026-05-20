@@ -37,80 +37,72 @@ export function createCoordinatorClient(
     // Non-mapped tasks carry mapIndex = -1; the wire wants null there.
     const ctxMapIndex = ctx.mapIndex >= 0 ? ctx.mapIndex : null;
 
-    async function getVariableFrame(key: string) {
-        return comm.request({ type: "GetVariable", key });
+    /** Send an RPC request, validate the response type, and extract the
+     *  value. Returns `null` for NOT_FOUND errors. Throws on any other error
+     *  or unexpected response type. Pass `expectedType: null` to skip type
+     *  validation (e.g. SetXCom responds with `body=null`). */
+    async function rpc<T>(
+        op: string,
+        expectedType: string | null,
+        request: unknown,
+        extract: (body: Record<string, unknown> | null) => T,
+    ): Promise<T | null> {
+        const frame = await comm.request(request);
+        if (isErrorFrame(frame)) {
+            if (isNotFoundError(frame)) return null;
+            throw rpcError(op, frame);
+        }
+        const body = frame.body as Record<string, unknown> | null;
+        if (expectedType !== null && body?.type !== expectedType) {
+            throw new Error(
+                `${op}: unexpected response type ${JSON.stringify(body?.type)}`,
+            );
+        }
+        return extract(body);
     }
 
     const client: TaskClient = {
         async getVariable(key: string): Promise<string | null> {
-            const frame = await getVariableFrame(key);
-            if (isErrorFrame(frame)) {
-                // *_NOT_FOUND is a normal case — null, not a throw.
-                if (isNotFoundError(frame)) return null;
-                throw rpcError("GetVariable", frame);
-            }
-            const body = frame.body as { type?: string; value?: string | null };
-            if (body?.type !== "VariableResult") {
-                throw new Error(
-                    `GetVariable: unexpected response type ${JSON.stringify(body?.type)}`,
-                );
-            }
-            return body.value ?? null;
+            return rpc("GetVariable", "VariableResult",
+                { type: "GetVariable", key },
+                (body) => (body!.value as string) ?? null,
+            );
         },
 
         async getVariableOrThrow(key: string): Promise<string> {
-            const frame = await getVariableFrame(key);
-            if (isErrorFrame(frame)) {
-                if (isNotFoundError(frame)) throw new VariableNotFoundError(key);
-                throw rpcError("GetVariable", frame);
-            }
-            const body = frame.body as { type?: string; value?: string | null };
-            if (body?.type !== "VariableResult") {
-                throw new Error(
-                    `GetVariable: unexpected response type ${JSON.stringify(body?.type)}`,
-                );
-            }
-            if (body.value == null) throw new VariableNotFoundError(key);
-            return body.value;
+            const value = await client.getVariable(key);
+            if (value == null) throw new VariableNotFoundError(key);
+            return value;
         },
 
-        async getXCom(opts: GetXComOpts): Promise<unknown> {
-            const frame = await comm.request({
-                type: "GetXCom",
-                key: opts.key,
-                dag_id: opts.dagId ?? ctx.dagId,
-                task_id: opts.taskId ?? ctx.taskId,
-                run_id: opts.runId ?? ctx.runId,
-                map_index: opts.mapIndex ?? ctxMapIndex,
-                include_prior_dates: opts.includePriorDates ?? false,
-            });
-            if (isErrorFrame(frame)) {
-                if (isNotFoundError(frame)) return null;
-                throw rpcError("GetXCom", frame);
-            }
-            const body = frame.body as { type?: string; value?: unknown };
-            if (body?.type !== "XComResult") {
-                throw new Error(
-                    `GetXCom: unexpected response type ${JSON.stringify(body?.type)}`,
-                );
-            }
-            return body.value ?? null;
+        async getXCom<T = unknown>(opts: GetXComOpts): Promise<T | null> {
+            return rpc("GetXCom", "XComResult",
+                {
+                    type: "GetXCom",
+                    key: opts.key,
+                    dag_id: opts.dagId ?? ctx.dagId,
+                    task_id: opts.taskId ?? ctx.taskId,
+                    run_id: opts.runId ?? ctx.runId,
+                    map_index: opts.mapIndex ?? ctxMapIndex,
+                    include_prior_dates: opts.includePriorDates ?? false,
+                },
+                (body) => (body!.value as T) ?? null,
+            );
         },
 
         async setXCom(opts: SetXComOpts): Promise<void> {
-            const frame = await comm.request({
-                type: "SetXCom",
-                key: opts.key,
-                value: opts.value,
-                dag_id: opts.dagId ?? ctx.dagId,
-                task_id: opts.taskId ?? ctx.taskId,
-                run_id: opts.runId ?? ctx.runId,
-                map_index: opts.mapIndex ?? ctxMapIndex,
-            });
-            if (isErrorFrame(frame)) {
-                throw rpcError("SetXCom", frame);
-            }
-            // Success: supervisor sent an arity-3 frame with body=null.
+            await rpc("SetXCom", null,
+                {
+                    type: "SetXCom",
+                    key: opts.key,
+                    value: opts.value,
+                    dag_id: opts.dagId ?? ctx.dagId,
+                    task_id: opts.taskId ?? ctx.taskId,
+                    run_id: opts.runId ?? ctx.runId,
+                    map_index: opts.mapIndex ?? ctxMapIndex,
+                },
+                () => undefined,
+            );
         },
     };
     return client;

@@ -60,8 +60,15 @@ export interface TaskClient {
     getVariableOrThrow(key: string): Promise<string>;
 
     /** Pull an XCom value. Returns `null` when the row is missing.
-     *  Locator fields default to the current task's context. */
-    getXCom(opts: GetXComOpts): Promise<unknown>;
+     *  Locator fields default to the current task's context.
+     *
+     *  The generic `T` lets callers narrow the return type when the
+     *  shape is known:
+     *  ```ts
+     *  const data = await client.getXCom<{ count: number }>({ key: "result" });
+     *  // data is { count: number } | null
+     *  ``` */
+    getXCom<T = unknown>(opts: GetXComOpts): Promise<T | null>;
 
     /** Push an XCom value. Resolves once the value has been persisted.
      *  Target fields default to the current task's context. */

@@ -13,9 +13,10 @@ matching entry function:
 ```ts
 import { registerTask, startCoordinatorRuntime } from "@apache-airflow/ts-sdk";
 
-registerTask("my_dag.say_hello", async ({ ctx }) => {
-  console.log(`Running ${ctx.taskId} in run ${ctx.runId}`);
-  return "ok";
+registerTask("my_dag.say_hello", async ({ ctx, client }) => {
+  const greeting = await client.getVariable("greeting");
+  await client.setXCom({ key: "echo", value: `node says: ${greeting}` });
+  return greeting; // auto-pushed to XCom as "return_value"
 });
 
 await startCoordinatorRuntime();
@@ -31,6 +32,25 @@ node my-bundle.mjs --comm=127.0.0.1:<port> --logs=127.0.0.1:<port>
 The coordinator passes the address of two TCP sockets: one for
 length-prefixed msgpack frames (the comm channel — task lifecycle and
 RPC), one for newline-JSON log records.
+
+## How it works
+
+```
+Python WatchedSubprocess (handles heartbeat, state, Execution API)
+  └── forks child process
+        └── BaseCoordinator (PR #65958)
+              ├── opens TCP servers (comm + logs)
+              ├── spawns: node my-bundle.mjs --comm=... --logs=...
+              ├── forwards StartupDetails to subprocess
+              ├── bridges bytes: supervisor ↔ subprocess (raw, no interpretation)
+              └── bridges logs: subprocess → structlog
+```
+
+`BaseCoordinator` is a **transparent byte bridge** — it doesn't
+interpret comm messages. The Python supervisor's `handle_requests`
+generator does all the RPC work (GetVariable, GetXCom, etc.). Both Java
+and TS subprocesses are architecturally equivalent. See
+[SDK_COMPARISON.md](SDK_COMPARISON.md) for the full cross-SDK analysis.
 
 ## Running it
 
@@ -114,8 +134,34 @@ reproducible from this branch alone.
 | Failure semantics | PATCH state via HTTP | Send `TaskState{failed}` frame |
 | Deployment unit | Long-running worker process | Bundled `.mjs` + sidecar metadata |
 
-Both modes share `registerTask()`, the `TaskContext` shape, and (when
-shipped) the same XCom / Variables / Connections client.
+Both modes share `registerTask()`, the `TaskContext` shape, and the
+`TaskClient` interface (Variables, XCom). The `TaskClient` has two
+implementations: coordinator mode sends RPC over the comm socket,
+edge mode calls the Execution API over HTTP. Task handlers don't know
+which transport backs the client.
+
+## TaskClient (cross-mode)
+
+The `TaskClient` interface is available in both modes via
+`TaskHandlerArgs.client`:
+
+```ts
+registerTask("my_task", async ({ client }) => {
+  // Variables
+  const val = await client.getVariable("my_key");       // null if missing
+  const val2 = await client.getVariableOrThrow("key");  // throws if missing
+
+  // XCom
+  const data = await client.getXCom({ key: "upstream_data", taskId: "extract" });
+  await client.setXCom({ key: "result", value: { count: 42 } });
+
+  return "done"; // auto-pushed as XCom "return_value"
+});
+```
+
+**Implementations:**
+- `coordinator/client.ts` — `createCoordinatorClient()` backed by comm-socket RPC
+- `edge/task-client.ts` — `createEdgeTaskClient()` backed by Execution API HTTP
 
 ## Wire protocol
 
@@ -183,6 +229,76 @@ For end-to-end verification against a real Airflow build, see the
 spike's runbook at
 [`airflow-task-sdk/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md`](https://github.com/randomblueberries/airflow-task-sdk/blob/spike/coordinator-integration/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md).
 
+---
+
+## What's done
+
+- [x] Comm channel — TCP connect, length-prefixed msgpack, arity-based routing
+- [x] Log channel — newline-JSON over TCP
+- [x] Task execution — StartupDetails dispatch, handler invoke, SucceedTask/TaskState response
+- [x] TaskClient (coordinator) — getVariable, getVariableOrThrow, getXCom, setXCom
+- [x] TaskClient (edge) — same interface, backed by Execution API HTTP
+- [x] Unified TaskClient — shared interface in `src/client.ts`, both modes provide it
+- [x] Auto-push return value to XCom as `"return_value"` (matches Python `@task`)
+- [x] Remove deprecated `CoordinatorClient` alias
+- [x] Trim barrel exports to public-API-only
+- [x] DAG parse stub — responds with empty `dags: {}` (sufficient for Python-stub-DAG workflow)
+- [x] Deferred<T> for greeting race condition
+- [x] Integration tests (success, failure, unknown task, XCom round-trip)
+
+## Next steps
+
+### Near-term (complete the client surface)
+
+- [ ] **`getConnection(connId)`** — add to `TaskClient` interface + both
+  implementations. Both Python and Java SDKs have it. Needed for tasks
+  that access external services (databases, AWS, APIs) through Airflow's
+  secrets management.
+
+### Medium-term (full DAG support — no Python needed)
+
+- [ ] **`provideDags()` API + DAG serialization** — implement `handleParse`
+  to return real DAG structure instead of `dags: {}`. This is what makes
+  "define entire DAGs in TypeScript" possible. Requires porting the
+  serialization logic from the Java SDK's `Serde.kt` (~250 lines) to
+  produce the `__version: 3` / `__type` / `__var` structure that
+  Airflow's `DagSerialization.from_dict()` expects. Once done, a `.mjs`
+  file dropped in the DAG bundle folder is a full DAG — no Python stub.
+
+- [ ] **DAG builder API** — TypeScript-native `Dag` class with `addTask()`,
+  schedule, params, tags, etc. Equivalent to the Java SDK's `Dag.kt`.
+
+### Hardening (release blockers)
+
+- [ ] **Startup timeout (L1)** — connected-but-silent supervisor hangs
+  Node forever. Add a configurable timeout on `CommChannel.connect()`.
+
+- [ ] **Per-request timeout (L2)** — never-answered RPC hangs the handler
+  forever. Add timeout to `CommChannel.request()`.
+
+- [ ] **Log backpressure (B1)** — `LogChannel.send` ignores `sock.write`
+  backpressure. Unbounded log buffering for chatty/long tasks.
+
+- [ ] **Large-frame reassembly (B3)** — `FrameReader` `Buffer.concat`
+  per chunk is O(n^2) for large frames.
+
+### Future (follow-up PRs)
+
+- [ ] **Per-TI heartbeat** — coordinator mode relies on the Python
+  supervisor; edge mode needs its own heartbeat interval.
+
+- [ ] **AbortSignal / graceful SIGTERM** — `ctx.signal` exists but never
+  aborts in coordinator mode. Wire SIGTERM to the abort controller.
+
+- [ ] **TaskContext enrichment** — extend with `dagRunConf`, `maxTries`,
+  `taskRescheduleCount` from the `TIRunContext` response.
+
+- [ ] **Log forwarding (edge)** — structured log channel over HTTP for
+  edge mode.
+
+- [ ] **Subprocess isolation** — spawn each task in a child process for
+  memory isolation.
+
 ## Background and rationale
 
 The full design rationale, scale benchmarks, and end-to-end test results
@@ -194,15 +310,3 @@ that motivated this implementation live in the research repo at
 - `REAL-AIRFLOW-FINDINGS.md` — end-to-end test against real Airflow
 - `scalability/` — four scalability spikes (cold start, concurrent
   load, memory under sustained cadence, long-running tasks)
-
-## Deferred to follow-up PRs
-
-- **Client API** (`xcom`, `variables`, `connections`) — paired with
-  the Edge-mode equivalent in PR #3 (per `types.ts` TODOs)
-- **Bundle scanner / DAG parse path** — currently parse mode returns
-  an empty DAG list. The Java provider's recommended path is the
-  Python-stub DAG anyway, which doesn't traverse this code.
-- **Per-TI heartbeat / mid-task SIGTERM handling** — coordinator
-  forwards SIGTERM but Node exits before any user handler runs
-- **AbortSignal wiring from the supervisor** — `ctx.signal` exists for
-  API parity with Edge mode but never aborts in coordinator mode yet

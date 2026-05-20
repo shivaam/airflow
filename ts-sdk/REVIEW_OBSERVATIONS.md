@@ -132,25 +132,34 @@ Changed from logging `registered_tasks: count` to logging both the list of
 names and the count, so you can immediately see what was registered.
 
 ### F4. Unified `TaskClient` abstraction across coordinator and edge
-**Files:** `client.ts`, future `edge-client.ts`
-**Status:** [ ] Future PR.
+**Files:** `src/client.ts` (new), `coordinator/client.ts`, `edge/task-client.ts` (new),
+`edge/execution-client.ts`, `edge/worker.ts`, `types.ts`, `src/index.ts`
+**Status:** [x] Done this session.
 
-`TaskClient` is already the transport-agnostic interface. The edge worker
-needs its own `createEdgeClient(...)` that returns `TaskClient` backed by
-HTTP instead of the comm socket. User handler code is already written against
-`TaskClient` and won't need changes.
+Extracted `TaskClient` interface into shared `src/client.ts`. Created
+`edge/task-client.ts` (`createEdgeTaskClient()`) backed by Execution API
+HTTP. `TaskHandlerArgs.client` is now required — both modes provide it.
 
-### F5. Abstract away frame references in client methods
-**Files:** `client.ts:107-138`
+### F5. Auto-push handler return value to XCom
+**Files:** `coordinator/runtime.ts`, `edge/worker.ts`
+**Status:** [x] Done this session.
+
+Non-undefined return values are automatically pushed to XCom under the
+key `"return_value"` (matches Python's `@task` behaviour). Updated both
+coordinator and edge paths.
+
+### F6. Abstract away frame references in client methods
+**Files:** `coordinator/client.ts:107-138`
 **Status:** [~] Deferred — not worth it yet.
 
 Each client method interprets a `Frame` into domain types. Could extract a
 helper, but with only 4 methods the duplication is minimal and the
 explicitness helps debugging. Revisit if the method count grows.
 
-### F6. `parseArgs` removed from public exports
+### F7. `parseArgs` removed from public exports
 **Files:** `coordinator/index.ts`
 **Status:** [x] Done this session (side effect of F2).
 
 `parseArgs` was exported but is an internal utility. Removed from barrel
 export alongside the other internals.
+
