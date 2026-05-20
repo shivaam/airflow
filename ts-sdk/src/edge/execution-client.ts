@@ -31,7 +31,7 @@
 // `currentToken` so the next request uses it.
 //
 // TODO(pr2): per-TI heartbeat.
-// TODO(pr3): getVariable, getConnection, XCom push/pull.
+// getVariable / XCom push/pull: see edge/task-client.ts (TaskClient).
 
 import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "../generated/execution.js";
@@ -73,8 +73,15 @@ export interface ExecutionClientConfig {
     requestTimeoutMs?: number;
 }
 
+/** The raw openapi-fetch client for the Execution API, with bearer auth
+ *  and token-refresh middleware already wired. Exposed so the edge
+ *  TaskClient can share the same authenticated HTTP client. */
+export type ExecutionHttpClient = ReturnType<typeof createClient<paths>>;
+
 export interface ExecutionClient {
     readonly taskInstanceId: string;
+    /** The underlying openapi-fetch client (shared auth/token refresh). */
+    readonly httpClient: ExecutionHttpClient;
     /** Transition queued → running. */
     enterRunning(body: EnterRunningArgs): Promise<void>;
     markSuccess(body: MarkSuccessArgs): Promise<void>;
@@ -136,6 +143,7 @@ export function makeExecutionClient(cfg: ExecutionClientConfig): ExecutionClient
 
     return {
         taskInstanceId: cfg.taskInstanceId,
+        httpClient: client,
 
         async enterRunning(body) {
             await call("PATCH", "/task-instances/{id}/run", () =>

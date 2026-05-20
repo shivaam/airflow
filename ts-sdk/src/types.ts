@@ -21,18 +21,13 @@
 // TODO(pr2): extend TaskContext with TIRunContext fields (`dagRunConf`,
 //            `maxTries`, `taskRescheduleCount`, etc.) — requires `enterRunning`
 //            to return the response body instead of `Promise<void>`.
-// TODO(pr3): add `client` to TaskHandlerArgs with sub-clients
-//            (`client.xcom.{push,pull}`, `client.variables.get`,
-//            `client.connections.get`).
+// TODO(future): add `getConnection` to TaskClient.
 // TODO(pr4): add `log` (forwarded to Edge API) to TaskHandlerArgs.
 
-/** Per-task context delivered to every task handler invocation.
- *
- *  Minimal in PR #1 — see TODOs above for the APIs user tasks will need
- *  (XCom, Variables, Connections, dag_run.conf, etc.). */
+/** Per-task context delivered to every task handler invocation. */
 
 import type { EdgeJobFetched } from "./edge/edge-client.js";
-import type { TaskClient } from "./coordinator/client.js";
+import type { TaskClient } from "./client.js";
 
 export interface TaskContext {
     readonly dagId: string;
@@ -51,21 +46,18 @@ export interface TaskContext {
 /** Arguments passed to every task handler. Adding fields is non-breaking
  *  for consumers that destructure by name.
  *
- *  Mode-specific fields are optional so a handler that only consumes
- *  `ctx` works in both modes unchanged:
- *  - `job` is present in Edge worker mode only (`startWorker`).
- *  - `client` is present in coordinator mode only (`startCoordinatorRuntime`);
- *    the Edge-mode equivalent ships in a follow-up. */
+ *  `client` is always present — both coordinator mode (comm-socket RPC)
+ *  and edge mode (Execution API HTTP) provide a `TaskClient`.
+ *  `job` is present in Edge worker mode only (`startWorker`). */
 export interface TaskHandlerArgs {
     ctx: TaskContext;
+    readonly client: TaskClient;
     readonly job?: EdgeJobFetched;
-    readonly client?: TaskClient;
 }
 
-// TODO(pr3): capture handler return value and push to XCom (currently
-//            discarded — generic <TReturn> exists so user types stay stable
-//            when XCom lands).
-/** User task handler function signature. */
+/** User task handler function signature. Non-undefined return values are
+ *  automatically pushed to XCom under the key `"return_value"` (matches
+ *  Python's `@task` behaviour). Return `undefined` (or nothing) to skip. */
 export type TaskHandler<TReturn = unknown> = (args: TaskHandlerArgs) => Promise<TReturn>;
 
 /** Configuration for `startWorker()`. */

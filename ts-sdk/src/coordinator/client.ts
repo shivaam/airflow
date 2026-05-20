@@ -17,77 +17,18 @@
  * under the License.
  */
 
-// CoordinatorClient — wraps `CommChannel.request()` so handlers can
-// look up Variables / Connections (TODO) and pull/push XCom values
-// mid-task. Only available in coordinator mode (`startCoordinatorRuntime`),
-// where the supervisor multiplexes API calls through the comm socket.
-//
-// Edge worker mode hits the Edge API directly and will get an
-// equivalent client in a follow-up PR.
+// Coordinator-mode TaskClient — wraps `CommChannel.request()` so
+// handlers can look up Variables and pull/push XCom values mid-task.
+// The supervisor multiplexes API calls through the comm socket.
 
 import type { CommChannel } from "./comm-channel.js";
 import type { TaskContext } from "../types.js";
-
-/** XCom locator. `dagId`/`taskId`/`runId` default to the running
- *  task's own context — pass them only to pull another task's XCom. */
-export interface GetXComOpts {
-    key: string;
-    dagId?: string;
-    taskId?: string;
-    runId?: string;
-    /** -1 / undefined for non-mapped tasks. */
-    mapIndex?: number;
-    includePriorDates?: boolean;
-}
-
-/** XCom push target. `dagId`/`taskId`/`runId` default to the running
- *  task's own context. */
-export interface SetXComOpts {
-    key: string;
-    value: unknown;
-    dagId?: string;
-    taskId?: string;
-    runId?: string;
-    mapIndex?: number;
-}
-
-export interface TaskClient {
-    /** Look up an Airflow Variable. Returns `null` when the key is
-     *  missing (supervisor sent a `*_NOT_FOUND` `ErrorResponse`) or
-     *  stored with a null value. Throws on any other RPC error.
-     *
-     *  Note: this is a deliberate JS-idiomatic divergence from Python's
-     *  `Variable.get`, which raises on a missing key. Use
-     *  `getVariableOrThrow` for the Python-parity behaviour.
-     *  See DESIGN.md CD-1. */
-    getVariable(key: string): Promise<string | null>;
-
-    /** Like `getVariable`, but throws `VariableNotFoundError` when the
-     *  key is missing (matches Python `Variable.get` with no default). */
-    getVariableOrThrow(key: string): Promise<string>;
-
-    /** Pull an XCom value. Returns `null` when the row is missing.
-     *  Locator fields default to the current task's context. */
-    getXCom(opts: GetXComOpts): Promise<unknown>;
-
-    /** Push an XCom value. Resolves once the supervisor has persisted
-     *  it (the supervisor's response is an empty arity-3 frame).
-     *  Target fields default to the current task's context. */
-    setXCom(opts: SetXComOpts): Promise<void>;
-}
-
-/** @deprecated Renamed to {@link TaskClient} — the interface is the
- *  cross-mode contract (Edge mode will implement it too), so it must
- *  not be named after one transport. Kept for one release. */
-export type CoordinatorClient = TaskClient;
-
-/** Thrown by {@link TaskClient.getVariableOrThrow} on a missing key. */
-export class VariableNotFoundError extends Error {
-    constructor(public readonly key: string) {
-        super(`Variable not found: ${key}`);
-        this.name = "VariableNotFoundError";
-    }
-}
+import {
+    type TaskClient,
+    type GetXComOpts,
+    type SetXComOpts,
+    VariableNotFoundError,
+} from "../client.js";
 
 export function createCoordinatorClient(
     comm: CommChannel,

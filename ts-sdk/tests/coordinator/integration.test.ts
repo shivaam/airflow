@@ -150,12 +150,12 @@ async function driveSupervisor(
                 const body = (f.body ?? {}) as Record<string, unknown>;
                 const msgType = String(body["type"] ?? "");
                 runtimeRequests.push({ type: msgType, body });
-                if (responder) {
-                    const reply = responder(msgType, body);
-                    if (reply) {
-                        commSock.write(frameBytes(f.id, reply.body, true));
-                    }
-                }
+                const reply = responder?.(msgType, body)
+                    // Default: ack any request with an empty body so the
+                    // runtime never hangs on auto-generated RPCs (e.g. the
+                    // return_value XCom push).
+                    ?? { body: null };
+                commSock.write(frameBytes(f.id, reply.body, true));
                 continue;
             }
             // Arity-3: a response from the runtime. The terminal frame

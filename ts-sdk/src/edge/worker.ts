@@ -19,7 +19,7 @@
 
 // Worker entry point. Composes clients + registry + poll loop.
 // TODO(pr2): per-TI heartbeat, token refresh, state-transition retry loop.
-// TODO(pr3): XCom / Variables / Connections in TaskHandlerArgs.
+// XCom / Variables now available via TaskClient (edge/task-client.ts).
 // TODO(pr4): log forwarding to Edge API.
 // TODO(pr5): subprocess isolation per task.
 
@@ -33,6 +33,7 @@ import {
     type EdgeJobFetched,
 } from "./edge-client.js";
 import { makeExecutionClient } from "./execution-client.js";
+import { createEdgeTaskClient } from "./task-client.js";
 import { ExecutionApiError, formatError } from "../errors.js";
 import { getRegisteredTask } from "../registry.js";
 import type { StartWorkerOptions, TaskContext } from "../types.js";
@@ -205,7 +206,7 @@ async function executeJob(job: EdgeJobFetched, ctx: ExecuteJobContext): Promise<
         return;
     }
 
-    // 3. Invoke handler.
+    // 3. Build context + client for the handler.
     const taskContext: TaskContext = {
         dagId: job.dag_id,
         taskId: job.task_id,
@@ -215,11 +216,16 @@ async function executeJob(job: EdgeJobFetched, ctx: ExecuteJobContext): Promise<
         taskInstanceId: tiId,
         signal: ctx.signal,
     };
+    const client = createEdgeTaskClient(exec.httpClient, taskContext);
+
     // 4. Run handler, mark TI, ack edge. Mark/ack failures propagate to the
     //    pollLoop failsafe — handler-success + mark-failure naturally
     //    downgrades to ack-failed (so edge state always converges).
     try {
-        await handler({ ctx: taskContext, job });
+        const result = await handler({ ctx: taskContext, job, client });
+        if (result !== undefined) {
+            await client.setXCom({ key: "return_value", value: result });
+        }
     } catch (err) {
         console.error(`[executeJob] ${label} handler threw: ${formatError(err)}`);
         await exec.markFailed({ end_date: new Date().toISOString() });

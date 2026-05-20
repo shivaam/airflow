@@ -87,8 +87,10 @@ export async function startCoordinatorRuntime(
 
     // Connect log channel first so early failures are captured.
     const logs = await LogChannel.connect(parsed.logsAddr);
+    const tasks = listRegisteredTasks();
     logs.info("Coordinator runtime started", {
-        registered_tasks: listRegisteredTasks().length,
+        registered_tasks: tasks,
+        count: tasks.length,
     });
 
     const { channel: comm, firstFrame } = await CommChannel.connect(parsed.commAddr);
@@ -175,7 +177,10 @@ async function handleTask(
     });
 
     try {
-        await handler(args);
+        const result = await handler(args);
+        if (result !== undefined) {
+            await client.setXCom({ key: "return_value", value: result });
+        }
         // SucceedTask MUST include task_outlets and outlet_events as
         // empty lists — the Execution API's TISuccessStatePayload
         // tagged-union validator rejects null for these fields.

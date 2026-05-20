@@ -18,37 +18,12 @@
  */
 
 // Coordinator-mode public API. Re-exported through the package root.
+//
+// TaskClient and related types are exported from the root `client.ts`
+// (shared across modes). This barrel only exports coordinator-specific
+// entry points.
 
 export {
     startCoordinatorRuntime,
-    parseArgs,
     type StartCoordinatorRuntimeOptions,
 } from "./runtime.js";
-export type {
-    LogChannel,
-    LogLevel,
-    LogRecord,
-} from "./log-channel.js";
-export type {
-    Frame,
-} from "./frames.js";
-export type {
-    StartupDetails,
-    DagFileParseRequest,
-    SucceedTask,
-    TaskStateMsg,
-    DagParsingResult,
-    TaskInstance,
-    BundleInfo,
-    TIRunContext,
-    MsgFromSupervisor,
-    MsgFromRuntime,
-} from "./protocol.js";
-export type {
-    TaskClient,
-    /** @deprecated use TaskClient */
-    CoordinatorClient,
-    GetXComOpts,
-    SetXComOpts,
-} from "./client.js";
-export { VariableNotFoundError } from "./client.js";
