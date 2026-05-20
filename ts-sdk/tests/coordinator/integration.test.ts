@@ -33,6 +33,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type Server, type Socket } from "node:net";
 import { encode, decode } from "@msgpack/msgpack";
 import { startCoordinatorRuntime } from "../../src/coordinator/runtime.js";
+import { dag, clearDagRegistry } from "../../src/coordinator/dag.js";
 import { clearRegistry, registerTask } from "../../src/registry.js";
 
 interface MockResult {
@@ -182,8 +183,8 @@ async function driveSupervisor(
 }
 
 describe("coordinator runtime integration", () => {
-    beforeEach(() => clearRegistry());
-    afterEach(() => clearRegistry());
+    beforeEach(() => { clearRegistry(); clearDagRegistry(); });
+    afterEach(() => { clearRegistry(); clearDagRegistry(); });
 
     it("dispatches StartupDetails to a registered handler and emits SucceedTask", async () => {
         let observedCtx: unknown = null;
@@ -339,5 +340,51 @@ describe("coordinator runtime integration", () => {
 
         expect(calledNamespaced).toBe(true);
         expect(calledBare).toBe(false);
+    });
+
+    it("responds to DagFileParseRequest with serialized DAGs", async () => {
+        dag("my_ts_dag", { schedule: "@daily" })
+            .task("extract", async () => "data", { downstream: ["load"] })
+            .task("load", async () => {});
+
+        const parseRequest = {
+            type: "DagFileParseRequest",
+            file: "/dags/test.mjs",
+            bundle_path: "/dags",
+        };
+
+        const result = await driveSupervisor(parseRequest);
+
+        const body = result.firstResponse!.body as Record<string, unknown>;
+        expect(body.type).toBe("DagFileParsingResult");
+        expect(body.fileloc).toBe("/dags/test.mjs");
+
+        const serializedDags = body.serialized_dags as { data: Record<string, unknown> }[];
+        expect(serializedDags).toHaveLength(1);
+        expect(serializedDags[0]!.data.__version).toBe(3);
+
+        const dagObj = serializedDags[0]!.data.dag as Record<string, unknown>;
+        expect(dagObj.dag_id).toBe("my_ts_dag");
+        expect(dagObj.relative_fileloc).toBe("test.mjs");
+
+        const tasks = dagObj.tasks as { __type: string; __var: Record<string, unknown> }[];
+        expect(tasks).toHaveLength(2);
+        expect(tasks[0]!.__var.task_id).toBe("extract");
+        expect(tasks[0]!.__var.language).toBe("typescript");
+        expect(tasks[0]!.__var.downstream_task_ids).toEqual(["load"]);
+    });
+
+    it("returns empty serialized_dags when no DAGs registered", async () => {
+        const parseRequest = {
+            type: "DagFileParseRequest",
+            file: "/dags/test.mjs",
+            bundle_path: "/dags",
+        };
+
+        const result = await driveSupervisor(parseRequest);
+
+        const body = result.firstResponse!.body as Record<string, unknown>;
+        expect(body.type).toBe("DagFileParsingResult");
+        expect(body.serialized_dags).toEqual([]);
     });
 });

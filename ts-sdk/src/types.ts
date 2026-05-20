@@ -49,7 +49,7 @@ export interface TaskContext {
  *  and edge mode (Execution API HTTP) provide a `TaskClient`.
  *  `job` is present in Edge worker mode only (`startWorker`). */
 export interface TaskHandlerArgs {
-    ctx: TaskContext;
+    readonly ctx: TaskContext;
     readonly client: TaskClient;
     readonly job?: EdgeJobFetched;
 }

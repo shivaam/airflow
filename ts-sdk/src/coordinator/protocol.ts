@@ -100,14 +100,13 @@ export interface TaskStateMsg {
     end_date?: string;
 }
 
-export interface DagParsingResult {
-    type: "DagParsingResult";
+export interface DagFileParsingResult {
+    type: "DagFileParsingResult";
     fileloc: string;
-    bundle_path: string;
-    dags: Record<string, unknown>;
+    serialized_dags: { data: { __version: number; dag: Record<string, unknown> } }[];
 }
 
-export type MsgFromRuntime = SucceedTask | TaskStateMsg | DagParsingResult;
+export type MsgFromRuntime = SucceedTask | TaskStateMsg | DagFileParsingResult;
 
 // -------- Mid-task RPC: runtime-initiated requests and their responses --------
 //

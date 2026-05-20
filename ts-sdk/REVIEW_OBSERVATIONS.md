@@ -163,3 +163,123 @@ explicitness helps debugging. Revisit if the method count grows.
 `parseArgs` was exported but is an internal utility. Removed from barrel
 export alongside the other internals.
 
+### F8. `TaskHandlerArgs.ctx` missing `readonly`
+**Files:** `types.ts:52`
+**Status:** [ ] Open.
+
+`client` and `job` siblings are `readonly`, but `ctx` is not — looks like an
+oversight. `TaskContext`'s own fields are all `readonly`, so inner state is
+already protected, but the outer binding allows `args.ctx = somethingElse`
+inside a handler. Add `readonly` for consistency.
+
+### F9. `mapIndex: -1` not translated to `null` on coordinator wire
+**Files:** `coordinator/client.ts:39,87,103`, `client.ts:48` (JSDoc)
+**Status:** [ ] Open — real bug.
+
+`GetXComOpts.mapIndex` is documented as "-1 / undefined for non-mapped tasks"
+(client.ts:48). Edge mode honours that — the wire wants `-1`. Coordinator
+mode wants `null`, and currently relies on `opts.mapIndex ?? ctxMapIndex`,
+where `ctxMapIndex` is `null` for non-mapped. But `??` only triggers on
+`null`/`undefined`, so if a caller explicitly passes `mapIndex: -1`, the
+coordinator path sends `-1` on the wire instead of translating to `null`.
+The Python supervisor's pydantic validator may reject that.
+
+Fix: normalize `opts.mapIndex === -1` to `null` (coordinator) or `-1` (edge)
+in one place, so the user-facing convention ("-1 = non-mapped") is honoured
+regardless of mode.
+
+### F10. No request timeout in coordinator `comm.request()`
+**Files:** `coordinator/comm-channel.ts:87-103`
+**Status:** [ ] Open — resilience gap.
+
+`CommChannel.request()` registers a pending reply and never times out. If
+the supervisor stops responding mid-task (without closing the socket), the
+RPC promise hangs forever. The Edge HTTP path has a 120 s per-request
+timeout (`execution-client.ts:94`). Coordinator should match — pick a
+default (e.g. 120 s), wire it through `CommChannel`, and reject pending
+replies on timeout.
+
+Note: socket *close* is handled — `handleClose()` resolves pending replies
+with a synthetic error frame. The gap is specifically supervisor hangs with
+a live socket.
+
+### F11. Duplicate `ErrorResponse` definitions in protocol.ts
+**Files:** `coordinator/protocol.ts:75-79,164-168`
+**Status:** [ ] Open — cleanup.
+
+`ErrorResponse` (line 75) and `ErrorResponseBody` (line 164) are
+shape-identical: `type: "ErrorResponse"`, `error: string`, `detail?: unknown`.
+Two names for the same wire message. One was added for the supervisor-greeting
+discriminated union, the other for mid-task RPC failures, but they describe
+the same Python type. Collapse to a single name and re-export.
+
+### F12. Type lies in coordinator field-mapping casts
+**Files:** `coordinator/client.ts:69,90,113-120`
+**Status:** [ ] Open — type hygiene.
+
+Patterns like `(body!.value as string) ?? null` and `(body!.host as string) ?? null`
+cast through `as string` even when the wire allows `null`. The runtime
+behaviour is correct (`?? null` catches the null case), but the TS type after
+the cast is `string`, not `string | null` — defeating the point of the cast.
+The `as` is doing nothing useful here; either drop it and let inference work,
+or cast to `string | null | undefined`.
+
+### F13. `LogChannel.send` is fire-and-forget
+**Files:** `coordinator/log-channel.ts:53-59`
+**Status:** [ ] Open — decide and document.
+
+`sock.write(...)` is called without awaiting the callback or checking the
+return value (backpressure signal). Under load, log lines can be silently
+dropped, and write errors after the socket dies vanish. This may be
+intentional — logging mustn't block task progress — but the current code
+makes no choice explicit. Either document the fire-and-forget tradeoff in
+the header, or add a `bufferedAmount`-style sanity check / drop counter.
+
+### F14. Hardcoded version strings in worker.ts
+**Files:** `edge/worker.ts:43-44`
+**Status:** [ ] Open — minor.
+
+`AIRFLOW_VERSION` and `EDGE_PROVIDER_VERSION` default to literal strings
+(`"3.3.0"`, `"3.5.0"`) read at module load. These get out of date silently
+on each Airflow release. Options:
+- Read from the package.json's peerDep range
+- Surface as `StartWorkerOptions` fields (callers can pin)
+- Accept the drift; document the override env vars more prominently.
+
+### F15. Cosmetic path-label mismatch in execution-client error messages
+**Files:** `edge/execution-client.ts:149,164,178`
+**Status:** [ ] Open — minor.
+
+`call("PATCH", "/task-instances/{id}/run", ...)` uses `{id}` in the label
+but the actual openapi path template is `{task_instance_id}`. Affects the
+text of `ExecutionApiError.message` only; harmless but inconsistent.
+
+---
+
+## Open architectural questions
+
+### A1. Is Edge mode redundant once coordinator mode supports full DAGs?
+**Status:** Open — needs community input.
+
+Coordinator mode works with any executor (Local, Celery, K8s), supports full
+DAG definitions, and has simpler auth (localhost trust). Edge mode's unique
+value is **remote workers** that can't be co-located with the Airflow server
+(behind NATs, different clouds, IoT edge devices).
+
+But maintaining both means duplicated code: two `TaskClient` implementations,
+two auth models, two worker entry points, two places for XCom auto-push, etc.
+
+**Options to evaluate:**
+1. **Keep both** — edge is for remote, coordinator is for co-located. Different
+   deployment models, both valid.
+2. **Edge becomes thin wrapper** — edge worker could register with Airflow, then
+   Airflow's coordinator spawns tasks on it remotely (edge as a coordinator
+   transport, not a separate execution model).
+3. **Deprecate edge** — if the coordinator model gets a "remote worker" story
+   (e.g., coordinator spawns tasks on remote machines via SSH/K8s), edge becomes
+   unnecessary.
+
+This is a community/AIP-level decision, not something we resolve in this PR.
+For now, both modes are maintained with the shared `TaskClient` interface
+minimizing duplication.
+

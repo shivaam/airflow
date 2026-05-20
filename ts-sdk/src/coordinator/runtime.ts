@@ -34,14 +34,12 @@
 //        - DagFileParseRequest → respond with DagParsingResult, exit
 //        - StartupDetails      → run task, respond Succeed or Fail, exit
 //
-// TODO(pr-followup): bundle scanner / `provideDags()` API for the
-//   parse-mode path. Until then, parse mode emits an empty DAG list
-//   (sufficient for the Python-stub-DAG workflow Java SDK uses).
-
 import { createCoordinatorClient } from "./client.js";
 import { CommChannel } from "./comm-channel.js";
+import { listRegisteredDags } from "./dag.js";
 import { LogChannel } from "./log-channel.js";
 import { asMsgFromSupervisor, type StartupDetails } from "./protocol.js";
+import { serializeParsingResult } from "./serde.js";
 import { getRegisteredTask, listRegisteredTasks } from "../registry.js";
 import type { TaskContext, TaskHandlerArgs } from "../types.js";
 
@@ -124,19 +122,25 @@ async function handleParse(
     comm: CommChannel,
     logs: LogChannel,
 ): Promise<void> {
-    // PR-1 minimal: respond with the registered task list as a single
-    // synthetic DAG. A real bundle scanner is deferred — the Java
-    // provider's recommended path for non-Python languages is the
-    // Python-stub DAG, which doesn't go through this pathway anyway.
-    logs.info("Parse-mode response (minimal)", {
-        registered_tasks: listRegisteredTasks(),
-    });
-    await comm.sendResponse(id, {
-        type: "DagParsingResult",
-        fileloc: request.file,
-        bundle_path: request.bundle_path,
-        dags: {},
-    });
+    const dags = listRegisteredDags();
+    if (dags.length > 0) {
+        logs.info("Parse-mode response", {
+            dags: dags.map((d) => d.dagId),
+        });
+        const result = serializeParsingResult(dags, request.file, request.bundle_path);
+        await comm.sendResponse(id, result);
+    } else {
+        // No DAGs registered via dag() — fall back to empty response.
+        // This keeps the Python-stub-DAG workflow working.
+        logs.info("Parse-mode response (no DAGs registered)", {
+            registered_tasks: listRegisteredTasks(),
+        });
+        await comm.sendResponse(id, {
+            type: "DagFileParsingResult",
+            fileloc: request.file,
+            serialized_dags: [],
+        });
+    }
 }
 
 async function handleTask(

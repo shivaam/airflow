@@ -24,6 +24,10 @@ export { startWorker } from "./edge/worker.js";
 export {
     startCoordinatorRuntime,
     type StartCoordinatorRuntimeOptions,
+    dag,
+    DagBuilder,
+    type DagOptions,
+    type TaskOpts,
 } from "./coordinator/index.js";
 export {
     type Connection,

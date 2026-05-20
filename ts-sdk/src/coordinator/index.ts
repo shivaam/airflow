@@ -27,3 +27,9 @@ export {
     startCoordinatorRuntime,
     type StartCoordinatorRuntimeOptions,
 } from "./runtime.js";
+export {
+    dag,
+    DagBuilder,
+    type DagOptions,
+    type TaskOpts,
+} from "./dag.js";
