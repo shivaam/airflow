@@ -115,8 +115,11 @@ function serializeTask(task: DagTask): Record<string, unknown> {
         task_id: task.taskId,
         task_type: "TypeScriptTask",
         _task_module: "airflow.ts_sdk",
-        language: "typescript",
+        language: task.language,
     };
+    if (task.queue) {
+        data.queue = task.queue;
+    }
     if (task.downstream.length > 0) {
         data.downstream_task_ids = [...task.downstream].sort();
     }

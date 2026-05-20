@@ -387,4 +387,161 @@ describe("coordinator runtime integration", () => {
         expect(body.type).toBe("DagFileParsingResult");
         expect(body.serialized_dags).toEqual([]);
     });
+
+    it("auto-pushes return_value XCom when handler returns a value", async () => {
+        registerTask("pusher", async () => "my-result");
+
+        const runtimeRequests: { type: string; body: Record<string, unknown> }[] = [];
+        const responder: Responder = (msgType, body) => {
+            if (msgType === "SetXCom") return { body: null };
+            return null;
+        };
+
+        const result = await driveSupervisor(makeStartupDetails("pusher"), responder);
+
+        expect(result.firstResponse!.body).toMatchObject({ type: "SucceedTask" });
+
+        const setXComReqs = result.runtimeRequests.filter((r) => r.type === "SetXCom");
+        expect(setXComReqs).toHaveLength(1);
+        expect(setXComReqs[0]!.body).toMatchObject({
+            key: "return_value",
+            value: "my-result",
+        });
+    });
+
+    it("does NOT push return_value XCom when handler returns undefined", async () => {
+        registerTask("void_task", async () => {
+            // no return value
+        });
+
+        const result = await driveSupervisor(makeStartupDetails("void_task"));
+
+        expect(result.firstResponse!.body).toMatchObject({ type: "SucceedTask" });
+
+        const setXComReqs = result.runtimeRequests.filter((r) => r.type === "SetXCom");
+        expect(setXComReqs).toHaveLength(0);
+    });
+
+    it("serializes multiple DAGs in parse response", async () => {
+        dag("dag_alpha", { schedule: "@hourly" }).task("t1");
+        dag("dag_beta", { schedule: "@daily" }).task("t2");
+
+        const parseRequest = {
+            type: "DagFileParseRequest",
+            file: "/dags/multi.mjs",
+            bundle_path: "/dags",
+        };
+
+        const result = await driveSupervisor(parseRequest);
+
+        const body = result.firstResponse!.body as Record<string, unknown>;
+        const serializedDags = body.serialized_dags as { data: Record<string, unknown> }[];
+        expect(serializedDags).toHaveLength(2);
+
+        const dagIds = serializedDags.map(
+            (sd) => (sd.data.dag as Record<string, unknown>).dag_id,
+        );
+        expect(dagIds.sort()).toEqual(["dag_alpha", "dag_beta"]);
+    });
+
+    it("parse response includes task dependencies and timetable", async () => {
+        dag("pipeline_dag", { schedule: "0 */6 * * *" })
+            .task("extract", async () => "data", { downstream: ["transform"] })
+            .task("transform", async () => {}, { downstream: ["load"] })
+            .task("load", async () => {});
+
+        const parseRequest = {
+            type: "DagFileParseRequest",
+            file: "/dags/pipeline.mjs",
+            bundle_path: "/dags",
+        };
+
+        const result = await driveSupervisor(parseRequest);
+
+        const body = result.firstResponse!.body as Record<string, unknown>;
+        const serializedDags = body.serialized_dags as { data: Record<string, unknown> }[];
+        const dagObj = serializedDags[0]!.data.dag as Record<string, unknown>;
+
+        // Timetable
+        const tt = dagObj.timetable as Record<string, unknown>;
+        expect(tt.__type).toBe("airflow.timetables.trigger.CronTriggerTimetable");
+        expect((tt.__var as Record<string, unknown>).expression).toBe("0 */6 * * *");
+
+        // Tasks with deps
+        const tasks = dagObj.tasks as { __var: Record<string, unknown> }[];
+        expect(tasks).toHaveLength(3);
+        const extract = tasks.find((t) => t.__var.task_id === "extract");
+        expect(extract!.__var.downstream_task_ids).toEqual(["transform"]);
+
+        // Task group
+        const tg = dagObj.task_group as Record<string, unknown>;
+        expect(tg.children).toEqual({
+            extract: ["operator", "extract"],
+            transform: ["operator", "transform"],
+            load: ["operator", "load"],
+        });
+    });
+
+    it("dag-defined inline handler is invoked on StartupDetails", async () => {
+        let handlerCalled = false;
+        dag("inline_dag")
+            .task("work", async () => {
+                handlerCalled = true;
+                return "inline-result";
+            });
+
+        const responder: Responder = (msgType) => {
+            if (msgType === "SetXCom") return { body: null };
+            return null;
+        };
+
+        const result = await driveSupervisor(
+            makeStartupDetails("work", "inline_dag"),
+            responder,
+        );
+
+        expect(handlerCalled).toBe(true);
+        expect(result.firstResponse!.body).toMatchObject({ type: "SucceedTask" });
+
+        // Verify the auto-registered handler name was "inline_dag.work"
+        const setXCom = result.runtimeRequests.find((r) => r.type === "SetXCom");
+        expect(setXCom?.body).toMatchObject({
+            key: "return_value",
+            value: "inline-result",
+        });
+    });
+
+    it("serializes cross-runtime DAG with queue routing in parse response", async () => {
+        dag("ts_orchestrated", { schedule: "@daily" })
+            .task("fetch", async () => "data", { downstream: ["java_transform"] })
+            .task("java_transform", { queue: "java-runtime", language: "java", downstream: ["summarize"] })
+            .task("summarize", async () => "done");
+
+        const parseRequest = {
+            type: "DagFileParseRequest",
+            file: "/dags/orchestrated.mjs",
+            bundle_path: "/dags",
+        };
+
+        const result = await driveSupervisor(parseRequest);
+
+        const body = result.firstResponse!.body as Record<string, unknown>;
+        const serializedDags = body.serialized_dags as { data: Record<string, unknown> }[];
+        const dagObj = serializedDags[0]!.data.dag as Record<string, unknown>;
+        const tasks = dagObj.tasks as { __var: Record<string, unknown> }[];
+
+        expect(tasks).toHaveLength(3);
+
+        const fetch = tasks.find((t) => t.__var.task_id === "fetch")!;
+        expect(fetch.__var.language).toBe("typescript");
+        expect(fetch.__var.queue).toBeUndefined();
+
+        const javaTransform = tasks.find((t) => t.__var.task_id === "java_transform")!;
+        expect(javaTransform.__var.language).toBe("java");
+        expect(javaTransform.__var.queue).toBe("java-runtime");
+        expect(javaTransform.__var.downstream_task_ids).toEqual(["summarize"]);
+
+        const summarize = tasks.find((t) => t.__var.task_id === "summarize")!;
+        expect(summarize.__var.language).toBe("typescript");
+    });
 });

@@ -225,3 +225,157 @@ describe("serializeParsingResult", () => {
         expect(serializedDags).toHaveLength(2);
     });
 });
+
+describe("serializeValue edge cases", () => {
+    it("encodes Map as dict", () => {
+        const m = new Map([["a", 1], ["b", 2]]);
+        expect(serializeValue(m)).toEqual({
+            __type: "dict",
+            __var: { a: 1, b: 2 },
+        });
+    });
+
+    it("encodes Array with nested objects", () => {
+        expect(serializeValue([{ x: 1 }, { y: 2 }])).toEqual([
+            { __type: "dict", __var: { x: 1 } },
+            { __type: "dict", __var: { y: 2 } },
+        ]);
+    });
+
+    it("encodes empty Set", () => {
+        expect(serializeValue(new Set())).toEqual({
+            __type: "set",
+            __var: [],
+        });
+    });
+});
+
+describe("serializeDag additional fields", () => {
+    it("serializes endDate", () => {
+        const d = new DagBuilder("end_dag", {
+            endDate: new Date("2027-12-31T23:59:59Z"),
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.end_date).toBe(new Date("2027-12-31T23:59:59Z").getTime() / 1000);
+    });
+
+    it("serializes dagrunTimeout as seconds", () => {
+        const d = new DagBuilder("timeout_dag", {
+            dagrunTimeout: 3600,
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.dagrun_timeout).toBe(3600);
+    });
+
+    it("serializes failFast and renderTemplateAsNativeObj", () => {
+        const d = new DagBuilder("flags_dag", {
+            failFast: true,
+            renderTemplateAsNativeObj: true,
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.fail_fast).toBe(true);
+        expect(result.render_template_as_native_obj).toBe(true);
+    });
+
+    it("excludes falsy failFast and renderTemplateAsNativeObj", () => {
+        const d = new DagBuilder("no_flags_dag", {
+            failFast: false,
+            renderTemplateAsNativeObj: false,
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.fail_fast).toBeUndefined();
+        expect(result.render_template_as_native_obj).toBeUndefined();
+    });
+
+    it("serializes non-default maxActiveRuns", () => {
+        const d = new DagBuilder("runs_dag", {
+            maxActiveRuns: 4,
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.max_active_runs).toBe(4);
+    });
+
+    it("serializes tags sorted and unwrapped", () => {
+        const d = new DagBuilder("tags_dag", {
+            tags: ["beta", "alpha", "gamma"],
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.tags).toEqual(expect.arrayContaining(["alpha", "beta", "gamma"]));
+    });
+
+    it("excludes empty tags array", () => {
+        const d = new DagBuilder("no_tags_dag", {
+            tags: [],
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.tags).toBeUndefined();
+    });
+
+    it("serializes defaultArgs with full decoration", () => {
+        const d = new DagBuilder("defaults_dag", {
+            defaultArgs: { retries: 3, retry_delay: 300 },
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.default_args).toMatchObject({
+            __type: "dict",
+            __var: expect.objectContaining({ retries: 3 }),
+        });
+    });
+
+    it("serializes ownerLinks unwrapped", () => {
+        const d = new DagBuilder("owners_dag", {
+            ownerLinks: { team_a: "https://team-a.example.com" },
+        });
+        const result = serializeDag(d, "", "");
+        expect(result.owner_links).toEqual({ team_a: "https://team-a.example.com" });
+    });
+});
+
+describe("cross-runtime task serialization", () => {
+    it("serializes task with queue for coordinator routing", () => {
+        const d = new DagBuilder("routed_dag");
+        d.task("java_step", { queue: "java-runtime", language: "java" });
+
+        const result = serializeDag(d, "", "");
+        const tasks = result.tasks as { __type: string; __var: Record<string, unknown> }[];
+
+        expect(tasks).toHaveLength(1);
+        expect(tasks[0]!.__var.queue).toBe("java-runtime");
+        expect(tasks[0]!.__var.language).toBe("java");
+    });
+
+    it("omits queue field when not set", () => {
+        const d = new DagBuilder("ts_only");
+        d.task("ts_step");
+
+        const result = serializeDag(d, "", "");
+        const tasks = result.tasks as { __type: string; __var: Record<string, unknown> }[];
+
+        expect(tasks[0]!.__var.language).toBe("typescript");
+        expect(tasks[0]!.__var.queue).toBeUndefined();
+    });
+
+    it("serializes polyglot DAG with mixed runtimes", () => {
+        const d = new DagBuilder("polyglot_demo", { schedule: "@daily" });
+        d.task("ingest", { downstream: ["process"], language: "typescript" });
+        d.task("process", { queue: "java-runtime", language: "java", downstream: ["report"] });
+        d.task("report", { language: "typescript" });
+
+        const result = serializeDag(d, "/dags/polyglot.mjs", "polyglot.mjs");
+        const tasks = result.tasks as { __type: string; __var: Record<string, unknown> }[];
+
+        expect(tasks).toHaveLength(3);
+
+        const ingest = tasks.find((t) => t.__var.task_id === "ingest")!;
+        expect(ingest.__var.language).toBe("typescript");
+        expect(ingest.__var.queue).toBeUndefined();
+
+        const process = tasks.find((t) => t.__var.task_id === "process")!;
+        expect(process.__var.language).toBe("java");
+        expect(process.__var.queue).toBe("java-runtime");
+        expect(process.__var.downstream_task_ids).toEqual(["report"]);
+
+        const report = tasks.find((t) => t.__var.task_id === "report")!;
+        expect(report.__var.language).toBe("typescript");
+    });
+});

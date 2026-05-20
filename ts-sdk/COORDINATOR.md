@@ -246,7 +246,9 @@ spike's runbook at
 - [x] Auto-push return value to XCom as `"return_value"` (matches Python `@task`)
 - [x] Remove deprecated `CoordinatorClient` alias
 - [x] Trim barrel exports to public-API-only
-- [x] DAG parse stub — responds with empty `dags: {}` (sufficient for Python-stub-DAG workflow)
+- [x] `getConnection(connId)` — both coordinator and edge implementations
+- [x] DAG parser — `dag()` builder + Airflow v3 serialization, full DAGs in TypeScript
+- [x] DAG parse mode — `handleParse()` returns real `DagFileParsingResult`
 - [x] Deferred<T> for greeting race condition
 - [x] Integration tests (success, failure, unknown task, XCom round-trip)
 
@@ -256,19 +258,6 @@ spike's runbook at
 
 - [x] **`getConnection(connId)`** — added to `TaskClient` interface + both
   implementations. Returns `Connection | null`.
-
-### Medium-term (full DAG support — no Python needed)
-
-- [ ] **`provideDags()` API + DAG serialization** — implement `handleParse`
-  to return real DAG structure instead of `dags: {}`. This is what makes
-  "define entire DAGs in TypeScript" possible. Requires porting the
-  serialization logic from the Java SDK's `Serde.kt` (~250 lines) to
-  produce the `__version: 3` / `__type` / `__var` structure that
-  Airflow's `DagSerialization.from_dict()` expects. Once done, a `.mjs`
-  file dropped in the DAG bundle folder is a full DAG — no Python stub.
-
-- [ ] **DAG builder API** — TypeScript-native `Dag` class with `addTask()`,
-  schedule, params, tags, etc. Equivalent to the Java SDK's `Dag.kt`.
 
 ### Hardening (release blockers)
 
@@ -299,7 +288,33 @@ spike's runbook at
   edge mode.
 
 - [ ] **Subprocess isolation** — spawn each task in a child process for
-  memory isolation.
+  memory isolation. See "Known limitations" below.
+
+## Known limitations
+
+**Single-threaded event loop.** Node.js runs user task code on the same
+event loop as the comm channel, log channel, and any future heartbeat
+timer. If a task handler blocks synchronously (CPU-heavy loop, blocking
+I/O), the entire process stalls — no RPC responses, no log flushing, no
+signal handling.
+
+This is the same fundamental constraint any single-threaded runtime has.
+The Python SDK avoids it by forking a subprocess per task; the Java SDK
+gets JVM threads. The planned fix for the TS SDK is **subprocess
+isolation** (`worker_threads` or `child_process.fork()`): the main
+process keeps control of the event loop while the task runs in an
+isolated context. This matches the Python supervisor's architecture.
+
+Until subprocess isolation lands, task authors should:
+- Use `async`/`await` for I/O (never blocking calls)
+- Offload CPU-heavy work to `worker_threads` manually
+- Keep task handlers non-blocking
+
+**No graceful SIGTERM.** `ctx.signal` exists for API parity with edge
+mode but never fires in coordinator mode. When the coordinator sends
+SIGTERM, Node exits before any user cleanup runs. Planned fix: wire
+SIGTERM to the `AbortController` so handlers can observe
+`ctx.signal.aborted` and clean up.
 
 ## Background and rationale
 

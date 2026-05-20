@@ -51,12 +51,22 @@ export interface DagOptions {
 /** Per-task options within a DAG definition. */
 export interface TaskOpts {
     downstream?: string[];
+    /** Queue name for coordinator routing. When set, the scheduler uses
+     *  `[sdk] queue_to_coordinator` to dispatch this task to the matching
+     *  coordinator (e.g. `"java-runtime"` routes to `JavaCoordinator`).
+     *  Omit for tasks that run in the current runtime (TypeScript). */
+    queue?: string;
+    /** Language hint serialized into the task. Defaults to `"typescript"`.
+     *  Set to `"java"` for tasks delegated to the Java coordinator. */
+    language?: string;
 }
 
-/** A task entry in the DAG: its ID and downstream dependencies. */
+/** A task entry in the DAG: its ID, dependencies, and routing metadata. */
 export interface DagTask {
     readonly taskId: string;
     readonly downstream: string[];
+    readonly queue?: string;
+    readonly language: string;
 }
 
 /** Fluent DAG builder. Created by the `dag()` function. */
@@ -109,6 +119,8 @@ export class DagBuilder {
         this._tasks.set(taskId, {
             taskId,
             downstream: opts?.downstream ? [...opts.downstream] : [],
+            queue: opts?.queue,
+            language: opts?.language ?? "typescript",
         });
         return this;
     }
