@@ -33,6 +33,8 @@ from airflow.api_fastapi.common.parameters import QueryLimit, QueryOffset, SortP
 from airflow.api_fastapi.common.router import AirflowRouter
 from airflow.api_fastapi.core_api.datamodels.backfills import (
     BackfillCollectionResponse,
+    BackfillDagRunCollectionResponse,
+    BackfillDagRunResponse,
     BackfillPostBody,
     BackfillResponse,
     DryRunBackfillCollectionResponse,
@@ -110,6 +112,58 @@ def get_backfill(
     if backfill:
         return backfill
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Backfill not found")
+
+
+@backfills_router.get(
+    path="/{backfill_id}/dag_runs",
+    responses=create_openapi_http_exception_doc([status.HTTP_404_NOT_FOUND]),
+    dependencies=[
+        Depends(requires_access_backfill(method="GET")),
+    ],
+)
+def list_backfill_dag_runs(
+    backfill_id: NonNegativeInt,
+    limit: QueryLimit,
+    offset: QueryOffset,
+    order_by: Annotated[
+        SortParam,
+        Depends(SortParam(["id", "sort_ordinal"], BackfillDagRun).dynamic_depends(default="sort_ordinal")),
+    ],
+    session: SessionDep,
+) -> BackfillDagRunCollectionResponse:
+    backfill = session.get(Backfill, backfill_id)
+    if not backfill:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Backfill with id {backfill_id} not found")
+
+    select_stmt, total_entries = paginated_select(
+        statement=select(BackfillDagRun)
+        .outerjoin(DagRun, BackfillDagRun.dag_run_id == DagRun.id)
+        .where(BackfillDagRun.backfill_id == backfill_id)
+        .add_columns(DagRun.state, DagRun.run_id),
+        order_by=order_by,
+        offset=offset,
+        limit=limit,
+        session=session,
+    )
+    results = session.execute(select_stmt).all()
+    backfill_dag_runs = [
+        BackfillDagRunResponse(
+            id=bdr.id,
+            backfill_id=bdr.backfill_id,
+            dag_run_id=bdr.dag_run_id,
+            logical_date=bdr.logical_date,
+            partition_key=bdr.partition_key,
+            sort_ordinal=bdr.sort_ordinal,
+            exception_reason=bdr.exception_reason,
+            dag_run_state=state,
+            dag_run_run_id=run_id,
+        )
+        for bdr, state, run_id in results
+    ]
+    return BackfillDagRunCollectionResponse(
+        backfill_dag_runs=backfill_dag_runs,
+        total_entries=total_entries,
+    )
 
 
 @backfills_router.put(
