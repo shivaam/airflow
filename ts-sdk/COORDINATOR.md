@@ -233,6 +233,42 @@ For end-to-end verification against a real Airflow build, see the
 spike's runbook at
 [`airflow-task-sdk/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md`](https://github.com/randomblueberries/airflow-task-sdk/blob/spike/coordinator-integration/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md).
 
+### Verifying the `mapIndex` normalization (F9)
+
+The coordinator wire collapses three caller forms to a single `null`:
+omitted, `undefined`, and the user-facing non-mapped sentinel `-1`.
+This is asserted directly in unit tests — no Airflow needed:
+
+```bash
+pnpm test -- tests/coordinator/client.test.ts
+```
+
+The relevant cases live in [`tests/coordinator/client.test.ts`](tests/coordinator/client.test.ts):
+
+- **"defaults dag/task/run + map_index from ctx; allows override"** —
+  proves a non-mapped `ctx.mapIndex = -1` becomes `map_index: null` on
+  the wire when the caller omits `opts.mapIndex`.
+- **"normalizes user-facing mapIndex=-1 to null on the wire"** — proves
+  an explicit `opts.mapIndex: -1` is also normalized to `null` (the
+  case `??`-fallback alone would miss), while a mapped value like `5`
+  passes through unchanged. Uses a context with `mapIndex: 3` to prove
+  the caller's `-1` wins over a mapped ctx — i.e. "give me the
+  non-mapped row" is honoured.
+
+If you want to eyeball the wire payload in a real coordinator run, the
+integration test in `integration.test.ts` is the cheapest path: drop a
+`console.log(frame.body)` into the supervisor's `data` handler and run
+`pnpm test -- tests/coordinator/integration.test.ts`. You'll see the
+`SetXCom` / `GetXCom` frames in the order the handler emits them, with
+`map_index: null` for any non-mapped task.
+
+For a Python-side check, the supervisor filters `-1` and `null`
+identically (`task-sdk/.../api/client.py:511,554` —
+`if map_index is not None and map_index >= 0:`), so the wire choice
+doesn't change behaviour against the API server; the test is about
+self-consistency between the documented API and the bytes we put on
+the wire.
+
 ---
 
 ## What's done

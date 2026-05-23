@@ -116,4 +116,32 @@ describe("client is bound to TaskContext", () => {
             dag_id: "other", task_id: "up", run_id: "rX",
         });
     });
+
+    it("normalizes user-facing mapIndex=-1 to null on the wire", async () => {
+        // The user-facing convention (GetXComOpts.mapIndex JSDoc) is
+        // "-1 / undefined for non-mapped tasks". `??` alone wouldn't
+        // catch an explicit -1; toWireMapIndex must.
+        const sent: Record<string, unknown>[] = [];
+        const recordingComm = {
+            request: async (b: Record<string, unknown>) => {
+                sent.push(b);
+                // setXCom expects body=null; getXCom expects an XComResult.
+                return b.type === "GetXCom"
+                    ? { body: { type: "XComResult", key: b.key, value: null } }
+                    : { body: null };
+            },
+        } as unknown as CommChannel;
+        // ctx with a real map index — to prove -1 from opts wins over a
+        // mapped ctx value (caller is explicitly asking "the non-mapped row").
+        const mappedCtx: TaskContext = { ...FAKE_CTX, mapIndex: 3 };
+        const c = createCoordinatorClient(recordingComm, mappedCtx);
+
+        await c.setXCom({ key: "k", value: 1, mapIndex: -1 });
+        await c.getXCom({ key: "k", mapIndex: -1 });
+        await c.setXCom({ key: "k", value: 2, mapIndex: 5 });
+
+        expect(sent[0]).toMatchObject({ type: "SetXCom", map_index: null });
+        expect(sent[1]).toMatchObject({ type: "GetXCom", map_index: null });
+        expect(sent[2]).toMatchObject({ type: "SetXCom", map_index: 5 });
+    });
 });

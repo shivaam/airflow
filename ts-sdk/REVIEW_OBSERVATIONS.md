@@ -173,20 +173,29 @@ already protected, but the outer binding allows `args.ctx = somethingElse`
 inside a handler. Add `readonly` for consistency.
 
 ### F9. `mapIndex: -1` not translated to `null` on coordinator wire
-**Files:** `coordinator/client.ts:39,87,103`, `client.ts:48` (JSDoc)
-**Status:** [ ] Open — real bug.
+**Files:** `coordinator/client.ts`, `tests/coordinator/client.test.ts`
+**Status:** [x] Fixed this session.
 
 `GetXComOpts.mapIndex` is documented as "-1 / undefined for non-mapped tasks"
-(client.ts:48). Edge mode honours that — the wire wants `-1`. Coordinator
-mode wants `null`, and currently relies on `opts.mapIndex ?? ctxMapIndex`,
-where `ctxMapIndex` is `null` for non-mapped. But `??` only triggers on
-`null`/`undefined`, so if a caller explicitly passes `mapIndex: -1`, the
-coordinator path sends `-1` on the wire instead of translating to `null`.
-The Python supervisor's pydantic validator may reject that.
+(client.ts:48). Edge mode honoured that — wire wants `-1`. Coordinator mode
+sends `null`, and previously relied on `opts.mapIndex ?? ctxMapIndex`, where
+`ctxMapIndex` was `null` for non-mapped. But `??` only triggers on
+`null`/`undefined`, so an explicit `mapIndex: -1` from a caller bypassed the
+normalization and sent `-1` on the wire — inconsistent with the rest of the
+coordinator path (and with what `client.test.ts:113` already asserts).
 
-Fix: normalize `opts.mapIndex === -1` to `null` (coordinator) or `-1` (edge)
-in one place, so the user-facing convention ("-1 = non-mapped") is honoured
-regardless of mode.
+The Python supervisor handles both: `task-sdk/.../api/client.py:511,554`
+applies `if map_index is not None and map_index >= 0:` so `-1` is filtered
+identically to `None` in both `get` and `set` (and the Java/Kotlin SDK ships
+`-1` on the same wire in production). So this was a self-consistency / type-
+honesty fix, not a Python-server bug.
+
+Fix: a single `toWireMapIndex(opts.mapIndex ?? ctx.mapIndex)` helper in
+`coordinator/client.ts` collapses `undefined`, `null`, and `-1` to `null`;
+mapped indices (0+) pass through. Edge mode keeps the `-1` convention
+because the openapi client serializes the param verbatim. Test added:
+`tests/coordinator/client.test.ts` — "normalizes user-facing mapIndex=-1
+to null on the wire".
 
 ### F10. No request timeout in coordinator `comm.request()`
 **Files:** `coordinator/comm-channel.ts:87-103`

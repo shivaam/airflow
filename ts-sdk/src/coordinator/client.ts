@@ -22,6 +22,7 @@
 // The supervisor multiplexes API calls through the comm socket.
 
 import type { CommChannel } from "./comm-channel.js";
+import type { LogChannel } from "./log-channel.js";
 import type { TaskContext } from "../types.js";
 import {
     type Connection,
@@ -31,12 +32,22 @@ import {
     VariableNotFoundError,
 } from "../client.js";
 
+/** Normalize a caller-supplied or context map index for the coordinator
+ *  wire. Both `undefined` (caller omitted) and the user-facing `-1`
+ *  non-mapped sentinel become `null`; mapped values (0…) pass through.
+ *  The Python supervisor's XComOperations filters `-1` exactly like
+ *  `None` (`task-sdk/.../api/client.py:511,554`), but we send `null`
+ *  uniformly so the wire payload matches the documented contract and
+ *  matches what `tests/coordinator/client.test.ts` asserts. */
+function toWireMapIndex(m: number | null | undefined): number | null {
+    return m == null || m < 0 ? null : m;
+}
+
 export function createCoordinatorClient(
     comm: CommChannel,
     ctx: TaskContext,
+    logs: LogChannel | null = null,
 ): TaskClient {
-    // Non-mapped tasks carry mapIndex = -1; the wire wants null there.
-    const ctxMapIndex = ctx.mapIndex >= 0 ? ctx.mapIndex : null;
 
     /** Send an RPC request, validate the response type, and extract the
      *  value. Returns `null` for NOT_FOUND errors. Throws on any other error
@@ -48,17 +59,28 @@ export function createCoordinatorClient(
         request: unknown,
         extract: (body: Record<string, unknown> | null) => T,
     ): Promise<T | null> {
+        logs?.debug(`${op} request`);
         const frame = await comm.request(request);
         if (isErrorFrame(frame)) {
-            if (isNotFoundError(frame)) return null;
+            const errCode = extractError(frame);
+            if (isNotFoundError(frame)) {
+                logs?.debug(`${op} not found`, { error: errCode });
+                return null;
+            }
+            logs?.warning(`${op} failed`, { error: errCode });
             throw rpcError(op, frame);
         }
         const body = frame.body as Record<string, unknown> | null;
         if (expectedType !== null && body?.type !== expectedType) {
+            logs?.error(`${op} unexpected response type`, {
+                expected: expectedType,
+                got: body?.type ?? null,
+            });
             throw new Error(
                 `${op}: unexpected response type ${JSON.stringify(body?.type)}`,
             );
         }
+        logs?.debug(`${op} ok`);
         return extract(body);
     }
 
@@ -84,7 +106,7 @@ export function createCoordinatorClient(
                     dag_id: opts.dagId ?? ctx.dagId,
                     task_id: opts.taskId ?? ctx.taskId,
                     run_id: opts.runId ?? ctx.runId,
-                    map_index: opts.mapIndex ?? ctxMapIndex,
+                    map_index: toWireMapIndex(opts.mapIndex ?? ctx.mapIndex),
                     include_prior_dates: opts.includePriorDates ?? false,
                 },
                 (body) => (body!.value as T) ?? null,
@@ -100,7 +122,7 @@ export function createCoordinatorClient(
                     dag_id: opts.dagId ?? ctx.dagId,
                     task_id: opts.taskId ?? ctx.taskId,
                     run_id: opts.runId ?? ctx.runId,
-                    map_index: opts.mapIndex ?? ctxMapIndex,
+                    map_index: toWireMapIndex(opts.mapIndex ?? ctx.mapIndex),
                 },
                 () => undefined,
             );

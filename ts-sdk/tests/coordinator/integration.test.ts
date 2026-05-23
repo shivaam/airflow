@@ -207,6 +207,16 @@ describe("coordinator runtime integration", () => {
             runId: "r1",
         });
         expect(result.logRecords.some((r) => r["event"] === "Task succeeded")).toBe(true);
+
+        // Logger names should be hierarchical (`ts-sdk.<subsystem>`) so the
+        // Python supervisor's ConsoleRenderer prints them as a distinct
+        // `[name]` column — not hardcoded to "task" (which collides with
+        // user task logs).
+        const loggers = new Set(result.logRecords.map((r) => r["logger"]));
+        expect(loggers.has("ts-sdk.runtime")).toBe(true);
+        for (const l of loggers) {
+            expect(l).toMatch(/^ts-sdk(\.|$)/);
+        }
     });
 
     it("returns TaskState=failed when the handler throws", async () => {

@@ -38,6 +38,7 @@ import {
 } from "./frames.js";
 import { connectTcp } from "./tcp-connect.js";
 import { Deferred } from "./deferred.js";
+import type { LogChannel } from "./log-channel.js";
 
 /** What `CommChannel.connect` resolves to: the live channel plus the
  *  supervisor's first frame (StartupDetails / DagFileParseRequest),
@@ -51,6 +52,7 @@ export interface CommConnection {
 export class CommChannel {
     private readonly sock: Socket;
     private readonly reader = new FrameReader();
+    private readonly logs: LogChannel | null;
     private nextId = 0;
     private pendingReplies = new Map<number, (frame: Frame) => void>();
     private closed = false;
@@ -61,8 +63,9 @@ export class CommChannel {
     // stays settled with the value, so there is no race to handle.
     private readonly greeting = new Deferred<Frame>();
 
-    private constructor(sock: Socket) {
+    private constructor(sock: Socket, logs: LogChannel | null) {
         this.sock = sock;
+        this.logs = logs;
         // A `new Socket()` (from `connectTcp`) starts paused: it buffers
         // inbound bytes and emits no `data` until a listener attaches
         // and flips it to flowing. Attaching synchronously here — same
@@ -76,9 +79,9 @@ export class CommChannel {
 
     /** Connect and wait for the supervisor's greeting; rejects if the
      *  socket dies before it arrives. */
-    static async connect(addr: string): Promise<CommConnection> {
+    static async connect(addr: string, logs: LogChannel | null = null): Promise<CommConnection> {
         const sock = await connectTcp(addr);
-        const channel = new CommChannel(sock);
+        const channel = new CommChannel(sock, logs);
         const firstFrame = await channel.greeting.promise;
         return { channel, firstFrame };
     }
@@ -86,12 +89,22 @@ export class CommChannel {
     /** Send a request to the supervisor and await its matching response. */
     async request(body: unknown): Promise<Frame> {
         const id = this.nextId++;
+        const type = describeFrameType(body);
+        this.logs?.debug("Sending request", { id, type });
         return new Promise<Frame>((resolve, reject) => {
             if (this.closed) {
                 reject(this.closeError ?? new Error("Comm channel closed"));
                 return;
             }
-            this.pendingReplies.set(id, (frame) => resolve(frame));
+            this.pendingReplies.set(id, (frame) => {
+                this.logs?.debug("Response received", {
+                    id,
+                    request_type: type,
+                    response_type: describeFrameType(frame.body),
+                    error: frame.error ?? null,
+                });
+                resolve(frame);
+            });
             const buf = encodeRequest(id, body);
             this.sock.write(buf, (err) => {
                 if (err) {
@@ -104,6 +117,11 @@ export class CommChannel {
 
     /** Send a response for an incoming supervisor request. */
     async sendResponse(id: number, body: unknown, error?: unknown): Promise<void> {
+        this.logs?.debug("Sending response", {
+            id,
+            type: describeFrameType(body),
+            error: error ?? null,
+        });
         const buf = encodeResponse(id, body, error);
         return new Promise((resolve, reject) => {
             this.sock.write(buf, (err) => (err ? reject(err) : resolve()));
@@ -123,23 +141,36 @@ export class CommChannel {
     // -- internals --
 
     private handleData(chunk: Buffer): void {
-        for (const frame of this.reader.push(chunk)) {
+        let frames: Frame[];
+        try {
+            frames = this.reader.push(chunk);
+        } catch (err) {
+            // Frame decode failure — protocol violation or socket
+            // corruption. Surface it so it's not a silent dropped chunk.
+            this.logs?.error("Frame decode failed", {
+                error: (err as Error).message ?? String(err),
+                pending_bytes: this.reader.pending,
+            });
+            this.handleClose(err as Error);
+            return;
+        }
+        for (const frame of frames) {
+            this.logs?.debug("Handling frame", { id: frame.id });
             this.route(frame);
         }
     }
 
     private route(frame: Frame): void {
-        // Arity-authoritative (per-direction id counters both start at
-        // 0, so id alone can't discriminate): (1) an arity-3 response
-        // whose id matches a pending request → that reply;
-        // (2) anything else → supervisor-initiated.
-        if (frame.isResponse) {
-            const pending = this.pendingReplies.get(frame.id);
-            if (pending) {
-                this.pendingReplies.delete(frame.id);
-                pending(frame);
-                return;
-            }
+        // Route by pending-request lookup, not frame arity. If the id
+        // matches a request we sent, it's the response. Otherwise it's
+        // supervisor-initiated (the greeting). This works because the
+        // greeting always arrives before any request is sent, so id=0
+        // can never collide with a pending request.
+        const pending = this.pendingReplies.get(frame.id);
+        if (pending) {
+            this.pendingReplies.delete(frame.id);
+            pending(frame);
+            return;
         }
         this.deliverSupervisorFrame(frame);
     }
@@ -153,14 +184,26 @@ export class CommChannel {
         // Anything else supervisor-initiated is a protocol anomaly —
         // comms.py guarantees "No messages are sent to task process
         // except in response to a request". Surface it; never buffer.
-        process.stderr.write(
-            `[comm-channel] unexpected supervisor-initiated frame id=${frame.id} after greeting\n`,
-        );
+        this.logs?.error("Unexpected supervisor-initiated frame after greeting", {
+            id: frame.id,
+            type: describeFrameType(frame.body),
+        });
     }
 
     private handleClose(err: Error | null): void {
+        if (this.closed) return;
         this.closed = true;
         this.closeError = err;
+        if (err) {
+            this.logs?.warning("Comm channel closed with error", {
+                error: err.message,
+                pending_replies: this.pendingReplies.size,
+            });
+        } else {
+            this.logs?.debug("Comm channel closed", {
+                pending_replies: this.pendingReplies.size,
+            });
+        }
         // Before the greeting this rejects so `connect()` throws;
         // after it, a no-op — the Deferred settles at most once, so no
         // guard is needed here.
@@ -177,4 +220,12 @@ export class CommChannel {
         }
         this.pendingReplies.clear();
     }
+}
+
+function describeFrameType(body: unknown): string {
+    if (body && typeof body === "object" && "type" in body) {
+        const t = (body as { type?: unknown }).type;
+        if (typeof t === "string") return t;
+    }
+    return "unknown";
 }

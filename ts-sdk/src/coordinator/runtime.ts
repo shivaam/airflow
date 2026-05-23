@@ -84,27 +84,52 @@ export async function startCoordinatorRuntime(
         : parseArgs(argv);
 
     // Connect log channel first so early failures are captured.
+    // Root logger is `ts-sdk`; subsystems use child names (`ts-sdk.runtime`,
+    // `ts-sdk.comm`, `ts-sdk.client`) so structlog's ConsoleRenderer prints
+    // them as a distinct `[name]` column on the supervisor side.
     const logs = await LogChannel.connect(parsed.logsAddr);
+    const runtimeLogs = logs.child("runtime");
     const tasks = listRegisteredTasks();
-    logs.info("Coordinator runtime started", {
+    runtimeLogs.info("Coordinator runtime started", {
         registered_tasks: tasks,
         count: tasks.length,
     });
 
-    const { channel: comm, firstFrame } = await CommChannel.connect(parsed.commAddr);
-    logs.debug("Connected comm socket", { commAddr: parsed.commAddr });
+    const { channel: comm, firstFrame } = await CommChannel.connect(
+        parsed.commAddr,
+        logs.child("comm"),
+    );
+    runtimeLogs.debug("Connected comm socket", { commAddr: parsed.commAddr });
 
     try {
         const body = asMsgFromSupervisor(firstFrame.body);
-        logs.debug("First frame received", { type: body.type });
 
         if (body.type === "DagFileParseRequest") {
-            await handleParse(firstFrame.id, body, comm, logs);
+            runtimeLogs.info("Received DAG parse request", {
+                file: body.file,
+                bundle_path: body.bundle_path,
+            });
+            await handleParse(firstFrame.id, body, comm, runtimeLogs);
         } else if (body.type === "StartupDetails") {
-            await handleTask(firstFrame.id, body, comm, logs);
+            runtimeLogs.info("Received task startup details", {
+                dag_id: body.ti.dag_id,
+                task_id: body.ti.task_id,
+                run_id: body.ti.run_id,
+                try_number: body.ti.try_number,
+                map_index: body.ti.map_index ?? -1,
+                ti_id: body.ti.id,
+                hostname: body.ti.hostname ?? null,
+                queue: body.ti.queue ?? null,
+                language: body.ti.language ?? null,
+                bundle: body.bundle_info.name,
+                bundle_version: body.bundle_info.version ?? null,
+                dag_rel_path: body.dag_rel_path,
+                start_date: body.start_date,
+            });
+            await handleTask(firstFrame.id, body, comm, runtimeLogs, logs.child("client"));
         } else {
             const errMsg = `First frame must be DagFileParseRequest or StartupDetails, got ${body.type}`;
-            logs.error("Unexpected first frame", { type: body.type });
+            runtimeLogs.error("Unexpected first frame", { type: body.type });
             await comm.sendResponse(firstFrame.id, null, {
                 error: "protocol_error",
                 detail: errMsg,
@@ -148,6 +173,7 @@ async function handleTask(
     details: StartupDetails,
     comm: CommChannel,
     logs: LogChannel,
+    clientLogs: LogChannel,
 ): Promise<void> {
     const ti = details.ti;
     // Lookup precedence: namespaced ("dag_id.task_id") then bare task_id.
@@ -172,13 +198,11 @@ async function handleTask(
     }
 
     const ctx = buildContext(details);
-    const client = createCoordinatorClient(comm, ctx);
+    const client = createCoordinatorClient(comm, ctx, clientLogs);
     const args: TaskHandlerArgs = { ctx, client };
-    logs.info("Running task", {
-        dag_id: ctx.dagId,
-        task_id: ctx.taskId,
-        run_id: ctx.runId,
-    });
+    // Startup-details fields already logged above (`Received task
+    // startup details`); this line just marks the handler-call boundary.
+    logs.debug("Dispatching to handler", { task_id: ctx.taskId });
 
     try {
         const result = await handler(args);

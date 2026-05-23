@@ -33,11 +33,11 @@
 //   - Request:  [id: int, body: map]              (arity 2)
 //   - Response: [id: int, body: map, error: map?] (arity 3)
 //
-// The body is a map with a `type` key naming the message. NOTE: the id
-// field is NOT globally unique — both supervisor and runtime maintain
-// independent counters that start at 0, so id collision across
-// directions is normal. Routing must use frame ARITY (request vs
-// response), not id alone. See `comm-channel.ts`.
+// The body is a map with a `type` key naming the message. Both
+// supervisor and runtime maintain independent id counters starting
+// at 0. Routing uses the pending-request map (not arity) — if the
+// id matches a request we sent, it's the response; otherwise it's
+// supervisor-initiated. See `comm-channel.ts`.
 
 import { encode, decode } from "@msgpack/msgpack";
 
