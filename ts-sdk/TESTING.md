@@ -23,9 +23,19 @@
 
 ```bash
 pnpm install
-pnpm test           # vitest, 69 tests, no network
+pnpm test           # vitest suite, no network
 pnpm run typecheck  # strict TS check
 ```
+
+Includes an in-process coordinator integration test
+(`tests/coordinator/integration.test.ts`) that spins up a fake supervisor
+over local TCP and walks the runtime through success / failure / unknown-task
+scenarios — no Python or Airflow install required.
+
+The full real-Airflow coordinator-mode E2E suite (mirroring the Java setup
+from apache/airflow PR [#65959](https://github.com/apache/airflow/pull/65959))
+is planned under `airflow-e2e-tests/tests/airflow_e2e_tests/ts_sdk_tests/`
+— see the Phase C design spec.
 
 ## End-to-end against a live Airflow
 

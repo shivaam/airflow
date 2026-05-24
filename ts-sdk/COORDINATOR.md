@@ -1,8 +1,15 @@
 # Coordinator runtime mode
 
-> **Status:** alpha. Targets the `BaseCoordinator` extension point in
-> [PR #65958](https://github.com/apache/airflow/pull/65958). Will land
-> as a follow-up to PR #66289 once the coordinator interface merges.
+> **Status:** alpha. The Python-side `TypescriptCoordinator` lives in
+> apache/airflow PR [#65958](https://github.com/apache/airflow/pull/65958)
+> (open, part of a three-PR chain:
+> [#65956](https://github.com/apache/airflow/pull/65956) Java SDK →
+> [#65958](https://github.com/apache/airflow/pull/65958) Coordinator Layer →
+> [#65959](https://github.com/apache/airflow/pull/65959) Java CI/E2E). The
+> supervisor's schema-migration framework (PR
+> [#67235](https://github.com/apache/airflow/pull/67235)) is already merged on
+> main — our `SUPERVISOR_API_VERSION` pins us to a known schema version that
+> the supervisor's Cadwyn migrator can up/downgrade against.
 
 ## What it is
 
@@ -205,6 +212,28 @@ sends a terminal frame: `DagParsingResult`, `SucceedTask`, or
   `TISuccessStatePayload` tagged-union validator rejects null for these
   fields. The runtime always sends empty arrays.
 
+### Schema version
+
+PR [#67235](https://github.com/apache/airflow/pull/67235) (merged on main)
+adds a Cadwyn-based migrator at the supervisor: incoming frames from the
+SDK get upgraded to head, outgoing frames get downgraded to whatever
+schema version the SDK is pinned to.
+
+We vendor `task-sdk/src/airflow/sdk/execution_time/schema/schema.json` to
+`ts-sdk/schema/supervisor-schema.json`, then `pnpm run generate:supervisor`
+emits `src/generated/supervisor.ts` plus a typed constant:
+
+```ts
+export const SUPERVISOR_API_VERSION = "2026-06-16";
+```
+
+This constant is **not transmitted on the comm channel today** — the
+supervisor learns it out-of-band (e.g. from bundle metadata that
+`TypescriptCoordinator` reads, mirroring how `JavaCoordinator` reads the
+JAR manifest's `Airflow-Java-SDK-Version` header). Wiring this through
+the `TypescriptCoordinator` is on the near-term roadmap (see the design
+spec under `docs/superpowers/specs/`).
+
 ## Task lookup precedence
 
 When `StartupDetails` arrives, the runtime looks up the handler in
@@ -229,9 +258,11 @@ real `BaseCoordinator._runtime_subprocess_entrypoint` does, and walks
 the runtime through three scenarios: success, handler failure, and
 unknown task. No Python or Airflow install needed.
 
-For end-to-end verification against a real Airflow build, see the
-spike's runbook at
-[`airflow-task-sdk/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md`](https://github.com/randomblueberries/airflow-task-sdk/blob/spike/coordinator-integration/experiments/coordinator/REAL-AIRFLOW-FINDINGS.md).
+For end-to-end verification against real Airflow, see
+[`TESTING.md`](TESTING.md). The full coordinator-mode E2E suite (mirroring
+the Java setup from PR [#65959](https://github.com/apache/airflow/pull/65959))
+is planned under `airflow-e2e-tests/tests/airflow_e2e_tests/ts_sdk_tests/`
+— see the Phase C design spec.
 
 ### Verifying the `mapIndex` normalization (F9)
 
@@ -311,6 +342,18 @@ the wire.
 
 ### Future (follow-up PRs)
 
+- [ ] **Schema-version advertisement to coordinator** — `TypescriptCoordinator`
+  reads `SUPERVISOR_API_VERSION` from bundle metadata (e.g.
+  `airflow-metadata.yaml`) and passes it to the supervisor so the Cadwyn
+  migrator can downgrade outgoing frames. Mirrors the Java JAR-manifest
+  `Airflow-Java-SDK-Version` pattern.
+
+- [ ] **`airflow-metadata.yaml` convention** — sidecar file declaring
+  `dags: {…}` + `supervisor_schema_version`. Unblocks the
+  `TypescriptCoordinator` BundleScanner analog (resolves the
+  `bundle.mjs`-hardcoded TODO at `coordinators/typescript/coordinator.py`
+  lines 113-120).
+
 - [ ] **Per-TI heartbeat** — coordinator mode relies on the Python
   supervisor; edge mode needs its own heartbeat interval.
 
@@ -318,7 +361,8 @@ the wire.
   aborts in coordinator mode. Wire SIGTERM to the abort controller.
 
 - [ ] **TaskContext enrichment** — extend with `dagRunConf`, `maxTries`,
-  `taskRescheduleCount` from the `TIRunContext` response.
+  `taskRescheduleCount` from the `TIRunContext` response. Add
+  `context_carrier` for OTel trace propagation.
 
 - [ ] **Log forwarding (edge)** — structured log channel over HTTP for
   edge mode.
@@ -352,14 +396,10 @@ SIGTERM, Node exits before any user cleanup runs. Planned fix: wire
 SIGTERM to the `AbortController` so handlers can observe
 `ctx.signal.aborted` and clean up.
 
-## Background and rationale
+## Background
 
-The full design rationale, scale benchmarks, and end-to-end test results
-that motivated this implementation live in the research repo at
-`airflow-task-sdk/experiments/coordinator/`:
-
-- `LEARNING.md` — coordinator architecture deep-dive
-- `DESIGN.md` — TS coordinator design choices
-- `REAL-AIRFLOW-FINDINGS.md` — end-to-end test against real Airflow
-- `scalability/` — four scalability spikes (cold start, concurrent
-  load, memory under sustained cadence, long-running tasks)
+Background research (architecture deep-dive, design choices, scalability
+spikes, end-to-end findings against real Airflow) lives in a separate
+research repo and is **not authoritative** for this implementation. The
+load-bearing docs in this folder are this file, [`SDK_COMPARISON.md`](SDK_COMPARISON.md),
+and the upstream PRs cited at the top.

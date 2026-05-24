@@ -3,10 +3,12 @@
 Side-by-side comparison of the three Airflow task SDK runtimes.
 Python is the reference implementation; Java and TS are coordinator-mode SDKs.
 
-**Source PRs:**
-- Python SDK: `task-sdk/` in apache/airflow (merged, the reference)
-- Java SDK: [PR #65956](https://github.com/apache/airflow/pull/65956) (jason810496, open)
-- Coordinator layer: [PR #65958](https://github.com/apache/airflow/pull/65958) (jason810496, open)
+**Source PRs (apache/airflow):**
+- Python SDK: `task-sdk/` (merged, the reference)
+- Schema migration framework: [#67235](https://github.com/apache/airflow/pull/67235) (merged 2026-05-22) — Cadwyn-based bidirectional migrator at the supervisor; SDKs pin a schema `api_version`
+- Java SDK: [#65956](https://github.com/apache/airflow/pull/65956) (open)
+- Coordinator layer + JavaCoordinator: [#65958](https://github.com/apache/airflow/pull/65958) (open)
+- Java SDK CI + E2E + prek hooks: [#65959](https://github.com/apache/airflow/pull/65959) (open) — template for our Phases B + C
 - TS SDK: this repo
 
 ---
@@ -82,7 +84,7 @@ scheduler thinks exists (stale serialized DAG, misconfigured mapping).
 | **Interface name** | No single interface (methods on `TaskInstance`) | `Client` interface | `TaskClient` interface |
 | **Implementations** | Direct — task runner calls supervisor which calls Execution API | `CoordinatorClient` (comm socket) and `HttpExecApiClient` (HTTP) | `createCoordinatorClient` (comm socket only) |
 | **getVariable** | `Variable.get(key)` raises on missing | `getVariable(key)` returns `VariableResponse` | `getVariable(key)` returns `string \| null`, `getVariableOrThrow(key)` throws |
-| **getConnection** | `Connection.get(conn_id)` | `getConnection(id)` returns `ConnectionResponse` | **Not implemented yet** |
+| **getConnection** | `Connection.get(conn_id)` | `getConnection(id)` returns `ConnectionResponse` | `getConnection(id)` returns `Connection \| null` |
 | **getXCom** | `XCom.get_one(...)` | `getXCom(key, dagId, taskId, ...)` returns `XComResponse` | `getXCom(opts)` returns `unknown` |
 | **setXCom** | `XCom.set(...)` | `setXCom(key, value, ...)` | `setXCom(opts)` |
 | **Return types** | Python domain objects | Generated API model classes (`VariableResponse`, `XComResponse`, `ConnectionResponse`) | Raw — `string \| null` for variables, `unknown` for XCom |
@@ -174,35 +176,40 @@ incoming supervisor frames and relies on convention for outgoing.
 
 ---
 
-## Features Not Yet in TS SDK
+## Feature parity
 
 | Feature | Python | Java | TS |
 |---------|--------|------|----|
-| **Connections** | `getConnection()` | `getConnection()` | Missing |
-| **DAG parsing** | Full | `DagParser.kt` with `BundleScanner` | Stub — returns empty `dags: {}` |
+| **Connections** | `getConnection()` | `getConnection()` | `getConnection()` (commit `fca4770da4`) |
+| **DAG parsing** | Full | `DagParser.kt` + `BundleScanner` | `dag()` builder (commit `3dd281fd7e`); no BundleScanner analog yet (single bundle per coordinator) |
+| **Schema-version advertisement** | N/A (supervisor side) | `Airflow-Java-SDK-Version` in JAR manifest | `SUPERVISOR_API_VERSION` exported + pinned to `"2026-06-16"` in `src/generated/supervisor.ts`; not yet read by `TypescriptCoordinator` for out-of-band migration |
 | **Asset/outlet support** | Full | Partial (passes through) | None (empty `[]`) |
 | **Deferred tasks** | Yes | No | No |
 | **Mapped tasks** | Yes | No | No |
 | **Heartbeat** | Yes (supervisor) | No (handled by Python supervisor) | No (handled by Python supervisor) |
 | **Retry logic** | Yes (UP_FOR_RETRY) | No | No |
-| **Multiple client transports** | N/A (single path) | Yes (`CoordinatorClient` + `HttpExecApiClient`) | No (coordinator only; edge is separate) |
+| **Multiple client transports** | N/A (single path) | `Client` interface with `CoordinatorClient` + `HttpExecApiClient` | Unified `TaskClient` interface — both coordinator and edge implement it |
 | **Level filtering in logs** | Yes | No (TODO) | No |
 
 ---
 
-## Summary: What the TS SDK should consider
+## Open gaps (where the TS SDK trails)
 
-1. **Add `getConnection()`** — both Python and Java have it, and it's a
-   common task need.
-2. **Unify the Client interface** — Java already has `Client` with two impls
-   (`CoordinatorClient`, `HttpExecApiClient`). The TS SDK's `TaskClient`
-   interface is correct, but the edge worker's client doesn't implement it yet.
-3. **Reuse API response types** — Java uses generated types (`VariableResponse`,
-   `XComResponse`). TS could use its own generated types from the Execution API
-   spec instead of inline frame interpretation.
-4. **DAG parsing** — currently a stub. The Java SDK has real `BundleScanner` +
-   `DagParser`. For TS, this means either a scanning convention (file-based
-   discovery) or staying with manual `registerTask()`.
+1. **No multi-bundle scanner on the coordinator side** — Java's `BundleScanner`
+   reads `Airflow-Java-SDK-Metadata` from each JAR's manifest to route
+   `dag_id` → bundle. `TypescriptCoordinator` (PR #65958) currently hardcodes
+   `bundle.mjs`. Planned: an `airflow-metadata.yaml` convention next to each
+   bundle declaring `dags: {…}` + `supervisor_schema_version`.
+2. **Schema version is exported but not wired** — `SUPERVISOR_API_VERSION`
+   ships in our bundle, but `TypescriptCoordinator` doesn't yet read it; the
+   supervisor therefore runs the Cadwyn migrator at its current HEAD with no
+   downgrade applied for our side. Phase A territory.
+3. **Reusing generated API response types** — Java uses
+   `VariableResponse`/`XComResponse`/`ConnectionResponse` directly. TS could
+   import its own `src/generated/execution.ts` types instead of inline frame
+   interpretation in `coordinator/client.ts`.
+4. **Asset/outlet support** — `task_outlets`/`outlet_events` always `[]`.
+   Matches Java's partial state but neither SDK supports authoring.
 5. **`removed` state is correct** — matches Java SDK behavior. Python is
    different because its supervisor catches "task not found" before the
    subprocess even starts.

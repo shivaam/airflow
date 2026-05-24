@@ -19,120 +19,73 @@
 
 # Airflow TypeScript SDK
 
-A **Node.js** SDK for Apache Airflow. Run Airflow tasks as TypeScript handlers
-in a Node worker, dispatched via the [Edge Executor](https://airflow.apache.org/docs/apache-airflow-providers-edge3/stable/index.html)
-([AIP-69](https://cwiki.apache.org/confluence/display/AIRFLOW/AIP-69+Edge+Executor))
-through the [Task Execution API](https://airflow.apache.org/docs/apache-airflow/stable/task-sdk-api.html)
-([AIP-72](https://cwiki.apache.org/confluence/display/AIRFLOW/AIP-72+Task+Execution+Interface+aka+Task+SDK)).
+A Node.js SDK for [Apache Airflow](https://airflow.apache.org/). Author task
+handlers in TypeScript; run them in one of two modes:
 
-**Status:** 🚧 alpha. Under active development. API will change.
-**Runtime:** Node 22+ only. ESM-only.
+- **Edge mode** — long-running Node worker polls the
+  [Edge API](https://airflow.apache.org/docs/apache-airflow-providers-edge3/stable/index.html)
+  ([AIP-69](https://cwiki.apache.org/confluence/display/AIRFLOW/AIP-69)).
+  Workers can run anywhere with HTTPS reach to Airflow.
+- **Coordinator mode** — Airflow's `TypescriptCoordinator`
+  ([PR #65958](https://github.com/apache/airflow/pull/65958)) spawns a
+  one-shot Node subprocess per task and bridges it to the supervisor over
+  TCP + msgpack. Works with any executor (Local, Celery, K8s).
 
-## Building
+Both modes share `registerTask()` and the same `TaskClient` interface for
+Variables / XCom / Connections — handlers don't know which mode is running them.
+
+**Status:** alpha · API will change · Node 22+ · ESM-only
+**Supervisor wire schema:** pinned to api_version `2026-06-16` (vendored
+via [PR #67235](https://github.com/apache/airflow/pull/67235)'s Cadwyn
+framework — exported as `SUPERVISOR_API_VERSION`).
+
+## Build
 
 ```bash
 pnpm install
+pnpm test         # vitest
+pnpm run typecheck
 pnpm run build
-pnpm test
 ```
 
-Uses **pnpm** (declared in `package.json`'s `packageManager` field — Node 22+
-with corepack enabled will pick the right version automatically).
+Uses pnpm via Node 22's corepack — no separate install needed.
 
-## Architecture
-
-Workers are **standalone Node processes** that connect to Airflow over HTTPS:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Apache Airflow                                   │
-│  ┌──────────┐         ┌────────────────┐         ┌──────────────────┐   │
-│  │Scheduler │────────▶│  Edge Executor │────────▶│  Edge API Server │   │
-│  └──────────┘         └────────────────┘         └────────┬─────────┘   │
-│                                                            │ HTTPS      │
-└────────────────────────────────────────────────────────────┼────────────┘
-                                                             │
-                       ┌─────────────────────────────────────┘
-                       ▼
-                 ┌──────────────────────────┐
-                 │  Node.js Worker Process  │
-                 │   (uses this SDK)        │
-                 │                          │
-                 │  startWorker({ ... })    │
-                 │   ↓ polls Edge API       │
-                 │  registerTask("foo", fn) │
-                 │   ↓ runs handler         │
-                 └──────────────────────────┘
-```
-
-DAG authors declare TypeScript-backed tasks in Python via a companion
-operator package (distributed separately):
-
-```python
-# dags/hello_typescript_dag.py
-from airflow.sdk import DAG
-from airflow_ts_operator import TypeScriptOperator
-
-with DAG("hello_typescript", schedule=None, start_date=...) as dag:
-    TypeScriptOperator(task_id="hello_typescript", queue="ts-tasks")
-```
-
-## Quickstart
+## Edge-mode quickstart
 
 ```ts
-// worker.ts
 import { registerTask, startWorker } from "@apache-airflow/ts-sdk";
 
-registerTask("hello_typescript", async ({ ctx }) => {
-    console.log(`running ${ctx.dagId}/${ctx.taskId}`, {
-        runId: ctx.runId,
-        tryNumber: ctx.tryNumber,
-    });
-    return { ok: true };
+registerTask("hello_typescript", async ({ ctx, client }) => {
+  const greeting = await client.getVariable("greeting");
+  return { message: `Hello from ${ctx.taskId}: ${greeting}` };
 });
 
-await startWorker({
-    queues: ["ts-tasks"],
-    // baseUrl + secret default to env: AIRFLOW__EDGE__API_URL, AIRFLOW__API_AUTH__JWT_SECRET
-});
+await startWorker({ queues: ["ts-tasks"] });
+// baseUrl + secret default to env:
+//   AIRFLOW__EDGE__API_URL, AIRFLOW__API_AUTH__JWT_SECRET
 ```
 
-Run the worker:
+Run: `node worker.ts` (Node 23.6+) or `npx tsx worker.ts` (any Node 22+).
 
-```bash
-node worker.ts                   # Node 23.6+ (default)
-# or:
-npx tsx worker.ts                # any Node 22+
-```
-
-The worker registers with the Edge API, polls for jobs on `ts-tasks`,
-runs the registered handler, and reports success/failure back.
-
-## Coordinator mode
-
-The SDK also supports **coordinator mode** — Airflow spawns a short-lived
-Node subprocess per task, communicating over TCP + msgpack. Same handlers,
-different runtime:
+## Coordinator-mode quickstart
 
 ```ts
 import { registerTask, startCoordinatorRuntime } from "@apache-airflow/ts-sdk";
 
 registerTask("say_hello", async ({ ctx, client }) => {
-  const greeting = await client.getVariable("greeting");
-  return { message: `Hello from ${ctx.taskId}: ${greeting}` };
+  return { message: `Hello from ${ctx.taskId}` };
 });
 
 await startCoordinatorRuntime();
 ```
 
-Coordinator mode works with any Airflow executor (Local, Celery, K8s) —
-Node.js just needs to be available on the worker machine. Tasks share
-the same `TaskClient` for Variables and XCom, regardless of mode.
+Bundle this to a single `.mjs` (esbuild) and configure Airflow with the
+`TypescriptCoordinator` — see [`COORDINATOR.md`](COORDINATOR.md).
 
-See [`COORDINATOR.md`](COORDINATOR.md) for the full architecture,
-wire protocol, and setup guide.
+## Deeper docs
 
-## Testing
-
-See [`TESTING.md`](TESTING.md) for the full end-to-end recipe (breeze
-setup, reference workers, scenarios).
+- [`COORDINATOR.md`](COORDINATOR.md) — coordinator-mode architecture + wire protocol.
+- [`TESTING.md`](TESTING.md) — end-to-end recipe against a real Airflow.
+- [`SDK_COMPARISON.md`](SDK_COMPARISON.md) — feature table vs Python/Java SDKs.
+- [`REVIEW_OBSERVATIONS.md`](REVIEW_OBSERVATIONS.md) — concept catalogue + open fixes.
+- [`REFACTOR_NOTES.md`](REFACTOR_NOTES.md) — author's working notes.

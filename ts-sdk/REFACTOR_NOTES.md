@@ -14,6 +14,15 @@ structure of comm-channel / runtime / client) is free to restructure** —
 this is greenfield, author-owned, uncommitted code; no cross-language
 structural-parity obligation.
 
+**Schema-migration context (PR [#67235](https://github.com/apache/airflow/pull/67235), merged
+on main):** the supervisor now ships a Cadwyn-based bidirectional migrator
+keyed off a per-SDK `api_version`. Our wire shape no longer needs to track
+upstream `comms.py` HEAD exactly — it needs to match *some* schema version
+the migrator knows. We vendor `schema/supervisor-schema.json` (currently
+`api_version="2026-06-16"`), regenerate `src/generated/supervisor.ts` from
+it, and expose the version as `SUPERVISOR_API_VERSION`. The constraint
+above still holds for whichever schema version we're pinned to.
+
 Guiding principle that keeps recurring: **name an abstraction for what it
 means to its consumer, not for one implementation or its current
 mechanism.**

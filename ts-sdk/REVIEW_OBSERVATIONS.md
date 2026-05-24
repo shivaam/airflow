@@ -213,14 +213,13 @@ with a synthetic error frame. The gap is specifically supervisor hangs with
 a live socket.
 
 ### F11. Duplicate `ErrorResponse` definitions in protocol.ts
-**Files:** `coordinator/protocol.ts:75-79,164-168`
-**Status:** [ ] Open — cleanup.
+**Files:** `coordinator/protocol.ts:134,183-190`
+**Status:** [x] Done.
 
-`ErrorResponse` (line 75) and `ErrorResponseBody` (line 164) are
-shape-identical: `type: "ErrorResponse"`, `error: string`, `detail?: unknown`.
-Two names for the same wire message. One was added for the supervisor-greeting
-discriminated union, the other for mid-task RPC failures, but they describe
-the same Python type. Collapse to a single name and re-export.
+Consolidated to a single `ErrorResponse` type — `protocol.ts:183` defines it
+by `Omit`-ing `type` off the generated `RawErrorResponse` (line 134) and
+re-tagging. Both the supervisor-greeting union (line 190) and the mid-task
+response dispatch (line 227) use the same name.
 
 ### F12. Type lies in coordinator field-mapping casts
 **Files:** `coordinator/client.ts:69,90,113-120`
