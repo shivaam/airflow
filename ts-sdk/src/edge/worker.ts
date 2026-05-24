@@ -36,9 +36,9 @@ import { makeExecutionClient } from "./execution-client.js";
 import { createEdgeTaskClient } from "./task-client.js";
 import { ExecutionApiError, formatError } from "../errors.js";
 import { getRegisteredTask } from "../registry.js";
-import type { StartWorkerOptions, TaskContext } from "../types.js";
+import type { TaskContext } from "../task.js";
 import { sleepAbortable } from "../utils/retry.js";
-import { resolveWorkerOptions } from "./worker-options.js";
+import { resolveWorkerOptions, type StartWorkerOptions } from "./worker-options.js";
 
 const AIRFLOW_VERSION = process.env.AIRFLOW__EDGE__AIRFLOW_VERSION ?? "3.3.0";
 const EDGE_PROVIDER_VERSION = process.env.AIRFLOW__EDGE__PROVIDER_VERSION ?? "3.5.0";

@@ -20,7 +20,7 @@
 // Task registry — string task_id → async handler.
 // TaskGroup tasks use the full dotted form (e.g. "transforms.normalize").
 
-import type { TaskHandler } from "./types.js";
+import type { TaskHandler } from "./task.js";
 
 const registry = new Map<string, TaskHandler>();
 

@@ -24,7 +24,7 @@
 import { describe, it, expect } from "vitest";
 import { createCoordinatorClient } from "../../src/coordinator/client.js";
 import type { CommChannel } from "../../src/coordinator/comm-channel.js";
-import type { TaskContext } from "../../src/types.js";
+import type { TaskContext } from "../../src/task.js";
 
 function fakeComm(frames: { body: unknown; error?: unknown }[]): CommChannel {
     let i = 0;

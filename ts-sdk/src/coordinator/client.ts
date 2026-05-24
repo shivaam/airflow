@@ -23,7 +23,7 @@
 
 import type { CommChannel } from "./comm-channel.js";
 import type { LogChannel } from "./log-channel.js";
-import type { TaskContext } from "../types.js";
+import type { TaskContext } from "../task.js";
 import {
     type Connection,
     type TaskClient,

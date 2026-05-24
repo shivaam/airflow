@@ -21,7 +21,7 @@
 // calling the Execution API over HTTP. Reuses the openapi-fetch client
 // (with bearer auth + token refresh) from the ExecutionClient.
 
-import type { TaskContext } from "../types.js";
+import type { TaskContext } from "../task.js";
 import type { Connection, GetXComOpts, SetXComOpts, TaskClient } from "../client.js";
 import { VariableNotFoundError } from "../client.js";
 import { ExecutionApiError, formatError } from "../errors.js";

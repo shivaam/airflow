@@ -36,5 +36,6 @@ export {
     type SetXComOpts,
     VariableNotFoundError,
 } from "./client.js";
-export type { TaskContext, TaskHandler, TaskHandlerArgs, StartWorkerOptions } from "./types.js";
+export type { TaskContext, TaskHandler, TaskHandlerArgs } from "./task.js";
+export type { StartWorkerOptions } from "./edge/worker-options.js";
 export { EdgeApiError, ExecutionApiError } from "./errors.js";

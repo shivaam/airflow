@@ -21,7 +21,7 @@
 // structure (tasks, dependencies, schedule) that handleParse()
 // serializes to Airflow's DagSerialization v3 format.
 
-import type { TaskHandler } from "../types.js";
+import type { TaskHandler } from "../task.js";
 import { registerTask } from "../registry.js";
 
 /** Options for DAG construction. All optional — sensible defaults match

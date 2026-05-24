@@ -41,7 +41,7 @@ import { LogChannel } from "./log-channel.js";
 import { asMsgFromSupervisor, type StartupDetails } from "./protocol.js";
 import { serializeParsingResult } from "./serde.js";
 import { getRegisteredTask, listRegisteredTasks } from "../registry.js";
-import type { TaskContext, TaskHandlerArgs } from "../types.js";
+import type { TaskContext, TaskHandlerArgs } from "../task.js";
 
 /** Options for `startCoordinatorRuntime()`. */
 export interface StartCoordinatorRuntimeOptions {
