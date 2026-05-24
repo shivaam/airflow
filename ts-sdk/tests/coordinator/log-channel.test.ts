@@ -70,7 +70,9 @@ describe("LogChannel", () => {
         const records = readRecords(fx.received);
         expect(records).toHaveLength(1);
         const record = records[0]!;
-        expect(record).toMatchObject({ event: "hello", level: "info", logger: "ts-sdk" });
+        // Logger name kept as a JSON field AND prepended to the event so
+        // it surfaces in the Airflow UI text renderer.
+        expect(record).toMatchObject({ event: "[ts-sdk] hello", level: "info", logger: "ts-sdk" });
         expect(typeof record["timestamp"]).toBe("string");
         expect(new Date(record["timestamp"] as string).toString()).not.toBe("Invalid Date");
     });
@@ -83,7 +85,11 @@ describe("LogChannel", () => {
         const records = readRecords(fx.received);
         expect(records).toHaveLength(1);
         const record = records[0]!;
-        expect(record).toMatchObject({ event: "started", level: "warning", logger: "ts-sdk.runtime" });
+        expect(record).toMatchObject({
+            event: "[ts-sdk.runtime] started",
+            level: "warning",
+            logger: "ts-sdk.runtime",
+        });
     });
 
     it("child() creates a hierarchical sibling sharing the socket", async () => {
@@ -119,6 +125,6 @@ describe("LogChannel", () => {
         await fx.sockClosed;
         const records = readRecords(fx.received);
         expect(records).toHaveLength(1);
-        expect(records[0]).toMatchObject({ event: "still alive", logger: "ts-sdk" });
+        expect(records[0]).toMatchObject({ event: "[ts-sdk] still alive", logger: "ts-sdk" });
     });
 });

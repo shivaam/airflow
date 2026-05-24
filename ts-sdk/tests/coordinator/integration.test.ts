@@ -206,7 +206,7 @@ describe("coordinator runtime integration", () => {
             dagId: "test_dag",
             runId: "r1",
         });
-        expect(result.logRecords.some((r) => r["event"] === "Task succeeded")).toBe(true);
+        expect(result.logRecords.some((r) => r["event"] === "[ts-sdk.runtime] Task succeeded")).toBe(true);
 
         // Logger names should be hierarchical (`ts-sdk.<subsystem>`) so the
         // Python supervisor's ConsoleRenderer prints them as a distinct

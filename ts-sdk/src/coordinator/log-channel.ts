@@ -82,9 +82,15 @@ export class LogChannel {
         timestamp?: string;
         logger?: string;
     }): void {
+        // Prepend the logger name to the event message so it surfaces in
+        // the Airflow UI task log view, which renders the message text but
+        // hides the `logger` JSON field. The field is still emitted for
+        // JSON consumers (grep/jq). Remove the prefix here if the
+        // supervisor-side renderer ever starts showing the logger column.
         const line = JSON.stringify({
             logger: this.name,
             ...record,
+            event: `[${this.name}] ${record.event}`,
             timestamp: record.timestamp ?? new Date().toISOString(),
         });
         this.sock.write(Buffer.from(line + "\n", "utf8"));
