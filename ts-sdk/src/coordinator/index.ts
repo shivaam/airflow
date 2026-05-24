@@ -33,3 +33,7 @@ export {
     type DagOptions,
     type TaskOpts,
 } from "./dag.js";
+/** Cadwyn schema version this SDK was generated against. Not sent on
+ *  the wire — exposed so callers can read it for bundle metadata,
+ *  health checks, or to confirm which schema their build is pinned to. */
+export { SUPERVISOR_API_VERSION } from "./protocol.js";

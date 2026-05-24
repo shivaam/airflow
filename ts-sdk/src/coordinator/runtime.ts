@@ -38,7 +38,11 @@ import { createCoordinatorClient } from "./client.js";
 import { CommChannel } from "./comm-channel.js";
 import { listRegisteredDags } from "./dag.js";
 import { LogChannel } from "./log-channel.js";
-import { asMsgFromSupervisor, type StartupDetails } from "./protocol.js";
+import {
+    asMsgFromSupervisor,
+    SUPERVISOR_API_VERSION,
+    type StartupDetails,
+} from "./protocol.js";
 import { serializeParsingResult } from "./serde.js";
 import { getRegisteredTask, listRegisteredTasks } from "../registry.js";
 import type { TaskContext, TaskHandlerArgs } from "../task.js";
@@ -93,6 +97,9 @@ export async function startCoordinatorRuntime(
     runtimeLogs.info("Coordinator runtime started", {
         registered_tasks: tasks,
         count: tasks.length,
+        // Cadwyn schema version this SDK was generated against. Logged
+        // for operator visibility; not sent on the wire.
+        supervisor_api_version: SUPERVISOR_API_VERSION,
     });
 
     const { channel: comm, firstFrame } = await CommChannel.connect(

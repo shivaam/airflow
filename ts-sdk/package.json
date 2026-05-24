@@ -36,7 +36,8 @@
     "build": "tsc -p tsconfig.build.json",
     "generate:edge": "openapi-typescript ../airflow-core/docs/_api/edge-api.yaml -o src/generated/edge.ts",
     "generate:execution": "openapi-typescript ../airflow-core/docs/_api/execution-api.json -o src/generated/execution.ts",
-    "generate:types": "npm run generate:edge && npm run generate:execution"
+    "generate:supervisor": "node scripts/generate-supervisor.mjs",
+    "generate:types": "npm run generate:edge && npm run generate:execution && npm run generate:supervisor"
   },
   "keywords": [
     "airflow",
@@ -55,6 +56,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
+    "json-schema-to-typescript": "^15.0.4",
     "openapi-typescript": "^7.9.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",

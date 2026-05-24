@@ -28,6 +28,7 @@ export {
     DagBuilder,
     type DagOptions,
     type TaskOpts,
+    SUPERVISOR_API_VERSION,
 } from "./coordinator/index.js";
 export {
     type Connection,

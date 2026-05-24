@@ -17,154 +17,205 @@
  * under the License.
  */
 
-// Task SDK message types.
+// Task SDK message types — SDK-facing wrappers over the generated wire
+// schema.
 //
-// Mirrors `task-sdk/src/airflow/sdk/execution_time/comms.py` and the
-// Kotlin SDK's `Comms.kt`. Each frame body is a map with a `type`
-// discriminator. `StartupDetails` and `DagFileParseRequest` are the
-// first frames the supervisor sends; everything else is request /
-// response between supervisor and runtime.
+// Raw shapes come from `src/generated/supervisor.ts`, derived from the
+// supervisor's canonical `schema.json` (Airflow PR #67235). That file
+// also exports `SUPERVISOR_API_VERSION` — the Cadwyn version of the
+// schema this SDK was generated against. It is not transmitted on the
+// wire; the supervisor learns the SDK's schema version out-of-band
+// (e.g. bundle metadata) and runs the migrator accordingly.
+//
+// ─── Why the generated types need wrapping (root causes) ─────────────
+//
+// json-schema-to-typescript faithfully reflects what's in `schema.json`,
+// but `schema.json` is itself a faithful reflection of the *upstream
+// Pydantic IR* — and that IR encodes a few things that don't translate
+// cleanly to idiomatic TypeScript or to the actual wire contract.
+// There are four recurring mismatches, each with a specific cause:
+//
+//   1. **Discriminator field comes out optional.**
+//      Pydantic models declare the message type as a defaulted literal:
+//        `type: Literal["GetVariable"] = "GetVariable"`.
+//      Pydantic → JSON Schema turns the default into `"default":
+//      "GetVariable"`, which schema-readers treat as "producer may
+//      omit". The codegen therefore emits `type?: "GetVariable"`.
+//      But TypeScript's discriminated-union narrowing only works on
+//      *required* discriminator fields. So for any type that appears
+//      in a union (MsgFromSupervisor, MsgFromRuntime) we re-narrow
+//      `type` to a required literal. Pattern 2 below.
+//
+//   2. **Some fields hit the wire before the schema snapshot catches
+//      up.** `TaskInstance.queue` and `.language` are real values the
+//      supervisor sends today, but the 2026-06-16 schema snapshot
+//      doesn't list them — the Pydantic model uses `extra="allow"` so
+//      these fields pass through without being declared. We extend
+//      `TaskInstance` with the fields we observe on the wire plus an
+//      index-signature for true forward-compat. Pattern 3 below.
+//
+//   3. **String fields without `Literal[...]` annotations don't narrow.**
+//      `TaskState.state` is typed as `str` in Pydantic (the runtime
+//      validates allowed values via business logic, not via the type
+//      annotation), so the schema → TS chain types it as bare `string`.
+//      We re-narrow to the literal union we actually send so callers
+//      get autocomplete and typos fail at compile time. Pattern 3.
+//
+//   4. **The schema describes the wire body Pydantic accepts, not
+//      what downstream HTTP validators require.** `SucceedTask`'s
+//      `task_outlets` and `outlet_events` are marked optional in the
+//      schema, but the supervisor turns the message into a
+//      `TISuccessStatePayload` which is then sent to the Execution API,
+//      whose validator rejects `null` for these fields. So "optional
+//      per schema" + "required per the API server" → we narrow to
+//      required-with-`[]`-default at the SDK boundary so callers can't
+//      construct an invalid message. Pattern 3.
+//
+// Patterns 2-4 are mechanical and short. The codegen still pays for
+// itself: we get drift detection (a renamed field fails to compile),
+// 70+ types we don't yet use available for free, and a single
+// regeneration step on each schema bump.
+//
+// ─── How to add a new message type ────────────────────────────────────
+//
+// `schema.json` exposes ~85 message types; we currently use ~13. Adding
+// a new one is mechanical — pick the lightest of three wrapper patterns
+// and add it below in the right section (supervisor frame, runtime
+// frame, or request/response payload).
+//
+// Pattern 1 — pass-through (most common, ~70% of types):
+//
+//     export type { MaskSecret } from "../generated/supervisor.js";
+//
+//   Use when the generated atom is fine as-is. Most non-discriminated
+//   request/response payloads (`MaskSecret`, `SetRenderedFields`,
+//   `GetDag`, etc.) need nothing more — callers treat them as bags of
+//   fields, not as union members.
+//
+// Pattern 2 — discriminator-narrow (required for any type that appears
+// in a discriminated union like `MsgFromSupervisor` or `MsgFromRuntime`):
+//
+//     import type { DeferTask as RawDeferTask } from "../generated/supervisor.js";
+//     export type DeferTask = Omit<RawDeferTask, "type"> & {
+//         type: "DeferTask";
+//     };
+//
+//   The generated atom has `type?: "DeferTask"` (optional const), which
+//   TS won't narrow on. Overriding to required literal fixes it.
+//
+// Pattern 3 — field-narrow / extend (rare; only when the generated
+// shape is genuinely wrong for our wire usage):
+//
+//     // Schema marks `state: string`; narrow to literal union.
+//     export type TaskStateMsg = Omit<RawTaskState, "type" | "state"> & {
+//         type: "TaskState";
+//         state: "failed" | "skipped" | "removed" | "up_for_retry";
+//     };
+//
+//   Or to add fields the snapshot didn't capture:
+//
+//     export interface TaskInstance extends RawTaskInstance {
+//         queue?: string | null;       // observed on wire, not in schema
+//         language?: string | null;    // observed on wire, not in schema
+//         [k: string]: unknown;        // forward-compat passthrough
+//     }
+//
+//   Use sparingly — every hand-narrow is something the codegen will
+//   never re-derive for you on a schema bump. Prefer fixing the
+//   upstream Pydantic model when possible.
+//
+// After adding the type, re-run `pnpm run generate:supervisor` only if
+// you've also bumped `schema/supervisor-schema.json` from upstream.
+// Pure wrapper additions don't require regeneration.
 
-// -------- TaskInstance shape (trimmed to fields a handler reads) --------
+import type {
+    StartupDetails as RawStartupDetails,
+    DagFileParseRequest as RawDagFileParseRequest,
+    ErrorResponse as RawErrorResponse,
+    SucceedTask as RawSucceedTask,
+    TaskState as RawTaskState,
+    DagFileParsingResult as RawDagFileParsingResult,
+    TaskInstance as RawTaskInstance,
+} from "../generated/supervisor.js";
 
-export interface TaskInstance {
-    id: string;
-    task_id: string;
-    dag_id: string;
-    run_id: string;
-    try_number: number;
-    map_index?: number | null;
-    hostname?: string | null;
+export { SUPERVISOR_API_VERSION } from "../generated/supervisor.js";
+
+// -------- Re-exports — generated atoms used by client / runtime --------
+//
+// These are clean enough out of the box: small, no discriminator
+// narrowing issues for callers (we treat them as request/response
+// payloads, not as union members).
+export type {
+    BundleInfo,
+    TIRunContext,
+    VariableResult,
+    XComResult,
+    ConnectionResult,
+    GetVariable,
+    GetXCom,
+    SetXCom,
+    GetConnection,
+} from "../generated/supervisor.js";
+
+// -------- TaskInstance: extend generated with wire-only fields --------
+
+/** Supervisor's TaskInstance with the additional fields we observe on
+ *  the wire (`queue`, `language`) but that the snapshot didn't capture,
+ *  plus a forward-compat index signature so unknown fields pass through
+ *  rather than getting stripped by structural typing. */
+export interface TaskInstance extends RawTaskInstance {
     queue?: string | null;
     language?: string | null;
-    [key: string]: unknown; // unknown fields pass through
+    [k: string]: unknown;
 }
 
-export interface BundleInfo {
-    name: string;
-    version?: string | null;
-}
+// -------- Frames from supervisor (narrowed discriminators) --------
 
-export interface TIRunContext {
-    dag_run?: Record<string, unknown>;
-    task_reschedule_count?: number;
-    max_tries?: number;
-    variables?: Record<string, unknown>;
-    connections?: Record<string, unknown>;
-    [key: string]: unknown;
-}
-
-// -------- Frames from supervisor --------
-
-export interface StartupDetails {
+export type StartupDetails = Omit<RawStartupDetails, "ti" | "type"> & {
     type: "StartupDetails";
     ti: TaskInstance;
-    dag_rel_path: string;
-    bundle_info: BundleInfo;
-    start_date: string;
-    ti_context: TIRunContext;
-    sentry_integration?: string;
-}
+};
 
-export interface DagFileParseRequest {
+export type DagFileParseRequest = Omit<RawDagFileParseRequest, "type"> & {
     type: "DagFileParseRequest";
-    file: string;
-    bundle_path: string;
-}
+};
 
-export interface ErrorResponse {
+export type ErrorResponse = Omit<RawErrorResponse, "type"> & {
     type: "ErrorResponse";
-    error: string;
-    detail?: unknown;
-}
+};
 
 export type MsgFromSupervisor =
     | StartupDetails
     | DagFileParseRequest
     | ErrorResponse;
 
-// -------- Frames from runtime --------
+// -------- Frames from runtime (narrowed discriminators) --------
 
-export interface SucceedTask {
+/** SucceedTask — schema marks task_outlets / outlet_events as optional,
+ *  but the supervisor's Execution API rejects null for these fields, so
+ *  we narrow both to required (empty array when none). */
+export type SucceedTask = Omit<RawSucceedTask, "type" | "task_outlets" | "outlet_events"> & {
     type: "SucceedTask";
-    end_date: string;
-    /** Empty list when no outlets; required (not null) by Execution API. */
     task_outlets: unknown[];
-    /** Empty list when no events; required (not null) by Execution API. */
     outlet_events: unknown[];
-}
+};
 
-export interface TaskStateMsg {
+/** TaskState — schema types `state` as a bare string; narrow to the
+ *  values the SDK actually sends so callers get an autocomplete-friendly
+ *  union and typos fail at compile time. */
+export type TaskStateMsg = Omit<RawTaskState, "type" | "state"> & {
     type: "TaskState";
     state: "failed" | "skipped" | "removed" | "up_for_retry";
-    end_date?: string;
-}
+};
 
-export interface DagFileParsingResult {
+export type DagFileParsingResult = Omit<RawDagFileParsingResult, "type"> & {
     type: "DagFileParsingResult";
-    fileloc: string;
-    serialized_dags: { data: { __version: number; dag: Record<string, unknown> } }[];
-}
+};
 
-export type MsgFromRuntime = SucceedTask | TaskStateMsg | DagFileParsingResult;
-
-// -------- Mid-task RPC: runtime-initiated requests and their responses --------
-//
-// These are sent as arity-2 frames over the same comm socket. The runtime
-// awaits an arity-3 response frame with a matching id (see `comm-channel`).
-// Field names are snake_case to match the Python supervisor's pydantic
-// validator (`task-sdk/.../comms.py`).
-
-export interface GetVariableMsg {
-    type: "GetVariable";
-    key: string;
-}
-
-export interface VariableResult {
-    type: "VariableResult";
-    key: string;
-    /** `null` is wire-legal (variable exists with no value); a missing
-     *  variable comes back as `ErrorResponse`, not a null-valued result. */
-    value: string | null;
-}
-
-export interface GetXComMsg {
-    type: "GetXCom";
-    key: string;
-    dag_id: string;
-    run_id: string;
-    task_id: string;
-    map_index?: number | null;
-    include_prior_dates?: boolean;
-}
-
-export interface XComResult {
-    type: "XComResult";
-    key: string;
-    value: unknown;
-}
-
-export interface SetXComMsg {
-    type: "SetXCom";
-    key: string;
-    value: unknown;
-    dag_id: string;
-    run_id: string;
-    task_id: string;
-    map_index?: number | null;
-    /** Whether to mark this push as a dag-result XCom. Default false. */
-    dag_result?: boolean;
-    mapped_length?: number | null;
-}
-
-/** Supervisor response when an RPC fails (e.g. variable not found,
- *  api-server error). Carries a structured error type plus optional
- *  detail map. */
-export interface ErrorResponseBody {
-    type: "ErrorResponse";
-    error: string;
-    detail?: unknown;
-}
+export type MsgFromRuntime =
+    | SucceedTask
+    | TaskStateMsg
+    | DagFileParsingResult;
 
 // -------- Decoder: raw map → typed message --------
 
