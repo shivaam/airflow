@@ -40,11 +40,16 @@ in a non-Python implementation.
      - :class:`task-sdk:airflow.sdk.coordinators.java.JavaCoordinator`
      - JRE 17
      - :doc:`java`
+   * - TypeScript
+     - :class:`task-sdk:airflow.sdk.coordinators.typescript.TypescriptCoordinator`
+     - Node.js 22
+     - :doc:`typescript`
 
 .. toctree::
    :hidden:
 
    java
+   typescript
 
 How it works
 ------------

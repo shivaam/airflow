@@ -85,8 +85,6 @@ describe("public API", () => {
     function acceptsSetXComOpts(_opts: SetXComOpts): void {}
     function acceptsTaskRegistration(_registration: TaskRegistration): void {}
 
-    // TODO: Add coordinator-runtime tests that validate these camelCase
-    // public options map to the supervisor schema's snake_case fields.
     acceptsGetXComOpts({
       key: "result",
       dagId: "example",

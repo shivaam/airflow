@@ -264,6 +264,10 @@ See :doc:`apache-airflow:authoring-and-scheduling/language-sdks/index` for a con
 
 .. autoapiclass:: airflow.sdk.coordinators.java.JavaCoordinator
 
+.. rubric:: TypeScript
+
+.. autoapiclass:: airflow.sdk.coordinators.typescript.TypescriptCoordinator
+
 Execution Time Components
 -------------------------
 .. rubric:: Context
