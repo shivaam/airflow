@@ -601,10 +601,11 @@ class FabAirflowSecurityManagerOverride(AirflowSecurityManagerV2):
     def load_user_jwt(self, _jwt_header, jwt_data):
         identity = jwt_data["sub"]
         user = self.load_user(identity)
-        if user.is_active:
+        if user and user.is_active:
             # Set flask g.user to JWT user, we can't do it on before request
             g.user = user
             return user
+        return None
 
     @property
     def auth_type(self):
@@ -1394,8 +1395,9 @@ class FabAirflowSecurityManagerOverride(AirflowSecurityManagerV2):
 
     def load_user(self, user_id):
         user = self.get_user_by_id(int(user_id))
-        if user.is_active:
+        if user and user.is_active:
             return user
+        return None
 
     def get_user_by_id(self, pk):
         return self.get_session.get(self.user_model, pk)

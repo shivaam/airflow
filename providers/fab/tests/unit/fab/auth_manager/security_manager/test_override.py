@@ -35,18 +35,42 @@ class EmptySecurityManager(FabAirflowSecurityManagerOverride):
 
 
 class TestFabAirflowSecurityManagerOverride:
-    def test_load_user(self):
+    def test_load_user_returns_active_user(self):
         sm = EmptySecurityManager()
-        sm.get_user_by_id = Mock()
+        mock_user = Mock()
+        mock_user.is_active = True
+        sm.get_user_by_id = Mock(return_value=mock_user)
 
-        sm.load_user("123")
+        actual_user = sm.load_user("123")
 
+        assert actual_user is mock_user
+        sm.get_user_by_id.assert_called_once_with(123)
+
+    def test_load_user_returns_none_when_user_is_missing(self):
+        sm = EmptySecurityManager()
+        sm.get_user_by_id = Mock(return_value=None)
+
+        actual_user = sm.load_user("123")
+
+        assert actual_user is None
+        sm.get_user_by_id.assert_called_once_with(123)
+
+    def test_load_user_returns_none_when_user_is_inactive(self):
+        sm = EmptySecurityManager()
+        mock_user = Mock()
+        mock_user.is_active = False
+        sm.get_user_by_id = Mock(return_value=mock_user)
+
+        actual_user = sm.load_user("123")
+
+        assert actual_user is None
         sm.get_user_by_id.assert_called_once_with(123)
 
     @mock.patch("airflow.providers.fab.auth_manager.security_manager.override.g", spec={})
-    def test_load_user_jwt(self, mock_g):
+    def test_load_user_jwt_returns_active_user(self, mock_g):
         sm = EmptySecurityManager()
         mock_user = Mock()
+        mock_user.is_active = True
         sm.load_user = Mock(return_value=mock_user)
 
         actual_user = sm.load_user_jwt(None, {"sub": "test_identity"})
@@ -54,6 +78,28 @@ class TestFabAirflowSecurityManagerOverride:
         sm.load_user.assert_called_once_with("test_identity")
         assert actual_user is mock_user
         assert mock_g.user is mock_user
+
+    @mock.patch("airflow.providers.fab.auth_manager.security_manager.override.g", spec={})
+    def test_load_user_jwt_returns_none_when_user_is_missing(self, _mock_g):
+        sm = EmptySecurityManager()
+        sm.load_user = Mock(return_value=None)
+
+        actual_user = sm.load_user_jwt(None, {"sub": "test_identity"})
+
+        sm.load_user.assert_called_once_with("test_identity")
+        assert actual_user is None
+
+    @mock.patch("airflow.providers.fab.auth_manager.security_manager.override.g", spec={})
+    def test_load_user_jwt_returns_none_when_user_is_inactive(self, _mock_g):
+        sm = EmptySecurityManager()
+        mock_user = Mock()
+        mock_user.is_active = False
+        sm.load_user = Mock(return_value=mock_user)
+
+        actual_user = sm.load_user_jwt(None, {"sub": "test_identity"})
+
+        sm.load_user.assert_called_once_with("test_identity")
+        assert actual_user is None
 
     @mock.patch("airflow.providers.fab.auth_manager.security_manager.override.check_password_hash")
     def test_check_password(self, check_password):
