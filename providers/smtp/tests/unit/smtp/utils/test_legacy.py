@@ -24,46 +24,18 @@ from unittest import mock
 
 import pytest
 
-
-def test_plain_delivery_interface(mocker):
-    from airflow.providers.smtp.utils.legacy import send_mime_email
-
-    constructor = mocker.patch("airflow.providers.smtp.utils.legacy.smtplib.SMTP", autospec=True)
-    message = MIMEMultipart()
-    factory = mocker.Mock(spec=ssl.create_default_context)
-    assert (
-        send_mime_email(
-            "from@fixture.invalid",
-            ["to@fixture.invalid"],
-            message,
-            host="localhost",
-            port=2525,
-            timeout=7,
-            use_ssl=False,
-            starttls=False,
-            retry_limit=0,
-            username=None,
-            password=None,
-            ssl_context_factory=factory,
-        )
-        is None
-    )
-    constructor.return_value.sendmail.assert_called_once_with(
-        "from@fixture.invalid", ["to@fixture.invalid"], message.as_string()
-    )
-    factory.assert_not_called()
+from airflow.providers.smtp.utils import legacy
 
 
 @pytest.fixture
 def delivery(mocker):
-    from airflow.providers.smtp.utils import legacy
-
     plain = mocker.patch.object(legacy.smtplib, "SMTP", autospec=True)
     secure = mocker.patch.object(legacy.smtplib, "SMTP_SSL", autospec=True)
     factory = mocker.Mock(spec=ssl.create_default_context, return_value=None)
     message = MIMEMultipart(boundary="fixed-test-boundary")
 
     def send(**overrides):
+        recipients = overrides.pop("recipients", ["to@fixture.invalid"])
         options = dict(
             host="smtp.fixture.invalid",
             port=2525,
@@ -76,7 +48,7 @@ def delivery(mocker):
             ssl_context_factory=factory,
         )
         options.update(overrides)
-        return legacy.send_mime_email("from@fixture.invalid", ["to@fixture.invalid"], message, **options)
+        return legacy.send_mime_email("from@fixture.invalid", recipients, message, **options)
 
     return send, plain, secure, factory, message
 
@@ -198,26 +170,11 @@ def test_post_connect_failure_is_not_retried(delivery, mocker, stage):
 @pytest.mark.parametrize("recipients", ["to@fixture.invalid", ["to@fixture.invalid", "to@fixture.invalid"]])
 @pytest.mark.parametrize("refused", [False, True])
 def test_envelope_and_partial_refusal_are_preserved(delivery, recipients, refused):
-    from airflow.providers.smtp.utils.legacy import send_mime_email
-
-    _, plain, _, factory, message = delivery
+    send, plain, _, _, message = delivery
     plain.return_value.sendmail.return_value = {"bad@fixture.invalid": (550, b"refused")} if refused else {}
-    assert (
-        send_mime_email(
-            "from@fixture.invalid",
-            recipients,
-            message,
-            host="localhost",
-            port=2525,
-            timeout=7,
-            use_ssl=False,
-            starttls=False,
-            retry_limit=0,
-            username=None,
-            password=None,
-            ssl_context_factory=factory,
-        )
-        is None
+    assert send(recipients=recipients) is None
+    plain.return_value.sendmail.assert_called_once_with(
+        "from@fixture.invalid", recipients, message.as_string()
     )
     assert plain.return_value.sendmail.call_args.args[1] is recipients
     plain.return_value.quit.assert_called_once()
@@ -236,8 +193,6 @@ def test_all_refused_propagates(delivery):
 
 @pytest.mark.parametrize("supplied", [False, True])
 def test_logger_selection_and_attempts(delivery, mocker, supplied):
-    from airflow.providers.smtp.utils import legacy
-
     send, plain, _, _, _ = delivery
     default = mocker.patch.object(legacy, "log", autospec=True)
     custom = mocker.Mock(spec=logging.Logger)
