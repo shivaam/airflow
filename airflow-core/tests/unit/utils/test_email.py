@@ -29,6 +29,8 @@ from unittest import mock
 import pytest
 
 from airflow.configuration import conf
+from airflow.exceptions import AirflowNotFoundException
+from airflow.models import Connection
 from airflow.utils import email
 
 from tests_common.test_utils.config import conf_vars
@@ -306,24 +308,29 @@ class TestEmailSmtp:
             context=create_default_context.return_value,
         )
 
-    @mock.patch("smtplib.SMTP_SSL")
-    @mock.patch("smtplib.SMTP")
-    def test_send_mime_noauth(self, mock_smtp, mock_smtp_ssl):
-        mock_smtp.return_value = mock.Mock()
-        with conf_vars(
-            {
-                ("smtp", "smtp_user"): None,
-                ("smtp", "smtp_password"): None,
-            }
-        ):
-            email.send_mime_email("from", "to", MIMEMultipart(), dryrun=False, conn_id=None)
-        assert not mock_smtp_ssl.called
+    @pytest.mark.parametrize("use_default_connection", [True, False], ids=["missing-default", "no-lookup"])
+    @conf_vars({("smtp", "smtp_user"): None, ("smtp", "smtp_password"): None})
+    @mock.patch("airflow.models.Connection.get_connection_from_secrets", autospec=True)
+    @mock.patch("smtplib.SMTP_SSL", autospec=True)
+    @mock.patch("smtplib.SMTP", autospec=True)
+    def test_send_mime_noauth(self, mock_smtp, mock_smtp_ssl, get_connection, use_default_connection):
+        get_connection.side_effect = AirflowNotFoundException("synthetic missing connection")
+        message = MIMEMultipart()
+        if use_default_connection:
+            email.send_mime_email("from", "to", message, dryrun=False)
+            get_connection.assert_called_once_with("smtp_default")
+        else:
+            email.send_mime_email("from", "to", message, dryrun=False, conn_id=None)
+            get_connection.assert_not_called()
+        mock_smtp_ssl.assert_not_called()
         mock_smtp.assert_called_once_with(
             host=conf.get("smtp", "SMTP_HOST"),
             port=conf.getint("smtp", "SMTP_PORT"),
             timeout=conf.getint("smtp", "SMTP_TIMEOUT"),
         )
         mock_smtp.return_value.login.assert_not_called()
+        mock_smtp.return_value.sendmail.assert_called_once_with("from", "to", message.as_string())
+        mock_smtp.return_value.quit.assert_called_once_with()
 
     @mock.patch("smtplib.SMTP_SSL")
     @mock.patch("smtplib.SMTP")
@@ -421,12 +428,20 @@ class TestEmailSmtp:
         assert final_mock.quit.called
 
 
+@conf_vars(
+    {
+        ("smtp", "smtp_host"): "global.fixture.invalid",
+        ("smtp", "smtp_port"): "2465",
+        ("smtp", "smtp_timeout"): "17",
+        ("smtp", "smtp_retry_limit"): "2",
+        ("smtp", "smtp_ssl"): "True",
+        ("smtp", "smtp_starttls"): "False",
+    }
+)
 @mock.patch("airflow.providers.smtp.utils.legacy.send_mime_email", autospec=True)
 @mock.patch("airflow.models.Connection.get_connection_from_secrets", autospec=True)
 @mock.patch("smtplib.SMTP_SSL", autospec=True)
 def test_send_mime_delegates_resolved_settings(_smtp, get_connection, transport):
-    from airflow.models import Connection
-
     get_connection.return_value = Connection(
         host="ignored.fixture.invalid",
         port=9999,
@@ -436,17 +451,7 @@ def test_send_mime_delegates_resolved_settings(_smtp, get_connection, transport)
     )
     message = MIMEMultipart()
     recipients = ["to@fixture.invalid", "to@fixture.invalid"]
-    with conf_vars(
-        {
-            ("smtp", "smtp_host"): "global.fixture.invalid",
-            ("smtp", "smtp_port"): "2465",
-            ("smtp", "smtp_timeout"): "17",
-            ("smtp", "smtp_retry_limit"): "2",
-            ("smtp", "smtp_ssl"): "True",
-            ("smtp", "smtp_starttls"): "False",
-        }
-    ):
-        email.send_mime_email("from@fixture.invalid", recipients, message, conn_id="synthetic")
+    email.send_mime_email("from@fixture.invalid", recipients, message, conn_id="synthetic")
     get_connection.assert_called_once_with("synthetic")
     transport.assert_called_once_with(
         "from@fixture.invalid",
@@ -465,16 +470,14 @@ def test_send_mime_delegates_resolved_settings(_smtp, get_connection, transport)
     )
 
 
+@conf_vars({("email", "ssl_context"): "invalid-unused-value"})
 @mock.patch("airflow.models.Connection.get_connection_from_secrets", autospec=True)
 def test_dryrun_retains_resolution_without_delivery(get_connection, monkeypatch):
-    from airflow.models import Connection
-
     get_connection.return_value = Connection(login="synthetic-user", password="synthetic-password")
     message = mock.Mock(spec=MIMEMultipart)
     message.as_string.side_effect = AssertionError("must not serialize")
     monkeypatch.setitem(sys.modules, "airflow.providers.smtp.utils.legacy", None)
-    with conf_vars({("email", "ssl_context"): "invalid-unused-value"}):
-        email.send_mime_email("from", "to", message, conn_id="synthetic", dryrun=True)
+    email.send_mime_email("from", "to", message, conn_id="synthetic", dryrun=True)
     get_connection.assert_called_once_with("synthetic")
     message.as_string.assert_not_called()
 
@@ -484,8 +487,6 @@ def test_dryrun_retains_resolution_without_delivery(get_connection, monkeypatch)
 @mock.patch("airflow.models.Connection.get_connection_from_secrets", autospec=True)
 @mock.patch("smtplib.SMTP", autospec=True)
 def test_connection_resolution_contract(_smtp, get_connection, transport, conn_id):
-    from airflow.exceptions import AirflowNotFoundException
-
     get_connection.side_effect = AirflowNotFoundException("synthetic missing connection")
     email.send_mime_email("from", "to", MIMEMultipart(), conn_id=conn_id)
     if conn_id is None:
