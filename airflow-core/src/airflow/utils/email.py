@@ -21,7 +21,6 @@ import collections.abc
 import logging
 import os
 import re
-import smtplib
 import ssl
 from collections.abc import Iterable
 from email.mime.application import MIMEApplication
@@ -256,23 +255,26 @@ def send_mime_email(
     if smtp_user is None or smtp_password is None:
         log.debug("No user/password found for SMTP, so logging in with no authentication.")
 
-    if not dryrun:
-        for attempt in range(smtp_retry_limit + 1):
-            log.info("Email alerting: attempt %s", str(attempt + 1))
-            try:
-                smtp_conn = _get_smtp_connection(smtp_host, smtp_port, smtp_timeout, smtp_ssl)
-            except smtplib.SMTPServerDisconnected:
-                if attempt == smtp_retry_limit:
-                    raise
-            else:
-                if smtp_starttls:
-                    smtp_conn.starttls(context=_get_ssl_context())
-                if smtp_user and smtp_password:
-                    smtp_conn.login(smtp_user, smtp_password)
-                log.info("Sent an alert email to %s", e_to)
-                smtp_conn.sendmail(e_from, e_to, mime_msg.as_string())
-                smtp_conn.quit()
-                break
+    if dryrun:
+        return
+
+    from airflow.providers.smtp.utils.legacy import send_mime_email as deliver_mime_email
+
+    deliver_mime_email(
+        e_from,
+        e_to,
+        mime_msg,
+        host=smtp_host,
+        port=smtp_port,
+        timeout=smtp_timeout,
+        use_ssl=smtp_ssl,
+        starttls=smtp_starttls,
+        retry_limit=smtp_retry_limit,
+        username=smtp_user,
+        password=smtp_password,
+        ssl_context_factory=_get_ssl_context,
+        logger=log,
+    )
 
 
 def get_email_address_list(addresses: str | Iterable[str]) -> list[str]:
@@ -310,21 +312,6 @@ def _get_ssl_context() -> ssl.SSLContext | None:
         f"The email.ssl_context configuration variable must "
         f"be set to 'default' or 'none' and is '{ssl_context_string}."
     )
-
-
-def _get_smtp_connection(host: str, port: int, timeout: int, with_ssl: bool) -> smtplib.SMTP:
-    """
-    Return an SMTP connection to the specified host and port, with optional SSL encryption.
-
-    :param host: The hostname or IP address of the SMTP server.
-    :param port: The port number to connect to on the SMTP server.
-    :param timeout: The timeout in seconds for the connection.
-    :param with_ssl: Whether to use SSL encryption for the connection.
-    :return: An SMTP connection to the specified host and port.
-    """
-    if not with_ssl:
-        return smtplib.SMTP(host=host, port=port, timeout=timeout)
-    return smtplib.SMTP_SSL(host=host, port=port, timeout=timeout, context=_get_ssl_context())
 
 
 def _get_email_list_from_str(addresses: str) -> list[str]:
