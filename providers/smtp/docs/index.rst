@@ -37,6 +37,7 @@
     Configuration <configurations-ref>
     Connection types <connections/smtp>
     SMTP Notifications <notifications/smtp_notifier_howto_guide>
+    Legacy delivery compatibility <utils/legacy>
     Python API <_api/airflow/providers/smtp/index>
 
 .. toctree::
