@@ -24,16 +24,9 @@ synchronous connections or aiosmtplib for async connections.
 
 from __future__ import annotations
 
-import collections.abc
-import os
-import re
 import smtplib
 import ssl
 from collections.abc import Iterable
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formatdate
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -41,6 +34,7 @@ from typing import TYPE_CHECKING, Any, cast
 import aiosmtplib
 
 from airflow.providers.common.compat.sdk import AirflowException, AirflowNotFoundException, BaseHook
+from airflow.providers.smtp.utils.emailer import build_mime_message
 
 if TYPE_CHECKING:
     from airflow.providers.common.compat.sdk import Connection
@@ -366,7 +360,7 @@ class SmtpHook(BaseHook):
                 )
             html_content = self._read_template(self.html_content_template)
 
-        mime_msg, recipients = self._build_mime_message(
+        mime_msg, recipients = build_mime_message(
             mail_from=from_email,
             to=to,
             subject=subject,
@@ -519,104 +513,6 @@ class SmtpHook(BaseHook):
                 except Exception as e:
                     if attempt == self.smtp_retry_limit:
                         raise e
-
-    def _build_mime_message(
-        self,
-        mail_from: str | None,
-        to: str | Iterable[str],
-        subject: str,
-        html_content: str,
-        files: list[str] | None = None,
-        cc: str | Iterable[str] | None = None,
-        bcc: str | Iterable[str] | None = None,
-        mime_subtype: str = "mixed",
-        mime_charset: str = "utf-8",
-        custom_headers: dict[str, Any] | None = None,
-    ) -> tuple[MIMEMultipart, list[str]]:
-        """
-        Build a MIME message that can be used to send an email and returns a full list of recipients.
-
-        :param mail_from: Email address to set as the email's "From" field.
-        :param to: A string or iterable of strings containing email addresses
-            to set as the email's "To" field.
-        :param subject: The subject of the email.
-        :param html_content: The content of the email in HTML format.
-        :param files: A list of paths to files to be attached to the email.
-        :param cc: A string or iterable of strings containing email addresses
-            to set as the email's "CC" field.
-        :param bcc: A string or iterable of strings containing email addresses
-            to set as the email's "BCC" field.
-        :param mime_subtype: The subtype of the MIME message. Default: "mixed".
-        :param mime_charset: The charset of the email. Default: "utf-8".
-        :param custom_headers: Additional headers to add to the MIME message.
-            No validations are run on these values, and they should be able to be encoded.
-        :return: A tuple containing the email as a MIMEMultipart object and
-            a list of recipient email addresses.
-        """
-        to = self._get_email_address_list(to)
-
-        msg = MIMEMultipart(mime_subtype)
-        msg["Subject"] = subject
-        if mail_from:
-            msg["From"] = mail_from
-        msg["To"] = ", ".join(to)
-        recipients = to
-        if cc:
-            cc = self._get_email_address_list(cc)
-            msg["CC"] = ", ".join(cc)
-            recipients += cc
-
-        if bcc:
-            # don't add bcc in header
-            bcc = self._get_email_address_list(bcc)
-            recipients += bcc
-
-        msg["Date"] = formatdate(localtime=True)
-        mime_text = MIMEText(html_content, "html", mime_charset)
-        msg.attach(mime_text)
-
-        for fname in files or []:
-            basename = os.path.basename(fname)
-            with open(fname, "rb") as file:
-                part = MIMEApplication(file.read(), Name=basename)
-                part.add_header("Content-Disposition", "attachment", filename=basename)
-                part["Content-ID"] = f"<{basename}>"
-                msg.attach(part)
-
-        if custom_headers:
-            for header_key, header_value in custom_headers.items():
-                msg[header_key] = header_value
-
-        return msg, recipients
-
-    def _get_email_address_list(self, addresses: str | Iterable[str]) -> list[str]:
-        """
-        Return a list of email addresses from the provided input.
-
-        :param addresses: A string or iterable of strings containing email addresses.
-        :return: A list of email addresses.
-        :raises TypeError: If the input is not a string or iterable of strings.
-        """
-        if isinstance(addresses, str):
-            return self._get_email_list_from_str(addresses)
-        if isinstance(addresses, collections.abc.Iterable):
-            if not all(isinstance(item, str) for item in addresses):
-                raise TypeError("The items in your iterable must be strings.")
-            return list(addresses)
-        raise TypeError(f"Unexpected argument type: Received '{type(addresses).__name__}'.")
-
-    def _get_email_list_from_str(self, addresses: str) -> list[str]:
-        """
-        Extract a list of email addresses from a string.
-
-        The string can contain multiple email addresses separated by
-        any of the following delimiters: ',' or ';'.
-
-        :param addresses: A string containing one or more email addresses.
-        :return: A list of email addresses.
-        """
-        pattern = r"\s*[,;]\s*"
-        return re.split(pattern, addresses)
 
     def _get_oauth2_token(self) -> str:
         """
