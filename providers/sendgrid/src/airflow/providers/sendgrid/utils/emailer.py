@@ -39,7 +39,11 @@ from sendgrid.helpers.mail import (
 )
 
 from airflow.providers.common.compat.sdk import BaseHook
-from airflow.utils.email import get_email_address_list
+
+try:
+    from airflow.providers.smtp.utils.emailer import get_email_address_list
+except ImportError:  # SMTP provider older than the move of the core email utilities
+    from airflow.utils.email import get_email_address_list  # type: ignore[no-redef]
 
 log = logging.getLogger(__name__)
 

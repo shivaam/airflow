@@ -150,6 +150,7 @@ from airflow.sdk.execution_time.context import (
 )
 from airflow.sdk.execution_time.email_backend import (
     _DEFAULT_EMAIL_BACKEND,
+    _DEFAULT_EMAIL_BACKENDS,
     _ErrorEmailNotifier,
     _LegacyEmailBackendNotifier,
 )
@@ -2161,7 +2162,7 @@ def _send_error_email_notification(
     Send email notification for task errors through the configured email backend.
 
     A non-default ``[email] email_backend`` (an SES, SendGrid or org-internal callable with the
-    ``airflow.utils.email.send_email`` signature) is wrapped in
+    ``airflow.providers.smtp.utils.emailer.send_email`` signature) is wrapped in
     :class:`~airflow.sdk.execution_time.email_backend._LegacyEmailBackendNotifier`; otherwise the
     default :class:`~airflow.providers.smtp.notifications.smtp.SmtpNotifier` is used.
 
@@ -2175,7 +2176,7 @@ def _send_error_email_notification(
     email_backend = conf.get("email", "email_backend", fallback=_DEFAULT_EMAIL_BACKEND)
     notifier_description = "SmtpNotifier"
 
-    if email_backend and email_backend != _DEFAULT_EMAIL_BACKEND:
+    if email_backend and email_backend not in _DEFAULT_EMAIL_BACKENDS:
         notifier_class: _ErrorEmailNotifier = _LegacyEmailBackendNotifier
         notifier_description = f"configured email_backend {email_backend!r}"
     else:

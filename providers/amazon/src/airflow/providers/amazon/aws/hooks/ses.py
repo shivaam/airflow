@@ -22,7 +22,11 @@ from collections.abc import Iterable
 from typing import Any
 
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
-from airflow.utils.email import build_mime_message
+
+try:
+    from airflow.providers.smtp.utils.emailer import build_mime_message
+except ImportError:  # SMTP provider older than the move of the core email utilities
+    from airflow.utils.email import build_mime_message  # type: ignore[no-redef]
 
 
 class SesHook(AwsBaseHook):

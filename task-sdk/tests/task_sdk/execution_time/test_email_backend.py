@@ -68,7 +68,7 @@ class TestLegacyEmailBackendNotifier:
             notifier.notify(context={})
 
         getimport.assert_called_once_with(
-            "email", "email_backend", fallback="airflow.utils.email.send_email_smtp"
+            "email", "email_backend", fallback="airflow.providers.smtp.utils.emailer.send_email_smtp"
         )
         backend.assert_called_once_with(
             ["a@b.com"],

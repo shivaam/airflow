@@ -4878,6 +4878,37 @@ class TestEmailNotifications:
         assert kwargs["conn_id"] == "my_smtp"
         assert kwargs["from_email"] == self.FROM
 
+    @pytest.mark.parametrize(
+        "email_backend",
+        [
+            pytest.param("airflow.providers.smtp.utils.emailer.send_email_smtp", id="default"),
+            pytest.param("airflow.utils.email.send_email_smtp", id="previous-default"),
+        ],
+    )
+    def test_default_email_backend_uses_smtp_notifier(
+        self, email_backend, create_runtime_ti, mock_supervisor_comms
+    ):
+        """Both the current and the previous default backend use the SMTP notifier."""
+
+        class FailingOperator(BaseOperator):
+            def execute(self, context):
+                raise AirflowFailException("Task failed on purpose")
+
+        task = FailingOperator(task_id="default_backend_task", email=["test@example.com"])
+
+        runtime_ti = create_runtime_ti(task=task)
+        context = runtime_ti.get_template_context()
+        log = mock.MagicMock()
+
+        with conf_vars({("email", "email_backend"): email_backend, ("email", "from_email"): self.FROM}):
+            with mock.patch(
+                "airflow.providers.smtp.notifications.smtp.SmtpNotifier", autospec=True
+            ) as mock_smtp_notifier:
+                state, _, error = run(runtime_ti, context, log)
+                finalize(runtime_ti, state, context, log, error)
+
+        mock_smtp_notifier.assert_called_once()
+
     def test_unresolvable_email_backend_is_logged(self, create_runtime_ti, mock_supervisor_comms):
         """An unimportable custom backend is logged, and does not silently fall back to SMTP."""
 

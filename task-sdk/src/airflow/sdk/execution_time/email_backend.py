@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 
     from airflow.sdk.definitions.context import Context
 
-_DEFAULT_EMAIL_BACKEND = "airflow.utils.email.send_email_smtp"
+_DEFAULT_EMAIL_BACKEND = "airflow.providers.smtp.utils.emailer.send_email_smtp"
+# The default before the email utilities moved to the SMTP provider; it names the same sender.
+_DEFAULT_EMAIL_BACKENDS = frozenset({_DEFAULT_EMAIL_BACKEND, "airflow.utils.email.send_email_smtp"})
 
 
 class _ErrorEmailNotifier(Protocol):
@@ -54,13 +56,12 @@ class _LegacyEmailBackendNotifier(BaseNotifier):
 
     Before failure and retry alerts were routed through ``BaseNotifier`` subclasses, deployments
     configured them through ``[email] email_backend`` -- a callable with the
-    ``airflow.utils.email.send_email`` signature, such as the Amazon SES or SendGrid senders.
-    This adapter renders the standard email fields like any notifier, then loads and calls the
+    ``airflow.providers.smtp.utils.emailer.send_email`` signature, such as the Amazon SES or
+    SendGrid senders. This adapter renders the standard email fields like any notifier, then loads and calls the
     configured backend, so existing ``email_backend`` setups keep working unchanged.
 
     The backend is resolved from config at notify time rather than imported statically, keeping
-    the Task SDK free of a hard dependency on ``airflow.utils.email`` (which lives in
-    ``airflow-core``).
+    the Task SDK free of a hard dependency on the SMTP provider.
     """
 
     template_fields = ("to", "from_email", "subject", "html_content")

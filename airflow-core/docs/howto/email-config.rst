@@ -25,7 +25,7 @@ in the ``[email]`` section.
 .. code-block:: ini
 
   [email]
-  email_backend = airflow.utils.email.send_email_smtp
+  email_backend = airflow.providers.smtp.utils.emailer.send_email_smtp
   subject_template = /path/to/my_subject_template_file
   html_content_template = /path/to/my_html_content_template_file
 
@@ -33,7 +33,7 @@ Equivalent environment variables look like:
 
 .. code-block:: sh
 
-  AIRFLOW__EMAIL__EMAIL_BACKEND=airflow.utils.email.send_email_smtp
+  AIRFLOW__EMAIL__EMAIL_BACKEND=airflow.providers.smtp.utils.emailer.send_email_smtp
   AIRFLOW__EMAIL__SUBJECT_TEMPLATE=/path/to/my_subject_template_file
   AIRFLOW__EMAIL__HTML_CONTENT_TEMPLATE=/path/to/my_html_content_template_file
 
@@ -50,7 +50,7 @@ Equivalent environment variables look like:
 
   AIRFLOW__EMAIL__FROM_EMAIL="John Doe <johndoe@example.com>"
 
-By default, ``email_backend`` is set to ``airflow.utils.email.send_email_smtp``, which sends email over SMTP.
+By default, ``email_backend`` is set to ``airflow.providers.smtp.utils.emailer.send_email_smtp``, which sends email over SMTP.
 
 To configure SMTP settings, checkout the :ref:`SMTP <config:smtp>` section in the standard configuration.
 If you do not want to store the SMTP credentials in the config or in the environment variables, you can create a
@@ -68,7 +68,7 @@ the example below.
 .. code-block:: bash
 
     $ airflow config get-value email email_backend
-    airflow.utils.email.send_email_smtp
+    airflow.providers.smtp.utils.emailer.send_email_smtp
 
 To access the task's information you use `Jinja Templating <http://jinja.pocoo.org/docs/dev/>`_  in your template files.
 
