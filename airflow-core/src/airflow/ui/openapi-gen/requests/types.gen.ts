@@ -2146,6 +2146,61 @@ export type TaskDependencyResponse = {
 };
 
 /**
+ * Object used for create task hold request.
+ */
+export type TaskHoldBody = {
+    /**
+     * Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.
+     */
+    task_id?: string | null;
+    /**
+     * Hold every task in this run. Combined with ``task_id``, holds only that task in that run.
+     */
+    run_id?: string | null;
+    reason: string;
+    /**
+     * When the hold stops applying. The hold lasts until it is released if not set.
+     */
+    expires_at?: string | null;
+};
+
+/**
+ * Task hold collection serializer for responses.
+ */
+export type TaskHoldCollectionResponse = {
+    task_holds: Array<TaskHoldResponse>;
+    total_entries: number;
+};
+
+/**
+ * Object used for release task hold request.
+ */
+export type TaskHoldReleaseBody = {
+    reason?: string | null;
+};
+
+/**
+ * Task hold serializer for responses.
+ */
+export type TaskHoldResponse = {
+    id: number;
+    dag_id: string;
+    task_id: string | null;
+    run_id: string | null;
+    reason: string;
+    created_by: string | null;
+    created_at: string;
+    expires_at: string | null;
+    released_by: string | null;
+    released_at: string | null;
+    release_reason: string | null;
+    /**
+     * Whether the hold is neither released nor expired.
+     */
+    active: boolean;
+};
+
+/**
  * Task inlet reference serializer for assets.
  */
 export type TaskInletAssetReference = {
@@ -2290,7 +2345,7 @@ export type TaskInstanceResponse = {
  *
  * Note that None is also allowed, so always use this in a type hint with Optional.
  */
-export type TaskInstanceState = 'removed' | 'scheduled' | 'queued' | 'running' | 'success' | 'restarting' | 'failed' | 'up_for_retry' | 'up_for_reschedule' | 'upstream_failed' | 'skipped' | 'deferred' | 'awaiting_input';
+export type TaskInstanceState = 'removed' | 'scheduled' | 'queued' | 'running' | 'success' | 'restarting' | 'failed' | 'up_for_retry' | 'up_for_reschedule' | 'upstream_failed' | 'skipped' | 'deferred' | 'awaiting_input' | 'held';
 
 /**
  * Task Instance body for get batch.
@@ -3410,6 +3465,7 @@ export type TaskInstanceStateCount = {
     skipped: number;
     deferred: number;
     awaiting_input: number;
+    held: number;
 };
 
 /**
@@ -5344,6 +5400,37 @@ export type CreateXcomEntryData = {
 };
 
 export type CreateXcomEntryResponse = XComResponseNative;
+
+export type ListTaskHoldsData = {
+    /**
+     * Only return holds that are neither released nor expired. Pass ``false`` to include released and expired holds as well.
+     */
+    active?: boolean;
+    dagId: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * Attributes to order by, multi criteria sort is supported. Prefix with `-` for descending order. Supported attributes: `id, created_at, expires_at, released_at`
+     */
+    orderBy?: Array<(string)>;
+};
+
+export type ListTaskHoldsResponse = TaskHoldCollectionResponse;
+
+export type CreateTaskHoldData = {
+    dagId: string;
+    requestBody: TaskHoldBody;
+};
+
+export type CreateTaskHoldResponse = TaskHoldResponse;
+
+export type ReleaseTaskHoldData = {
+    dagId: string;
+    holdId: number;
+    requestBody?: TaskHoldReleaseBody | null;
+};
+
+export type ReleaseTaskHoldResponse = TaskHoldResponse;
 
 export type GetTasksData = {
     dagId: string;
@@ -9371,6 +9458,89 @@ export type $OpenApiTs = {
                  * Bad Request
                  */
                 400: HTTPExceptionResponse;
+                /**
+                 * Unauthorized
+                 */
+                401: HTTPExceptionResponse;
+                /**
+                 * Forbidden
+                 */
+                403: HTTPExceptionResponse;
+                /**
+                 * Not Found
+                 */
+                404: HTTPExceptionResponse;
+                /**
+                 * Conflict
+                 */
+                409: HTTPExceptionResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/api/v2/dags/{dag_id}/holds': {
+        get: {
+            req: ListTaskHoldsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TaskHoldCollectionResponse;
+                /**
+                 * Unauthorized
+                 */
+                401: HTTPExceptionResponse;
+                /**
+                 * Forbidden
+                 */
+                403: HTTPExceptionResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: CreateTaskHoldData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: TaskHoldResponse;
+                /**
+                 * Bad Request
+                 */
+                400: HTTPExceptionResponse;
+                /**
+                 * Unauthorized
+                 */
+                401: HTTPExceptionResponse;
+                /**
+                 * Forbidden
+                 */
+                403: HTTPExceptionResponse;
+                /**
+                 * Not Found
+                 */
+                404: HTTPExceptionResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/api/v2/dags/{dag_id}/holds/{hold_id}/release': {
+        post: {
+            req: ReleaseTaskHoldData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TaskHoldResponse;
                 /**
                  * Unauthorized
                  */

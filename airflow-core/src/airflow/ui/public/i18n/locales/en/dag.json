@@ -262,6 +262,7 @@
     "callbacks": "Callbacks",
     "code": "Code",
     "details": "Details",
+    "holds": "Holds",
     "logs": "Logs",
     "mappedTaskInstances_one": "Task Instance [{{count, number}}]",
     "mappedTaskInstances_other": "Task Instances [{{count, number}}]",

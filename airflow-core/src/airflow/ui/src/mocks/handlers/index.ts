@@ -24,6 +24,7 @@ import { handlers as configHandlers } from "./config";
 import { handlers as dagHandlers } from "./dag";
 import { handlers as dagRunsHandlers } from "./dag_runs";
 import { handlers as dagsHandlers } from "./dags";
+import { handlers as holdsHandlers } from "./holds";
 import { handlers as logHandlers } from "./log";
 import { handlers as taskInstancesHandlers } from "./task_instances";
 
@@ -34,6 +35,7 @@ export const handlers = [
   ...dagHandlers,
   ...dagRunsHandlers,
   ...dagsHandlers,
+  ...holdsHandlers,
   ...logHandlers,
   ...adminHandlers,
   ...appHandlers,

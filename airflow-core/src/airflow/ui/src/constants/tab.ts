@@ -29,6 +29,7 @@ export enum TabName {
   Code = "code",
   Details = "details",
   Events = "events",
+  Holds = "holds",
   Overview = "",
   Runs = "runs",
   Tasks = "tasks",

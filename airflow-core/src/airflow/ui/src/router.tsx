@@ -36,6 +36,7 @@ import { Backfills } from "src/pages/Dag/Backfills";
 import { Calendar } from "src/pages/Dag/Calendar/Calendar";
 import { Code } from "src/pages/Dag/Code";
 import { Details as DagDetails } from "src/pages/Dag/Details";
+import { Holds } from "src/pages/Dag/Holds";
 import { Overview } from "src/pages/Dag/Overview";
 import { Tasks } from "src/pages/Dag/Tasks";
 import { Versions } from "src/pages/Dag/Versions";
@@ -225,6 +226,7 @@ export const routerConfig = [
           },
           { element: <Backfills />, path: "backfills/:backfillId" },
           { element: <Events />, handle: { entity: TabEntity.Dag, tab: TabName.Events }, path: "events" },
+          { element: <Holds />, handle: { entity: TabEntity.Dag, tab: TabName.Holds }, path: "holds" },
           { element: <Code />, handle: { entity: TabEntity.Dag, tab: TabName.Code }, path: "code" },
           {
             element: <Versions />,

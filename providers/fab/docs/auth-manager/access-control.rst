@@ -680,6 +680,18 @@ Stable API Permissions
      - POST
      - DAGs.can_read
      - Viewer
+   * - ``/api/v2/dags/{dag_id}/holds``
+     - GET
+     - DAGs.can_read, DAG Runs.can_read, Task Instances.can_read
+     - Viewer
+   * - ``/api/v2/dags/{dag_id}/holds``
+     - POST
+     - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
+     - User
+   * - ``/api/v2/dags/{dag_id}/holds/{hold_id}/release``
+     - POST
+     - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
+     - User
    * - ``/api/v2/dags/{dag_id}/tasks``
      - GET
      - DAGs.can_read, Task Instances.can_read

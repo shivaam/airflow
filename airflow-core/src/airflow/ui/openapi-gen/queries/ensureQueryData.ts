@@ -1,7 +1,7 @@
 // generated with @7nohe/openapi-react-query-codegen@1.6.2 
 
 import { type QueryClient } from "@tanstack/react-query";
-import { AssetService, AssetStateStoreService, AuthLinksService, BackfillService, CalendarService, ConfigService, ConnectionService, DagBundleService, DagRunService, DagService, DagSourceService, DagStatsService, DagVersionService, DagWarningService, DashboardService, DeadlinesService, DependenciesService, EventLogService, ExperimentalService, ExtraLinksService, GanttService, GridService, ImportErrorService, JobService, LoginService, MonitorService, PartitionedDagRunService, PluginService, PoolService, ProviderService, StructureService, TaskInstanceService, TaskService, TaskStateStoreService, TeamsService, VariableService, VersionService, XcomService } from "../requests/services.gen";
+import { AssetService, AssetStateStoreService, AuthLinksService, BackfillService, CalendarService, ConfigService, ConnectionService, DagBundleService, DagRunService, DagService, DagSourceService, DagStatsService, DagVersionService, DagWarningService, DashboardService, DeadlinesService, DependenciesService, EventLogService, ExperimentalService, ExtraLinksService, GanttService, GridService, ImportErrorService, JobService, LoginService, MonitorService, PartitionedDagRunService, PluginService, PoolService, ProviderService, StructureService, TaskHoldService, TaskInstanceService, TaskService, TaskStateStoreService, TeamsService, VariableService, VersionService, XcomService } from "../requests/services.gen";
 import { DagRunState, DagSchedulingState, ReprocessBehavior } from "../requests/types.gen";
 import * as Common from "./common";
 /**
@@ -2008,6 +2008,27 @@ export const ensureUseXcomServiceGetXcomEntriesData = (queryClient: QueryClient,
   xcomKeyPattern?: string;
   xcomKeyPrefixPattern?: string;
 }) => queryClient.ensureQueryData({ queryKey: Common.UseXcomServiceGetXcomEntriesKeyFn({ dagDisplayNamePattern, dagDisplayNamePrefixPattern, dagId, dagRunId, excludeInternalKeys, limit, logicalDateGt, logicalDateGte, logicalDateLt, logicalDateLte, mapIndex, mapIndexFilter, offset, orderBy, regionId, regionIndex, runAfterGt, runAfterGte, runAfterLt, runAfterLte, runIdPattern, runIdPrefixPattern, taskId, taskIdPattern, taskIdPrefixPattern, teams, xcomKey, xcomKeyPattern, xcomKeyPrefixPattern }), queryFn: () => XcomService.getXcomEntries({ dagDisplayNamePattern, dagDisplayNamePrefixPattern, dagId, dagRunId, excludeInternalKeys, limit, logicalDateGt, logicalDateGte, logicalDateLt, logicalDateLte, mapIndex, mapIndexFilter, offset, orderBy, regionId, regionIndex, runAfterGt, runAfterGte, runAfterLt, runAfterLte, runIdPattern, runIdPrefixPattern, taskId, taskIdPattern, taskIdPrefixPattern, teams, xcomKey, xcomKeyPattern, xcomKeyPrefixPattern }) });
+/**
+* List Task Holds
+* List the task holds of a Dag.
+*
+* This endpoint allows specifying `~` as the dag_id to retrieve task holds for all Dags.
+* @param data The data for the request.
+* @param data.dagId
+* @param data.active Only return holds that are neither released nor expired. Pass ``false`` to include released and expired holds as well.
+* @param data.limit
+* @param data.offset
+* @param data.orderBy Attributes to order by, multi criteria sort is supported. Prefix with `-` for descending order. Supported attributes: `id, created_at, expires_at, released_at`
+* @returns TaskHoldCollectionResponse Successful Response
+* @throws ApiError
+*/
+export const ensureUseTaskHoldServiceListTaskHoldsData = (queryClient: QueryClient, { active, dagId, limit, offset, orderBy }: {
+  active?: boolean;
+  dagId: string;
+  limit?: number;
+  offset?: number;
+  orderBy?: string[];
+}) => queryClient.ensureQueryData({ queryKey: Common.UseTaskHoldServiceListTaskHoldsKeyFn({ active, dagId, limit, offset, orderBy }), queryFn: () => TaskHoldService.listTaskHolds({ active, dagId, limit, offset, orderBy }) });
 /**
 * Get Tasks
 * Get tasks for Dag.

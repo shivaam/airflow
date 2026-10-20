@@ -46,6 +46,7 @@ from airflow.api_fastapi.core_api.routes.public.monitor import monitor_router
 from airflow.api_fastapi.core_api.routes.public.plugins import plugins_router
 from airflow.api_fastapi.core_api.routes.public.pools import pools_router
 from airflow.api_fastapi.core_api.routes.public.providers import providers_router
+from airflow.api_fastapi.core_api.routes.public.task_holds import task_holds_router
 from airflow.api_fastapi.core_api.routes.public.task_instances import task_instances_router
 from airflow.api_fastapi.core_api.routes.public.task_state_store import task_state_store_router
 from airflow.api_fastapi.core_api.routes.public.tasks import tasks_router
@@ -87,6 +88,7 @@ authenticated_router.include_router(providers_router)
 authenticated_router.include_router(asset_state_store_router)
 authenticated_router.include_router(task_state_store_router)
 authenticated_router.include_router(xcom_router)
+authenticated_router.include_router(task_holds_router)
 authenticated_router.include_router(task_instances_router)
 authenticated_router.include_router(tasks_router)
 authenticated_router.include_router(variables_router)

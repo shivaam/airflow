@@ -30,6 +30,8 @@ import { ClearTaskInstanceButton } from "src/components/Clear";
 import ClearTaskInstanceDialog from "src/components/Clear/TaskInstance/ClearTaskInstanceDialog";
 import { DagVersion } from "src/components/DagVersion";
 import { HeaderCard } from "src/components/HeaderCard";
+import { HoldButton } from "src/components/Hold";
+import { HoldPendingBadge } from "src/components/HoldPendingBadge";
 import { LoopDecisionReason } from "src/components/LoopDecisionReason";
 import { MarkTaskInstanceAsButton } from "src/components/MarkAs";
 import { NotePreview } from "src/components/NotePreview";
@@ -174,6 +176,14 @@ export const Header = ({ taskInstance }: { readonly taskInstance: TaskInstanceRe
               variant="outline"
             />
             <MarkTaskInstanceAsButton bg="bg" isHotkeyEnabled taskInstance={taskInstance} variant="outline" />
+            <HoldButton
+              bg="bg"
+              dagId={taskInstance.dag_id}
+              isMapped={taskInstance.map_index > -1}
+              runId={taskInstance.dag_run_id}
+              taskId={taskInstance.task_id}
+              variant="outline"
+            />
             <PluginActions
               {...pluginActions}
               buttonProps={{ bg: "bg", variant: "outline" }}
@@ -184,6 +194,7 @@ export const Header = ({ taskInstance }: { readonly taskInstance: TaskInstanceRe
         icon={<MdOutlineTask />}
         state={taskInstance.state}
         stats={stats}
+        statusBadge={<HoldPendingBadge taskInstance={taskInstance} />}
         title={`${taskInstance.task_display_name}${taskInstance.map_index > -1 ? ` [${taskInstance.rendered_map_index ?? taskInstance.map_index}]` : ""}`}
         type="taskInstance"
       />

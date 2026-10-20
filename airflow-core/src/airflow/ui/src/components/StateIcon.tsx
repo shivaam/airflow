@@ -23,6 +23,7 @@ import {
   LuCheck,
   LuCircleDashed,
   LuCircleFadingArrowUp,
+  LuHand,
   LuRedo2,
   LuUserRoundPen,
 } from "react-icons/lu";
@@ -44,6 +45,8 @@ export const StateIcon = ({ state, ...rest }: Props) => {
       return <FiWatch {...rest} />;
     case "failed":
       return <FiX {...rest} />;
+    case "held":
+      return <LuHand {...rest} />;
     case "queued":
       return <PiQueue {...rest} />;
     case "removed":

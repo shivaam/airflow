@@ -7745,6 +7745,243 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v2/dags/{dag_id}/holds:
+    get:
+      tags:
+      - Task Hold
+      summary: List Task Holds
+      description: 'List the task holds of a Dag.
+
+
+        This endpoint allows specifying `~` as the dag_id to retrieve task holds for
+        all Dags.'
+      operationId: list_task_holds
+      security:
+      - OAuth2PasswordBearer: []
+      - HTTPBearer: []
+      parameters:
+      - name: dag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dag Id
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only return holds that are neither released nor expired. Pass
+            ``false`` to include released and expired holds as well.
+          default: true
+          title: Active
+        description: Only return holds that are neither released nor expired. Pass
+          ``false`` to include released and expired holds as well.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: order_by
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          description: 'Attributes to order by, multi criteria sort is supported.
+            Prefix with `-` for descending order. Supported attributes: `id, created_at,
+            expires_at, released_at`'
+          default:
+          - id
+          title: Order By
+        description: 'Attributes to order by, multi criteria sort is supported. Prefix
+          with `-` for descending order. Supported attributes: `id, created_at, expires_at,
+          released_at`'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskHoldCollectionResponse'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Forbidden
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Task Hold
+      summary: Create Task Hold
+      description: 'Place a hold on a task or a run.
+
+
+        The scheduler stops queueing the matching task instances while the hold is
+        active.
+
+        A hold on a task covers every current and future run of it, a hold on a run
+        covers every
+
+        task in that run, and a hold on both covers that one task instance.
+
+        Task instances that are already queued or running are not affected, and task
+        instance
+
+        states are never changed by this endpoint.'
+      operationId: create_task_hold
+      security:
+      - OAuth2PasswordBearer: []
+      - HTTPBearer: []
+      parameters:
+      - name: dag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dag Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskHoldBody'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskHoldResponse'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Forbidden
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Bad Request
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v2/dags/{dag_id}/holds/{hold_id}/release:
+    post:
+      tags:
+      - Task Hold
+      summary: Release Task Hold
+      description: 'Release a task hold.
+
+
+        The scheduler moves the task instances that no active hold matches any more
+        back to
+
+        `scheduled`. The request body is optional.'
+      operationId: release_task_hold
+      security:
+      - OAuth2PasswordBearer: []
+      - HTTPBearer: []
+      parameters:
+      - name: dag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dag Id
+      - name: hold_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          title: Hold Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/TaskHoldReleaseBody'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskHoldResponse'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Conflict
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}:
     get:
       tags:
@@ -17778,6 +18015,143 @@ components:
       - reason
       title: TaskDependencyResponse
       description: Task Dependency serializer for responses.
+    TaskHoldBody:
+      properties:
+        task_id:
+          anyOf:
+          - type: string
+            maxLength: 250
+            minLength: 1
+          - type: 'null'
+          title: Task Id
+          description: Hold this task in every current and future run. Combined with
+            ``run_id``, holds only that task in that run.
+        run_id:
+          anyOf:
+          - type: string
+            maxLength: 250
+            minLength: 1
+          - type: 'null'
+          title: Run Id
+          description: Hold every task in this run. Combined with ``task_id``, holds
+            only that task in that run.
+        reason:
+          type: string
+          minLength: 1
+          title: Reason
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+          description: When the hold stops applying. The hold lasts until it is released
+            if not set.
+      additionalProperties: false
+      type: object
+      required:
+      - reason
+      title: TaskHoldBody
+      description: Object used for create task hold request.
+    TaskHoldCollectionResponse:
+      properties:
+        task_holds:
+          items:
+            $ref: '#/components/schemas/TaskHoldResponse'
+          type: array
+          title: Task Holds
+        total_entries:
+          type: integer
+          title: Total Entries
+      type: object
+      required:
+      - task_holds
+      - total_entries
+      title: TaskHoldCollectionResponse
+      description: Task hold collection serializer for responses.
+    TaskHoldReleaseBody:
+      properties:
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      additionalProperties: false
+      type: object
+      title: TaskHoldReleaseBody
+      description: Object used for release task hold request.
+    TaskHoldResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        dag_id:
+          type: string
+          title: Dag Id
+        task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Id
+        run_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Run Id
+        reason:
+          type: string
+          title: Reason
+        created_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created By
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        released_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Released By
+        released_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Released At
+        release_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Release Reason
+        active:
+          type: boolean
+          title: Active
+          description: Whether the hold is neither released nor expired.
+      type: object
+      required:
+      - id
+      - dag_id
+      - task_id
+      - run_id
+      - reason
+      - created_by
+      - created_at
+      - expires_at
+      - released_by
+      - released_at
+      - release_reason
+      - active
+      title: TaskHoldResponse
+      description: Task hold serializer for responses.
     TaskInletAssetReference:
       properties:
         dag_id:
@@ -18272,6 +18646,7 @@ components:
       - skipped
       - deferred
       - awaiting_input
+      - held
       title: TaskInstanceState
       description: 'All possible states that a Task Instance can be in.
 

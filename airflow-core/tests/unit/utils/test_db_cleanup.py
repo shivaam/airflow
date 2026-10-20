@@ -1260,6 +1260,7 @@ class TestDBCleanup:
             "legacy_task_data_owner",  # cascade from task_instance
             "rtif_v1",  # cascade from legacy_task_data_owner
             "rtif_v2",  # cascade from task_instance
+            "task_hold",  # cascade from dag
             "task_inlet_asset_reference",  # cascade from dag
         }
 

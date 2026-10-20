@@ -114,6 +114,7 @@ from airflow.models.log import resolve_team_name
 from airflow.models.pool import normalize_pool_name_for_stats
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.task_coordinates import LOOP_GATE_OPERATOR, TaskCoordinateResolver
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance
 from airflow.models.team import Team
 from airflow.models.trigger import TRIGGER_FAIL_REPR, Trigger, TriggerFailureReason, handle_event_submit
@@ -183,6 +184,39 @@ still selects at least one runnable task instance queued behind blocked ones.
 
 :meta private:
 """
+
+# Batch size of the task hold step's moves between the ``scheduled`` and ``held`` states. Bounds the rows
+# one statement locks. Parking repeats until no matching task instance is left ``scheduled``, so none
+# slips into the queueing step that follows; releasing stops after one batch per loop and the remainder
+# follows on the next loop.
+MAX_HELD_TIS_PER_LOOP = 500
+
+
+def _task_hold_match_clause(holds: Iterable[TaskHold]) -> ColumnElement[bool]:
+    """
+    Build a clause selecting the task instances covered by any of ``holds``.
+
+    Holds are grouped by scope, so each scope compiles to a single tuple ``IN``. ``holds`` must not be
+    empty.
+    """
+    task_in_run: set[tuple[str, str, str]] = set()
+    task_in_every_run: set[tuple[str, str]] = set()
+    whole_run: set[tuple[str, str]] = set()
+    for hold in holds:
+        if hold.task_id is not None and hold.run_id is not None:
+            task_in_run.add((hold.dag_id, hold.task_id, hold.run_id))
+        elif hold.task_id is not None:
+            task_in_every_run.add((hold.dag_id, hold.task_id))
+        elif hold.run_id is not None:
+            whole_run.add((hold.dag_id, hold.run_id))
+    clauses: list[ColumnElement[bool]] = []
+    if task_in_run:
+        clauses.append(tuple_(TI.dag_id, TI.task_id, TI.run_id).in_(task_in_run))
+    if task_in_every_run:
+        clauses.append(tuple_(TI.dag_id, TI.task_id).in_(task_in_every_run))
+    if whole_run:
+        clauses.append(tuple_(TI.dag_id, TI.run_id).in_(whole_run))
+    return or_(*clauses)
 
 
 def _eager_load_dag_run_for_validation() -> tuple[LoaderOption, LoaderOption]:
@@ -2236,6 +2270,12 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             session.expunge_all()
             # END: schedule TIs
 
+            # Park task instances covered by an operator-placed hold, and release those no longer
+            # covered. This is the only place holds are consulted. It commits on its own, so a busy
+            # critical section rolling back below does not undo it.
+            self._apply_task_holds(session=session)
+            guard.commit()
+
             # Attempt to schedule even if some executors are full but not all.
             total_free_executor_slots = sum([executor.slots_available for executor in self.executors])
             if total_free_executor_slots <= 0:
@@ -2266,6 +2306,106 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             guard.commit()
 
         return num_queued_tis
+
+    def _apply_task_holds(self, *, session: Session) -> None:
+        """
+        Move ``scheduled`` task instances that match an active hold to ``held``, and release the rest.
+
+        Runs once per scheduler loop, just before the queueing critical section. A ``held`` task
+        instance that no longer matches any active hold goes back to ``scheduled``, so a task stays
+        held until every hold that matches it has been released or has expired. Holds that expired
+        since the last loop are marked as released by ``expiry`` and logged as ``hold_expired``.
+
+        The hold table is read in one query, and so is the ``held`` backlog, so a loop with no holds
+        and no held task instances costs two cheap queries. Matching task instances are parked in batches
+        of ``MAX_HELD_TIS_PER_LOOP`` until none is left, because a ``scheduled`` task instance that
+        escaped this step would be queued. At most one batch is released per loop; the remainder follows
+        on the next loop.
+        """
+        now = timezone.utcnow()
+        # Expiring and releasing a hold both set ``released_at``, so the rows read here are the active
+        # holds plus the ones that expired since the last loop.
+        unreleased_holds = session.scalars(select(TaskHold).where(TaskHold.released_at.is_(None))).all()
+        active_holds = [hold for hold in unreleased_holds if hold.is_active(now)]
+        expired_holds = [hold for hold in unreleased_holds if not hold.is_active(now)]
+        if expired_holds:
+            self._expire_task_holds(expired_holds, session=session)
+
+        num_held = 0
+        if active_holds:
+            match_clause = _task_hold_match_clause(active_holds)
+            while True:
+                moved = self._move_task_instances(
+                    from_state=TaskInstanceState.SCHEDULED,
+                    to_state=TaskInstanceState.HELD,
+                    criteria=match_clause,
+                    session=session,
+                )
+                num_held += moved
+                if moved < MAX_HELD_TIS_PER_LOOP:
+                    break
+            release_criteria = ~match_clause
+        else:
+            release_criteria = expression.true()
+        num_released = self._move_task_instances(
+            from_state=TaskInstanceState.HELD,
+            to_state=TaskInstanceState.SCHEDULED,
+            criteria=release_criteria,
+            session=session,
+        )
+        if num_held or num_released:
+            self.log.info(
+                "Task holds: held %d scheduled task instances, released %d held task instances",
+                num_held,
+                num_released,
+            )
+
+    def _expire_task_holds(self, holds: Collection[TaskHold], *, session: Session) -> None:
+        """Mark holds that passed their expiry as released by ``expiry``, logging each as ``hold_expired``."""
+        query = select(TaskHold).where(
+            TaskHold.id.in_([hold.id for hold in holds]), TaskHold.released_at.is_(None)
+        )
+        # Lock the rows so schedulers running in parallel do not log the same expiry twice.
+        for hold in session.scalars(
+            with_row_locks(query, of=TaskHold, session=session, skip_locked=True)
+        ).all():
+            hold.released_at = hold.expires_at
+            hold.released_by = "expiry"
+            session.add(
+                Log(
+                    event="hold_expired",
+                    dag_id=hold.dag_id,
+                    task_id=hold.task_id,
+                    run_id=hold.run_id,
+                    owner="scheduler",
+                    owner_display_name="Scheduler",
+                    extra=f"Task hold {hold.id} expired",
+                )
+            )
+            self.log.info("Task hold %s on %s expired", hold.id, hold.dag_id)
+
+    def _move_task_instances(
+        self,
+        *,
+        from_state: TaskInstanceState,
+        to_state: TaskInstanceState,
+        criteria: ColumnElement[bool],
+        session: Session,
+    ) -> int:
+        """Move one batch of up to ``MAX_HELD_TIS_PER_LOOP`` matching task instances to ``to_state``."""
+        query = select(TI.id).where(TI.state == from_state, criteria).limit(MAX_HELD_TIS_PER_LOOP)
+        # Lock the rows so schedulers running in parallel neither move the same task instance twice
+        # nor wait on each other.
+        ti_ids = session.scalars(with_row_locks(query, of=TI, session=session, skip_locked=True)).all()
+        if not ti_ids:
+            return 0
+        session.execute(
+            update(TI)
+            .where(TI.id.in_(ti_ids), TI.state == from_state)
+            .values(state=to_state)
+            .execution_options(synchronize_session=False)
+        )
+        return len(ti_ids)
 
     def _warn_unreachable_asset_partition(
         self,
@@ -3272,6 +3412,8 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             dag_run.start_date
             and dag.dagrun_timeout
             and dag_run.start_date < timezone.utcnow() - dag.dagrun_timeout
+            # The timeout is not enforced while a task hold parks any of the run's task instances.
+            and not self._has_held_task_instance(dag_run, session=session)
         ):
             dag_run.set_state(DagRunState.FAILED)
             unfinished_task_instances = session.scalars(
@@ -3375,6 +3517,22 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         dag_run.schedule_tis(schedulable_tis, session=session, max_tis_per_query=self.job.max_tis_per_query)
 
         return callback_to_run
+
+    @staticmethod
+    def _has_held_task_instance(dag_run: DagRun, *, session: Session) -> bool:
+        """Whether any task instance of ``dag_run`` is parked in the ``held`` state."""
+        return (
+            session.scalar(
+                select(TI.id)
+                .where(
+                    TI.dag_id == dag_run.dag_id,
+                    TI.run_id == dag_run.run_id,
+                    TI.state == TaskInstanceState.HELD,
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def _verify_integrity_if_dag_changed(self, dag_run: DagRun, session: Session) -> bool:
         """
@@ -3601,7 +3759,14 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
     @provide_session
     def _emit_ti_metrics(self, *, session: Session = NEW_SESSION) -> None:
-        metric_states = {State.SCHEDULED, State.QUEUED, State.RUNNING, State.DEFERRED, State.AWAITING_INPUT}
+        metric_states = {
+            State.SCHEDULED,
+            State.QUEUED,
+            State.RUNNING,
+            State.DEFERRED,
+            State.AWAITING_INPUT,
+            State.HELD,
+        }
         stmt = (
             select(
                 TaskInstance.state,

@@ -151,5 +151,74 @@
     },
     "placeholder": "Sort by"
   },
+  "taskHold": {
+    "activeCount_one": "{{count, number}} active hold",
+    "activeCount_other": "{{count, number}} active holds",
+    "button": "Hold {{type}}...",
+    "columns": {
+      "createdAt": "Created at",
+      "createdBy": "Created by",
+      "expiresAt": "Expires at",
+      "neverExpires": "Never",
+      "reason": "Reason",
+      "scope": "Scope",
+      "status": "Status"
+    },
+    "dialog": {
+      "confirm": "Place hold",
+      "description": "Matching task instances wait in the held state instead of being queued. Task instances that are already queued or running are not affected.",
+      "error": "Failed to place hold",
+      "expiresAt": {
+        "helper": "Leave empty to hold until it is released.",
+        "label": "Expires at (optional)",
+        "past": "The expiry must be in the future."
+      },
+      "mappedHint": "The hold covers every map index.",
+      "reason": {
+        "label": "Reason",
+        "placeholder": "Why is this being held?",
+        "required": "A reason is required."
+      },
+      "scope": "Scope",
+      "success": {
+        "description": "Matching task instances are held when the scheduler next picks them up.",
+        "title": "Hold placed"
+      },
+      "title": "Place hold"
+    },
+    "filter": {
+      "active": "Active",
+      "all": "All"
+    },
+    "noActiveHolds": "No active holds.",
+    "noHolds": "No holds.",
+    "pending": {
+      "label": "Hold pending",
+      "tooltip": "An active hold covers this task instance. It is held when the scheduler next picks it up."
+    },
+    "release": {
+      "button": "Release",
+      "confirm": "Release hold",
+      "description": "Held task instances that no other active hold covers return to scheduled.",
+      "error": "Failed to release hold",
+      "reasonLabel": "Reason (optional)",
+      "reasonPlaceholder": "Why is this being released?",
+      "success": {
+        "description": "Task instances that no active hold covers any more are scheduled again.",
+        "title": "Hold released"
+      },
+      "title": "Release hold"
+    },
+    "scope": {
+      "run": "All tasks in run {{runId}}",
+      "task": "Task {{taskId}} in all runs",
+      "taskInstance": "Task {{taskId}} in run {{runId}}"
+    },
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "released": "Released"
+    }
+  },
   "unfavoriteDag": "Unfavorite $t(common:dag_one)"
 }

@@ -119,6 +119,7 @@ __lazy_imports = {
     "Pool": "airflow.models.pool",
     "RenderedTaskInstanceFields": "airflow.models.renderedtifields",
     "SkipMixin": "airflow.sdk.bases.skipmixin",
+    "TaskHold": "airflow.models.taskhold",
     "TaskInstance": "airflow.models.taskinstance",
     "TaskReschedule": "airflow.models.taskreschedule",
     "Team": "airflow.models.team",

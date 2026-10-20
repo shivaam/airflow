@@ -106,6 +106,7 @@ from airflow.models.log import Log, resolve_team_name
 from airflow.models.pool import Pool, PoolStats
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.task_coordinates import TaskCoordinateResolver
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance, clear_task_instances
 from airflow.models.team import Team
 from airflow.models.trigger import Trigger
@@ -377,6 +378,24 @@ def assign_executor_to_team(executor: MagicMock, team_name: str) -> None:
     # ExecutorLoader.load_executor sets the team on both; the scheduler reads it from the name.
     executor.team_name = team_name
     executor.name.team_name = team_name
+
+
+def _task_instance_states(session, dag_id: str) -> dict[tuple[str, str], str | None]:
+    """Return ``{(run_id, task_id): state}`` for the live task instances of ``dag_id``."""
+    rows = session.execute(
+        select(TaskInstance.run_id, TaskInstance.task_id, TaskInstance.state).where(
+            TaskInstance.dag_id == dag_id
+        )
+    )
+    return {(run_id, task_id): state for run_id, task_id, state in rows}
+
+
+def _held_task_instances(session, dag_id: str) -> set[tuple[str, str]]:
+    return {
+        key
+        for key, state in _task_instance_states(session, dag_id).items()
+        if state == TaskInstanceState.HELD
+    }
 
 
 @patch.dict(
@@ -5307,6 +5326,41 @@ class TestSchedulerJob:
         session.rollback()
         session.close()
 
+    def test_dagrun_timeout_is_not_enforced_while_a_task_is_held(self, dag_maker, session):
+        with dag_maker(
+            dag_id="test_scheduler_dagrun_timeout_held",
+            dagrun_timeout=datetime.timedelta(seconds=60),
+            session=session,
+        ):
+            EmptyOperator(task_id="held_task")
+            EmptyOperator(task_id="other_task")
+
+        dr = dag_maker.create_dagrun(start_date=timezone.utcnow() - datetime.timedelta(days=1))
+        held_ti = dr.get_task_instance("held_task", session=session)
+        held_ti.state = TaskInstanceState.HELD
+        session.flush()
+
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        callback = self.job_runner._schedule_dag_run(dr, session)
+        session.flush()
+        session.refresh(dr)
+
+        assert callback is None
+        assert dr.state == DagRunState.RUNNING
+        assert dr.get_task_instance("held_task", session=session).state == TaskInstanceState.HELD
+
+        # Once the hold is released the timeout applies again, measured from the run's real start.
+        held_ti.state = TaskInstanceState.SCHEDULED
+        session.flush()
+
+        self.job_runner._schedule_dag_run(dr, session)
+        session.flush()
+        session.refresh(dr)
+
+        assert dr.state == DagRunState.FAILED
+        assert dr.get_task_instance("held_task", session=session).state == TaskInstanceState.SKIPPED
+
     def test_dagrun_timeout_skips_running_task_with_end_date_and_duration(self, dag_maker):
         """A task still running when its Dag run times out must be skipped with an end_date and duration."""
         session = settings.Session()
@@ -9678,6 +9732,322 @@ class TestSchedulerJob:
         assert ti_good.next_kwargs["event"]["chosen_options"] == ["Approve"]
         # The one it could not resume is reported as such rather than counted as resolved.
         assert mock_log.info.call_args.args[1:] == (1, 0, 1)
+
+    @pytest.fixture
+    def hold_dags(self, dag_maker, session):
+        """Two Dags with identical ids, each with runs ``run_a`` and ``run_b`` and every task scheduled."""
+        for dag_id in ("hold_dag", "other_dag"):
+            with dag_maker(dag_id=dag_id, schedule=None, session=session):
+                EmptyOperator(task_id="t1")
+                EmptyOperator(task_id="t2")
+            for offset, run_id in enumerate(("run_a", "run_b")):
+                dr = dag_maker.create_dagrun(
+                    run_id=run_id, logical_date=DEFAULT_DATE + datetime.timedelta(days=offset)
+                )
+                for ti in dr.task_instances:
+                    ti.state = TaskInstanceState.SCHEDULED
+        session.flush()
+        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+
+    @pytest.mark.parametrize(
+        ("scope", "expected_held"),
+        [
+            pytest.param({"task_id": "t1"}, {("run_a", "t1"), ("run_b", "t1")}, id="task_only"),
+            pytest.param({"run_id": "run_a"}, {("run_a", "t1"), ("run_a", "t2")}, id="run_only"),
+            pytest.param({"task_id": "t1", "run_id": "run_a"}, {("run_a", "t1")}, id="task_and_run"),
+        ],
+    )
+    def test_task_hold_parks_matching_scheduled_task_instances(
+        self, hold_dags, session, scope, expected_held
+    ):
+        session.add(TaskHold(dag_id="hold_dag", reason="test", **scope))
+        session.flush()
+
+        self.job_runner._apply_task_holds(session=session)
+
+        assert _held_task_instances(session, "hold_dag") == expected_held
+        # Everything else, including the same ids in another Dag, is left scheduled.
+        assert {
+            state
+            for key, state in _task_instance_states(session, "hold_dag").items()
+            if key not in expected_held
+        } == {TaskInstanceState.SCHEDULED}
+        assert set(_task_instance_states(session, "other_dag").values()) == {TaskInstanceState.SCHEDULED}
+
+    @pytest.mark.parametrize("with_run_id", [False, True], ids=["task_only", "task_and_run"])
+    def test_task_hold_parks_every_map_index_of_a_mapped_task(self, dag_maker, session, with_run_id):
+        with dag_maker(dag_id="hold_mapped", schedule=None, session=session):
+            BashOperator.partial(task_id="mapped", bash_command="true").expand(
+                env=[{"n": str(n)} for n in range(3)]
+            )
+            EmptyOperator(task_id="plain")
+        dr = dag_maker.create_dagrun()
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        session.add(
+            TaskHold(
+                dag_id="hold_mapped",
+                task_id="mapped",
+                run_id=dr.run_id if with_run_id else None,
+                reason="test",
+            )
+        )
+        session.flush()
+        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+
+        self.job_runner._apply_task_holds(session=session)
+
+        rows = session.execute(
+            select(TaskInstance.task_id, TaskInstance.map_index, TaskInstance.state).where(
+                TaskInstance.dag_id == "hold_mapped"
+            )
+        )
+        assert {(task_id, map_index): state for task_id, map_index, state in rows} == {
+            ("mapped", 0): TaskInstanceState.HELD,
+            ("mapped", 1): TaskInstanceState.HELD,
+            ("mapped", 2): TaskInstanceState.HELD,
+            ("plain", -1): TaskInstanceState.SCHEDULED,
+        }
+
+    def test_task_hold_only_parks_scheduled_task_instances(self, dag_maker, session):
+        states = {
+            "none": None,
+            "scheduled": TaskInstanceState.SCHEDULED,
+            "queued": TaskInstanceState.QUEUED,
+            "running": TaskInstanceState.RUNNING,
+            "deferred": TaskInstanceState.DEFERRED,
+            "up_for_retry": TaskInstanceState.UP_FOR_RETRY,
+            "success": TaskInstanceState.SUCCESS,
+        }
+        with dag_maker(dag_id="hold_states", schedule=None, session=session):
+            for task_id in states:
+                EmptyOperator(task_id=task_id)
+        dr = dag_maker.create_dagrun()
+        for ti in dr.task_instances:
+            ti.state = states[ti.task_id]
+        session.add(TaskHold(dag_id="hold_states", run_id=dr.run_id, reason="test"))
+        session.flush()
+        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+
+        self.job_runner._apply_task_holds(session=session)
+
+        assert {
+            task_id: state for (_, task_id), state in _task_instance_states(session, "hold_states").items()
+        } == {**states, "scheduled": TaskInstanceState.HELD}
+
+    def test_task_hold_release_returns_held_task_instances_to_scheduled(self, hold_dags, session):
+        hold = TaskHold(dag_id="hold_dag", task_id="t1", reason="test")
+        session.add(hold)
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+        assert _held_task_instances(session, "hold_dag") == {("run_a", "t1"), ("run_b", "t1")}
+
+        hold.released_at = timezone.utcnow()
+        hold.released_by = "tester"
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+
+        assert _held_task_instances(session, "hold_dag") == set()
+        assert set(_task_instance_states(session, "hold_dag").values()) == {TaskInstanceState.SCHEDULED}
+        # The scheduler only records expiry; a hold released by an operator is left as it was.
+        assert hold.released_by == "tester"
+
+    def test_task_instance_stays_held_until_every_matching_hold_is_released(self, hold_dags, session):
+        task_hold = TaskHold(dag_id="hold_dag", task_id="t1", reason="task")
+        run_hold = TaskHold(dag_id="hold_dag", run_id="run_a", reason="run")
+        session.add_all([task_hold, run_hold])
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+        assert _held_task_instances(session, "hold_dag") == {
+            ("run_a", "t1"),
+            ("run_b", "t1"),
+            ("run_a", "t2"),
+        }
+
+        task_hold.released_at = timezone.utcnow()
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+
+        # (run_a, t1) is still covered by the run hold; (run_b, t1) was only covered by the task hold.
+        assert _held_task_instances(session, "hold_dag") == {("run_a", "t1"), ("run_a", "t2")}
+
+        run_hold.released_at = timezone.utcnow()
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+
+        assert _held_task_instances(session, "hold_dag") == set()
+
+    def test_task_hold_expiry_is_marked_and_logged(self, hold_dags, session):
+        session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
+        expires_at = timezone.utcnow() - datetime.timedelta(minutes=1)
+        hold = TaskHold(dag_id="hold_dag", task_id="t1", reason="test", expires_at=expires_at)
+        session.add(hold)
+        session.commit()
+
+        self.job_runner._apply_task_holds(session=session)
+        session.flush()
+
+        # An expired hold no longer parks anything.
+        assert _held_task_instances(session, "hold_dag") == set()
+        assert hold.released_at == expires_at
+        assert hold.released_by == "expiry"
+        events = session.scalars(
+            select(Log).where(Log.dag_id == "hold_dag", Log.event == "hold_expired")
+        ).all()
+        assert [(event.task_id, event.run_id) for event in events] == [("t1", None)]
+
+        # Expiry is recorded once.
+        self.job_runner._apply_task_holds(session=session)
+        session.flush()
+
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Log)
+                .where(Log.dag_id == "hold_dag", Log.event == "hold_expired")
+            )
+            == 1
+        )
+
+    def test_task_hold_expiry_releases_held_task_instances(self, hold_dags, session):
+        now = timezone.utcnow()
+        hold = TaskHold(
+            dag_id="hold_dag", task_id="t1", reason="test", expires_at=now + datetime.timedelta(hours=1)
+        )
+        session.add(hold)
+        session.flush()
+        self.job_runner._apply_task_holds(session=session)
+        assert _held_task_instances(session, "hold_dag") == {("run_a", "t1"), ("run_b", "t1")}
+        assert hold.released_at is None
+
+        with time_machine.travel(now + datetime.timedelta(hours=2), tick=False):
+            self.job_runner._apply_task_holds(session=session)
+
+        assert _held_task_instances(session, "hold_dag") == set()
+        assert hold.released_at == hold.expires_at
+        assert hold.released_by == "expiry"
+
+    def test_task_hold_moves_a_bounded_batch_per_loop(self, dag_maker, session):
+        """Parking drains every matching task instance in one step; releasing is capped per loop."""
+        with dag_maker(dag_id="hold_batches", schedule=None, session=session):
+            for index in range(5):
+                EmptyOperator(task_id=f"t{index}")
+        dr = dag_maker.create_dagrun()
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        hold = TaskHold(dag_id="hold_batches", run_id=dr.run_id, reason="test")
+        session.add(hold)
+        session.flush()
+        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+
+        with mock.patch("airflow.jobs.scheduler_job_runner.MAX_HELD_TIS_PER_LOOP", 2):
+            # A task instance left scheduled would be queued, so all five are parked in one step
+            # (batches of 2, 2 and 1), not two per loop.
+            self.job_runner._apply_task_holds(session=session)
+            assert len(_held_task_instances(session, "hold_batches")) == 5
+
+            # Releasing stops after one batch per loop; the rest follows on the next loops.
+            hold.released_at = timezone.utcnow()
+            session.flush()
+            for expected_held in (3, 1, 0):
+                self.job_runner._apply_task_holds(session=session)
+                assert len(_held_task_instances(session, "hold_batches")) == expected_held
+
+    def test_task_hold_parks_a_backlog_that_fills_every_batch(self, dag_maker, session):
+        with dag_maker(dag_id="hold_full_batches", schedule=None, session=session):
+            for index in range(4):
+                EmptyOperator(task_id=f"t{index}")
+        dr = dag_maker.create_dagrun()
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        session.add(TaskHold(dag_id="hold_full_batches", run_id=dr.run_id, reason="test"))
+        session.flush()
+        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+
+        with mock.patch("airflow.jobs.scheduler_job_runner.MAX_HELD_TIS_PER_LOOP", 2):
+            self.job_runner._apply_task_holds(session=session)
+
+        assert len(_held_task_instances(session, "hold_full_batches")) == 4
+
+    def test_task_hold_step_is_two_queries_when_there_is_nothing_to_do(self, hold_dags, session):
+        with assert_queries_count(2, session=session):
+            self.job_runner._apply_task_holds(session=session)
+
+        assert set(_task_instance_states(session, "hold_dag").values()) == {TaskInstanceState.SCHEDULED}
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    def test_task_hold_keeps_a_task_out_of_the_queue(self, dag_maker, mock_executors, session):
+        with dag_maker(dag_id="hold_loop", schedule="@once", session=session):
+            # Can't use EmptyOperator as that goes straight to success
+            BashOperator(task_id="held_task", bash_command="true")
+            BashOperator(task_id="other_task", bash_command="true")
+        dag_run = dag_maker.create_dagrun(state=State.QUEUED, session=session)
+        hold = TaskHold(dag_id="hold_loop", task_id="held_task", reason="test")
+        session.add(hold)
+        # ``_do_scheduling`` expunges the session before the hold step, so the hold has to be committed.
+        session.commit()
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        num_queued = self.job_runner._do_scheduling(session)
+
+        assert num_queued == 1
+        assert {
+            task_id: state for (_, task_id), state in _task_instance_states(session, "hold_loop").items()
+        } == {
+            "held_task": TaskInstanceState.HELD,
+            "other_task": TaskInstanceState.QUEUED,
+        }
+        dag_run = session.merge(dag_run)
+        session.refresh(dag_run)
+        assert dag_run.state == DagRunState.RUNNING
+
+        # Releasing the hold lets the task instance through on the next loop.
+        hold = session.merge(hold)
+        hold.released_at = timezone.utcnow()
+        session.flush()
+
+        self.job_runner._do_scheduling(session)
+
+        assert _task_instance_states(session, "hold_loop")[(dag_run.run_id, "held_task")] == (
+            TaskInstanceState.QUEUED
+        )
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    def test_task_hold_on_an_empty_task_keeps_its_downstream_from_running(
+        self, dag_maker, mock_executors, session
+    ):
+        with dag_maker(dag_id="hold_empty_join", schedule="@once", session=session):
+            # An EmptyOperator is normally marked success without being scheduled.
+            join = EmptyOperator(task_id="join")
+            join >> BashOperator(task_id="downstream", bash_command="true")
+        dag_maker.create_dagrun(state=State.QUEUED, session=session)
+        hold = TaskHold(dag_id="hold_empty_join", task_id="join", reason="test")
+        session.add(hold)
+        # ``_do_scheduling`` expunges the session before the hold step, so the hold has to be committed.
+        session.commit()
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        for _ in range(2):
+            num_queued = self.job_runner._do_scheduling(session)
+
+            assert num_queued == 0
+            assert {
+                task_id: state
+                for (_, task_id), state in _task_instance_states(session, "hold_empty_join").items()
+            } == {"join": TaskInstanceState.HELD, "downstream": None}
+
+        # Releasing the hold lets the empty task instance through; the downstream waits for it to finish.
+        hold = session.scalar(select(TaskHold).where(TaskHold.dag_id == "hold_empty_join"))
+        hold.released_at = timezone.utcnow()
+        session.commit()
+
+        num_queued = self.job_runner._do_scheduling(session)
+
+        assert num_queued == 1
+        assert {
+            task_id: state
+            for (_, task_id), state in _task_instance_states(session, "hold_empty_join").items()
+        } == {"join": TaskInstanceState.QUEUED, "downstream": None}
 
     def test_retry_on_db_error_when_update_timeout_triggers(self, dag_maker, testing_dag_bundle, session):
         """

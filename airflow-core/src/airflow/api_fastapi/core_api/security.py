@@ -79,6 +79,7 @@ from airflow.models.dagbundle import DagBundleModel
 from airflow.models.dagwarning import DagWarning
 from airflow.models.errors import ParseImportError
 from airflow.models.log import Log
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance as TI
 from airflow.models.team import Team
 from airflow.models.xcom import XComModel
@@ -394,6 +395,13 @@ class PermittedBackfillFilter(PermittedDagFilter):
         return select.where(Backfill.dag_id.in_(self.value or set()))
 
 
+class PermittedTaskHoldFilter(PermittedDagFilter):
+    """A parameter that filters the permitted task holds for the user."""
+
+    def to_orm(self, select: Select) -> Select:
+        return select.where(TaskHold.dag_id.in_(self.value or set()))
+
+
 class PermittedDagBundleFilter(PermittedDagFilter):
     """A parameter that filters Dag bundles to the ones holding a Dag the user may read."""
 
@@ -549,6 +557,9 @@ ReadableDagVersionsFilterDep = Annotated[
 ]
 ReadableBackfillsFilterDep = Annotated[
     PermittedBackfillFilter, Depends(permitted_dag_filter_factory("GET", PermittedBackfillFilter))
+]
+ReadableTaskHoldsFilterDep = Annotated[
+    PermittedTaskHoldFilter, Depends(permitted_dag_filter_factory("GET", PermittedTaskHoldFilter))
 ]
 
 

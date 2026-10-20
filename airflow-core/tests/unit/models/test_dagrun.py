@@ -718,6 +718,33 @@ class TestDagRun:
         dr.update_state(session=session)
         assert dr.state == DagRunState.FAILED
 
+    def test_dagrun_no_deadlock_with_held_task_instance(self, dag_maker, session):
+        with dag_maker(schedule=datetime.timedelta(days=1), session=session):
+            op1 = EmptyOperator(task_id="A")
+            op2 = EmptyOperator(task_id="B")
+            op2.trigger_rule = TriggerRule.ONE_FAILED
+            op2.set_upstream(op1)
+            EmptyOperator(task_id="C")
+
+        dr = dag_maker.create_dagrun()
+
+        ti_op1: TI = dr.get_task_instance(task_id=op1.task_id, session=session)
+        ti_op2: TI = dr.get_task_instance(task_id=op2.task_id, session=session)
+        ti_op3: TI = dr.get_task_instance(task_id="C", session=session)
+        ti_op1.set_state(state=TaskInstanceState.SUCCESS, session=session)
+        ti_op2.set_state(state=None, session=session)
+        ti_op2.task.trigger_rule = "invalid"
+        ti_op3.set_state(state=TaskInstanceState.HELD, session=session)
+
+        # B can never run, but a held task instance is parked rather than stuck, so the run waits for it.
+        dr.update_state(session=session)
+        assert dr.state == DagRunState.RUNNING
+
+        # Once nothing is held the deadlock is detected as usual.
+        ti_op3.set_state(state=TaskInstanceState.SUCCESS, session=session)
+        dr.update_state(session=session)
+        assert dr.state == DagRunState.FAILED
+
     def test_dagrun_no_deadlock_with_restarting(self, dag_maker, session):
         with dag_maker(schedule=datetime.timedelta(days=1)):
             op1 = EmptyOperator(task_id="upstream_task")

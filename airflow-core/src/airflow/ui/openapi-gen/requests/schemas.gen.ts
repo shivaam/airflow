@@ -7817,6 +7817,212 @@ export const $TaskDependencyResponse = {
     description: 'Task Dependency serializer for responses.'
 } as const;
 
+export const $TaskHoldBody = {
+    properties: {
+        task_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 250,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Task Id',
+            description: 'Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.'
+        },
+        run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 250,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run Id',
+            description: 'Hold every task in this run. Combined with ``task_id``, holds only that task in that run.'
+        },
+        reason: {
+            type: 'string',
+            minLength: 1,
+            title: 'Reason'
+        },
+        expires_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expires At',
+            description: 'When the hold stops applying. The hold lasts until it is released if not set.'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['reason'],
+    title: 'TaskHoldBody',
+    description: 'Object used for create task hold request.'
+} as const;
+
+export const $TaskHoldCollectionResponse = {
+    properties: {
+        task_holds: {
+            items: {
+                '$ref': '#/components/schemas/TaskHoldResponse'
+            },
+            type: 'array',
+            title: 'Task Holds'
+        },
+        total_entries: {
+            type: 'integer',
+            title: 'Total Entries'
+        }
+    },
+    type: 'object',
+    required: ['task_holds', 'total_entries'],
+    title: 'TaskHoldCollectionResponse',
+    description: 'Task hold collection serializer for responses.'
+} as const;
+
+export const $TaskHoldReleaseBody = {
+    properties: {
+        reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    title: 'TaskHoldReleaseBody',
+    description: 'Object used for release task hold request.'
+} as const;
+
+export const $TaskHoldResponse = {
+    properties: {
+        id: {
+            type: 'integer',
+            title: 'Id'
+        },
+        dag_id: {
+            type: 'string',
+            title: 'Dag Id'
+        },
+        task_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Task Id'
+        },
+        run_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Run Id'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        },
+        created_by: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created By'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        expires_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expires At'
+        },
+        released_by: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Released By'
+        },
+        released_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Released At'
+        },
+        release_reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Release Reason'
+        },
+        active: {
+            type: 'boolean',
+            title: 'Active',
+            description: 'Whether the hold is neither released nor expired.'
+        }
+    },
+    type: 'object',
+    required: ['id', 'dag_id', 'task_id', 'run_id', 'reason', 'created_by', 'created_at', 'expires_at', 'released_by', 'released_at', 'release_reason', 'active'],
+    title: 'TaskHoldResponse',
+    description: 'Task hold serializer for responses.'
+} as const;
+
 export const $TaskInletAssetReference = {
     properties: {
         dag_id: {
@@ -8539,7 +8745,7 @@ export const $TaskInstanceResponse = {
 
 export const $TaskInstanceState = {
     type: 'string',
-    enum: ['removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input'],
+    enum: ['removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input', 'held'],
     title: 'TaskInstanceState',
     description: `All possible states that a Task Instance can be in.
 
@@ -13410,10 +13616,14 @@ export const $TaskInstanceStateCount = {
         awaiting_input: {
             type: 'integer',
             title: 'Awaiting Input'
+        },
+        held: {
+            type: 'integer',
+            title: 'Held'
         }
     },
     type: 'object',
-    required: ['no_status', 'removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input'],
+    required: ['no_status', 'removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input', 'held'],
     title: 'TaskInstanceStateCount',
     description: 'TaskInstance serializer for responses.'
 } as const;

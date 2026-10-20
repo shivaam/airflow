@@ -507,6 +507,18 @@ source code so it stays up to date as endpoints are added or changed.
      - ``DAG``
      - ``GET``
    * - ``GET``
+     - ``/api/v2/dags/{dag_id}/holds``
+     - ``DAG.TASK_INSTANCE``
+     - ``GET``
+   * - ``POST``
+     - ``/api/v2/dags/{dag_id}/holds``
+     - ``DAG.TASK_INSTANCE``
+     - ``PUT``
+   * - ``POST``
+     - ``/api/v2/dags/{dag_id}/holds/{hold_id}/release``
+     - ``DAG.TASK_INSTANCE``
+     - ``PUT``
+   * - ``GET``
      - ``/api/v2/dags/{dag_id}/tasks``
      - ``DAG.TASK``
      - ``GET``

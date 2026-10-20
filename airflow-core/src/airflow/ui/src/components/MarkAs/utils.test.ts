@@ -23,7 +23,7 @@ import type { TaskInstanceState } from "openapi/requests/types.gen";
 import { canMarkTaskInstanceAsSkipped } from "./utils";
 
 describe("canMarkTaskInstanceAsSkipped", () => {
-  it.each([null, undefined, "scheduled", "up_for_reschedule", "up_for_retry"] as const)(
+  it.each([null, undefined, "held", "scheduled", "up_for_reschedule", "up_for_retry"] as const)(
     "allows %s",
     (state) => {
       expect(canMarkTaskInstanceAsSkipped(state)).toBe(true);

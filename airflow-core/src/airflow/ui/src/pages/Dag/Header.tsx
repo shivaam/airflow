@@ -24,6 +24,7 @@ import type { DAGDetailsResponse, DagRunState } from "openapi/requests/types.gen
 
 import { RouterLink } from "src/system-components";
 
+import { ActiveHoldsBanner } from "src/components/ActiveHoldsBanner";
 import { BackfillInProgressBadge } from "src/components/BackfillInProgressBadge";
 import { DeleteDagButton } from "src/components/DagActions/DeleteDagButton";
 import { FavoriteDagButton } from "src/components/DagActions/FavoriteDagButton";
@@ -185,7 +186,12 @@ export const Header = ({
       }
       icon={<DagIcon />}
       stats={stats}
-      statusBadge={<BackfillInProgressBadge dagId={dagId ?? ""} />}
+      statusBadge={
+        <>
+          <BackfillInProgressBadge dagId={dagId ?? ""} />
+          <ActiveHoldsBanner dagId={dagId ?? ""} />
+        </>
+      }
       title={dag?.dag_display_name ?? dagId}
       type="dag"
     />

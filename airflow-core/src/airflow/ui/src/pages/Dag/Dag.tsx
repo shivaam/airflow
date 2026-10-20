@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useTranslation } from "react-i18next";
 import { FiBarChart, FiCode, FiCalendar, FiGitCommit } from "react-icons/fi";
-import { LuChartColumn } from "react-icons/lu";
+import { LuChartColumn, LuHand } from "react-icons/lu";
 import { MdDetails, MdOutlineEventNote } from "react-icons/md";
 import { RiArrowGoBackFill } from "react-icons/ri";
 import { useParams } from "react-router-dom";
@@ -52,6 +52,7 @@ export const Dag = () => {
     { icon: <TaskIcon />, label: translate("tabs.tasks"), value: "tasks" },
     { icon: <FiCalendar />, label: translate("tabs.calendar"), value: "calendar" },
     { icon: <RiArrowGoBackFill />, label: translate("tabs.backfills"), value: "backfills" },
+    { icon: <LuHand />, label: translate("tabs.holds"), value: "holds" },
     { icon: <MdOutlineEventNote />, label: translate("tabs.auditLog"), value: "events" },
     { icon: <FiCode />, label: translate("tabs.code"), value: "code" },
     { icon: <FiGitCommit />, label: translate("tabs.versions"), value: "versions" },

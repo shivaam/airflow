@@ -63,6 +63,20 @@ describe("sortStateEntries", () => {
     ]);
   });
 
+  it("places held between awaiting_input and queued", () => {
+    const result = sortStateEntries({
+      awaiting_input: 1,
+      held: 2,
+      queued: 3,
+    });
+
+    expect(result).toEqual([
+      ["awaiting_input", 1],
+      ["held", 2],
+      ["queued", 3],
+    ]);
+  });
+
   it("places failed before running and success", () => {
     const result = sortStateEntries({
       failed: 1,

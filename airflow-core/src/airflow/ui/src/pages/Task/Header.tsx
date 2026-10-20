@@ -18,30 +18,38 @@
  */
 import { useTranslation } from "react-i18next";
 import { FiBookOpen } from "react-icons/fi";
+import { useParams } from "react-router-dom";
 
 import type { TaskResponse } from "openapi/requests/types.gen";
 
 import DisplayMarkdownButton from "src/components/DisplayMarkdownButton";
 import { HeaderCard } from "src/components/HeaderCard";
+import { HoldButton } from "src/components/Hold";
 
 import { TaskIcon } from "src/assets/TaskIcon";
 
 export const Header = ({ task }: { readonly task: TaskResponse }) => {
   const { t: translate } = useTranslation();
+  const { dagId = "" } = useParams();
 
   return (
     <HeaderCard
       actions={
-        task.doc_md === null ? undefined : (
-          <DisplayMarkdownButton
-            bg="bg"
-            header={translate("task.documentation")}
-            icon={<FiBookOpen />}
-            mdContent={task.doc_md}
-            text={translate("docs.documentation")}
-            variant="outline"
-          />
-        )
+        <>
+          {task.doc_md === null ? undefined : (
+            <DisplayMarkdownButton
+              bg="bg"
+              header={translate("task.documentation")}
+              icon={<FiBookOpen />}
+              mdContent={task.doc_md}
+              text={translate("docs.documentation")}
+              variant="outline"
+            />
+          )}
+          {task.task_id === null ? undefined : (
+            <HoldButton bg="bg" dagId={dagId} taskId={task.task_id} variant="outline" />
+          )}
+        </>
       }
       icon={<TaskIcon />}
       stats={[

@@ -1342,6 +1342,94 @@ class TaskDependencyResponse(BaseModel):
     reason: Annotated[str, Field(title="Reason")]
 
 
+class TaskId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            description="Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.",
+            max_length=250,
+            min_length=1,
+            title="Task Id",
+        ),
+    ]
+
+
+class RunId(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            description="Hold every task in this run. Combined with ``task_id``, holds only that task in that run.",
+            max_length=250,
+            min_length=1,
+            title="Run Id",
+        ),
+    ]
+
+
+class TaskHoldBody(BaseModel):
+    """
+    Object used for create task hold request.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    task_id: Annotated[
+        TaskId | None,
+        Field(
+            description="Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.",
+            title="Task Id",
+        ),
+    ] = None
+    run_id: Annotated[
+        RunId | None,
+        Field(
+            description="Hold every task in this run. Combined with ``task_id``, holds only that task in that run.",
+            title="Run Id",
+        ),
+    ] = None
+    reason: Annotated[str, Field(min_length=1, title="Reason")]
+    expires_at: Annotated[
+        datetime | None,
+        Field(
+            description="When the hold stops applying. The hold lasts until it is released if not set.",
+            title="Expires At",
+        ),
+    ] = None
+
+
+class TaskHoldReleaseBody(BaseModel):
+    """
+    Object used for release task hold request.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reason: Annotated[str | None, Field(title="Reason")] = None
+
+
+class TaskHoldResponse(BaseModel):
+    """
+    Task hold serializer for responses.
+    """
+
+    id: Annotated[int, Field(title="Id")]
+    dag_id: Annotated[str, Field(title="Dag Id")]
+    task_id: Annotated[str | None, Field(title="Task Id")]
+    run_id: Annotated[str | None, Field(title="Run Id")]
+    reason: Annotated[str, Field(title="Reason")]
+    created_by: Annotated[str | None, Field(title="Created By")]
+    created_at: Annotated[datetime, Field(title="Created At")]
+    expires_at: Annotated[datetime | None, Field(title="Expires At")]
+    released_by: Annotated[str | None, Field(title="Released By")]
+    released_at: Annotated[datetime | None, Field(title="Released At")]
+    release_reason: Annotated[str | None, Field(title="Release Reason")]
+    active: Annotated[
+        bool, Field(description="Whether the hold is neither released nor expired.", title="Active")
+    ]
+
+
 class TaskInletAssetReference(BaseModel):
     """
     Task inlet reference serializer for assets.
@@ -1373,6 +1461,7 @@ class TaskInstanceState(str, Enum):
     SKIPPED = "skipped"
     DEFERRED = "deferred"
     AWAITING_INPUT = "awaiting_input"
+    HELD = "held"
 
 
 class TaskInstancesBatchBody(BaseModel):
@@ -2671,6 +2760,15 @@ class TaskDependencyCollectionResponse(BaseModel):
     """
 
     dependencies: Annotated[list[TaskDependencyResponse], Field(title="Dependencies")]
+
+
+class TaskHoldCollectionResponse(BaseModel):
+    """
+    Task hold collection serializer for responses.
+    """
+
+    task_holds: Annotated[list[TaskHoldResponse], Field(title="Task Holds")]
+    total_entries: Annotated[int, Field(title="Total Entries")]
 
 
 class TaskInstanceHistoryResponse(BaseModel):

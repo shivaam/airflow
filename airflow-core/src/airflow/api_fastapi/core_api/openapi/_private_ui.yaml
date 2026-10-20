@@ -6055,6 +6055,7 @@ components:
       - skipped
       - deferred
       - awaiting_input
+      - held
       title: TaskInstanceState
       description: 'All possible states that a Task Instance can be in.
 
@@ -6104,6 +6105,9 @@ components:
         awaiting_input:
           type: integer
           title: Awaiting Input
+        held:
+          type: integer
+          title: Held
       type: object
       required:
       - no_status
@@ -6120,6 +6124,7 @@ components:
       - skipped
       - deferred
       - awaiting_input
+      - held
       title: TaskInstanceStateCount
       description: TaskInstance serializer for responses.
     TaskInstancesLogResponse:

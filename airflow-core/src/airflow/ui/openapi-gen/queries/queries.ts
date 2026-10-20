@@ -1,8 +1,8 @@
 // generated with @7nohe/openapi-react-query-codegen@1.6.2 
 
 import { UseMutationOptions, UseQueryOptions, useMutation, useQuery } from "@tanstack/react-query";
-import { AssetService, AssetStateStoreService, AuthLinksService, BackfillService, CalendarService, ConfigService, ConnectionService, DagBundleService, DagParsingService, DagRunService, DagService, DagSourceService, DagStatsService, DagVersionService, DagWarningService, DashboardService, DeadlinesService, DependenciesService, EventLogService, ExperimentalService, ExtraLinksService, GanttService, GridService, ImportErrorService, JobService, LoginService, MonitorService, PartitionedDagRunService, PluginService, PoolService, ProviderService, StructureService, TaskInstanceService, TaskService, TaskStateStoreService, TeamsService, VariableService, VersionService, XcomService } from "../requests/services.gen";
-import { AssetStateStoreBody, BackfillPostBody, BulkBody_BulkDAGBody_, BulkBody_BulkDAGRunBody_, BulkBody_BulkTaskInstanceBody_, BulkBody_ConnectionBody_, BulkBody_PoolBody_, BulkBody_VariableBody_, BulkDAGRunClearBody, ClearPartitionsBody, ClearTaskInstancesBody, ConnectionBody, ConnectionTestRequestBody, CreateAssetEventsBody, DAGPatchBody, DAGRunClearBody, DAGRunPatchBody, DAGRunsBatchBody, DagRunState, DagSchedulingState, GenerateTokenBody, MaterializeAssetBody, PatchTaskInstanceBody, PoolBody, PoolPatchBody, ReprocessBehavior, TaskInstancesBatchBody, TaskStateStoreBody, TaskStateStorePatchBody, TriggerDAGRunPostBody, UpdateHITLDetailPayload, VariableBody, XComCreateBody, XComUpdateBody } from "../requests/types.gen";
+import { AssetService, AssetStateStoreService, AuthLinksService, BackfillService, CalendarService, ConfigService, ConnectionService, DagBundleService, DagParsingService, DagRunService, DagService, DagSourceService, DagStatsService, DagVersionService, DagWarningService, DashboardService, DeadlinesService, DependenciesService, EventLogService, ExperimentalService, ExtraLinksService, GanttService, GridService, ImportErrorService, JobService, LoginService, MonitorService, PartitionedDagRunService, PluginService, PoolService, ProviderService, StructureService, TaskHoldService, TaskInstanceService, TaskService, TaskStateStoreService, TeamsService, VariableService, VersionService, XcomService } from "../requests/services.gen";
+import { AssetStateStoreBody, BackfillPostBody, BulkBody_BulkDAGBody_, BulkBody_BulkDAGRunBody_, BulkBody_BulkTaskInstanceBody_, BulkBody_ConnectionBody_, BulkBody_PoolBody_, BulkBody_VariableBody_, BulkDAGRunClearBody, ClearPartitionsBody, ClearTaskInstancesBody, ConnectionBody, ConnectionTestRequestBody, CreateAssetEventsBody, DAGPatchBody, DAGRunClearBody, DAGRunPatchBody, DAGRunsBatchBody, DagRunState, DagSchedulingState, GenerateTokenBody, MaterializeAssetBody, PatchTaskInstanceBody, PoolBody, PoolPatchBody, ReprocessBehavior, TaskHoldBody, TaskHoldReleaseBody, TaskInstancesBatchBody, TaskStateStoreBody, TaskStateStorePatchBody, TriggerDAGRunPostBody, UpdateHITLDetailPayload, VariableBody, XComCreateBody, XComUpdateBody } from "../requests/types.gen";
 import * as Common from "./common";
 /**
 * Get Assets
@@ -2009,6 +2009,27 @@ export const useXcomServiceGetXcomEntries = <TData = Common.XcomServiceGetXcomEn
   xcomKeyPrefixPattern?: string;
 }, queryKey?: TQueryKey, options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">) => useQuery<TData, TError>({ queryKey: Common.UseXcomServiceGetXcomEntriesKeyFn({ dagDisplayNamePattern, dagDisplayNamePrefixPattern, dagId, dagRunId, excludeInternalKeys, limit, logicalDateGt, logicalDateGte, logicalDateLt, logicalDateLte, mapIndex, mapIndexFilter, offset, orderBy, regionId, regionIndex, runAfterGt, runAfterGte, runAfterLt, runAfterLte, runIdPattern, runIdPrefixPattern, taskId, taskIdPattern, taskIdPrefixPattern, teams, xcomKey, xcomKeyPattern, xcomKeyPrefixPattern }, queryKey), queryFn: () => XcomService.getXcomEntries({ dagDisplayNamePattern, dagDisplayNamePrefixPattern, dagId, dagRunId, excludeInternalKeys, limit, logicalDateGt, logicalDateGte, logicalDateLt, logicalDateLte, mapIndex, mapIndexFilter, offset, orderBy, regionId, regionIndex, runAfterGt, runAfterGte, runAfterLt, runAfterLte, runIdPattern, runIdPrefixPattern, taskId, taskIdPattern, taskIdPrefixPattern, teams, xcomKey, xcomKeyPattern, xcomKeyPrefixPattern }) as TData, ...options });
 /**
+* List Task Holds
+* List the task holds of a Dag.
+*
+* This endpoint allows specifying `~` as the dag_id to retrieve task holds for all Dags.
+* @param data The data for the request.
+* @param data.dagId
+* @param data.active Only return holds that are neither released nor expired. Pass ``false`` to include released and expired holds as well.
+* @param data.limit
+* @param data.offset
+* @param data.orderBy Attributes to order by, multi criteria sort is supported. Prefix with `-` for descending order. Supported attributes: `id, created_at, expires_at, released_at`
+* @returns TaskHoldCollectionResponse Successful Response
+* @throws ApiError
+*/
+export const useTaskHoldServiceListTaskHolds = <TData = Common.TaskHoldServiceListTaskHoldsDefaultResponse, TError = unknown, TQueryKey extends Array<unknown> = unknown[]>({ active, dagId, limit, offset, orderBy }: {
+  active?: boolean;
+  dagId: string;
+  limit?: number;
+  offset?: number;
+  orderBy?: string[];
+}, queryKey?: TQueryKey, options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">) => useQuery<TData, TError>({ queryKey: Common.UseTaskHoldServiceListTaskHoldsKeyFn({ active, dagId, limit, offset, orderBy }, queryKey), queryFn: () => TaskHoldService.listTaskHolds({ active, dagId, limit, offset, orderBy }) as TData, ...options });
+/**
 * Get Tasks
 * Get tasks for Dag.
 * @param data The data for the request.
@@ -2844,6 +2865,50 @@ export const useXcomServiceCreateXcomEntry = <TData = Common.XcomServiceCreateXc
   requestBody: XComCreateBody;
   taskId: string;
 }, TContext>({ mutationFn: ({ dagId, dagRunId, requestBody, taskId }) => XcomService.createXcomEntry({ dagId, dagRunId, requestBody, taskId }) as unknown as Promise<TData>, ...options });
+/**
+* Create Task Hold
+* Place a hold on a task or a run.
+*
+* The scheduler stops queueing the matching task instances while the hold is active.
+* A hold on a task covers every current and future run of it, a hold on a run covers every
+* task in that run, and a hold on both covers that one task instance.
+* Task instances that are already queued or running are not affected, and task instance
+* states are never changed by this endpoint.
+* @param data The data for the request.
+* @param data.dagId
+* @param data.requestBody
+* @returns TaskHoldResponse Successful Response
+* @throws ApiError
+*/
+export const useTaskHoldServiceCreateTaskHold = <TData = Common.TaskHoldServiceCreateTaskHoldMutationResult, TError = unknown, TContext = unknown>(options?: Omit<UseMutationOptions<TData, TError, {
+  dagId: string;
+  requestBody: TaskHoldBody;
+}, TContext>, "mutationFn">) => useMutation<TData, TError, {
+  dagId: string;
+  requestBody: TaskHoldBody;
+}, TContext>({ mutationFn: ({ dagId, requestBody }) => TaskHoldService.createTaskHold({ dagId, requestBody }) as unknown as Promise<TData>, ...options });
+/**
+* Release Task Hold
+* Release a task hold.
+*
+* The scheduler moves the task instances that no active hold matches any more back to
+* `scheduled`. The request body is optional.
+* @param data The data for the request.
+* @param data.dagId
+* @param data.holdId
+* @param data.requestBody
+* @returns TaskHoldResponse Successful Response
+* @throws ApiError
+*/
+export const useTaskHoldServiceReleaseTaskHold = <TData = Common.TaskHoldServiceReleaseTaskHoldMutationResult, TError = unknown, TContext = unknown>(options?: Omit<UseMutationOptions<TData, TError, {
+  dagId: string;
+  holdId: number;
+  requestBody?: TaskHoldReleaseBody;
+}, TContext>, "mutationFn">) => useMutation<TData, TError, {
+  dagId: string;
+  holdId: number;
+  requestBody?: TaskHoldReleaseBody;
+}, TContext>({ mutationFn: ({ dagId, holdId, requestBody }) => TaskHoldService.releaseTaskHold({ dagId, holdId, requestBody }) as unknown as Promise<TData>, ...options });
 /**
 * Post Variable
 * Create a variable.
