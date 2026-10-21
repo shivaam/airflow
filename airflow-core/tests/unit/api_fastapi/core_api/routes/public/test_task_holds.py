@@ -49,7 +49,7 @@ OTHER_TASK_ID = "hold_other_task"
 RUN_ID = "hold_run"
 OTHER_DAG_RUN_ID = "hold_other_dag_run"
 LOGICAL_DATE = datetime(2024, 1, 1, tzinfo=timezone.utc)
-FUTURE = datetime(2099, 1, 1, tzinfo=timezone.utc)
+FUTURE = datetime(2030, 1, 1, tzinfo=timezone.utc)
 PAST = datetime(2000, 1, 1, tzinfo=timezone.utc)
 EXPECTED_STATES = {
     (RUN_ID, TASK_ID): TaskInstanceState.SCHEDULED,
@@ -180,11 +180,11 @@ class TestCreateTaskHold:
     def test_should_store_expires_at(self, test_client, session):
         response = test_client.post(
             f"/dags/{DAG_ID}/holds",
-            json={"task_id": TASK_ID, "reason": "Snowflake outage", "expires_at": "2099-01-01T00:00:00Z"},
+            json={"task_id": TASK_ID, "reason": "Snowflake outage", "expires_at": "2030-01-01T00:00:00Z"},
         )
 
         assert response.status_code == 201
-        assert response.json()["expires_at"] == "2099-01-01T00:00:00Z"
+        assert response.json()["expires_at"] == "2030-01-01T00:00:00Z"
         assert response.json()["active"] is True
         hold = session.get(TaskHold, response.json()["id"])
         assert hold is not None
@@ -208,7 +208,7 @@ class TestCreateTaskHold:
             pytest.param({"task_id": "", "reason": "r"}, id="empty_task_id"),
             pytest.param({"run_id": "", "reason": "r"}, id="empty_run_id"),
             pytest.param(
-                {"task_id": TASK_ID, "reason": "r", "expires_at": "2099-01-01T00:00:00"},
+                {"task_id": TASK_ID, "reason": "r", "expires_at": "2030-01-01T00:00:00"},
                 id="expires_at_without_timezone",
             ),
             pytest.param({"task_id": TASK_ID, "reason": "r", "unknown": 1}, id="unknown_field"),

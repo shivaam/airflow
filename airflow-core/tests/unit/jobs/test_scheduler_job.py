@@ -22,10 +22,11 @@ import datetime
 import logging
 import os
 import re
+import threading
 import time
 from collections import Counter, deque
 from collections.abc import Callable, Generator, Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -39,6 +40,7 @@ import pendulum
 import psutil
 import pytest
 import time_machine
+from fastapi import HTTPException
 from sqlalchemy import delete, func, inspect, select, update
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import joinedload
@@ -47,8 +49,11 @@ from airflow import settings
 from airflow._shared.module_loading import qualname
 from airflow._shared.observability.metrics.base_stats_logger import StatsLogger
 from airflow._shared.timezones import timezone
-from airflow.api.common.mark_tasks import set_dag_run_state_to_failed
+from airflow.api.common.mark_tasks import set_dag_run_state_to_failed, set_state
 from airflow.api_fastapi.auth.tokens import JWTGenerator
+from airflow.api_fastapi.core_api.routes.public.task_holds import (
+    release_task_hold as release_task_hold_endpoint,
+)
 from airflow.api_fastapi.execution_api.datamodels.taskinstance import TaskInstance as TIDataModel
 from airflow.assets.manager import AssetManager
 from airflow.callbacks.callback_requests import (
@@ -167,7 +172,7 @@ from airflow.timetables.simple import (
 )
 from airflow.triggers.base import TriggerEvent
 from airflow.utils.session import NEW_SESSION, create_session, provide_session
-from airflow.utils.sqlalchemy import CommitProhibitorGuard, with_row_locks
+from airflow.utils.sqlalchemy import CommitProhibitorGuard, prohibit_commit, with_row_locks
 from airflow.utils.state import CallbackState, DagRunState, DagSchedulingState, State, TaskInstanceState
 from airflow.utils.types import DagRunTriggeredByType, DagRunType
 
@@ -435,6 +440,33 @@ def _decide_scheduling(job_runner: SchedulerJobRunner, session, dag_id: str) -> 
     ).all():
         job_runner._schedule_dag_run(dag_run, session)
     session.flush()
+
+
+def _with_own_session(func: Callable[[Session], object]) -> Callable[[], object]:
+    """
+    Wrap ``func`` to run with a session of its own, on a worker thread.
+
+    The session has its own connection and transaction, so it behaves like another scheduler or an API call.
+    """
+
+    def run():
+        with create_session() as own_session:
+            return func(own_session)
+
+    return run
+
+
+def _result_or_release_locks(future, session, timeout: float = 30):
+    """
+    Return the worker's result, releasing the locks of ``session`` should the worker be stuck behind them.
+
+    A worker that waits for a lock it was meant to skip would otherwise hang the test; this fails it instead.
+    """
+    try:
+        return future.result(timeout=timeout)
+    except BaseException:
+        session.rollback()
+        raise
 
 
 @patch.dict(
@@ -10539,6 +10571,239 @@ class TestSchedulerJob:
         self.job_runner._do_scheduling(session)
         assert _task_instance_states(session, dag_id) == expected
         assert session.scalar(select(DagRun.state).where(DagRun.dag_id == dag_id)) == DagRunState.FAILED
+
+    @pytest.mark.backend("postgres", "mysql")
+    def test_task_hold_step_skips_task_instances_locked_by_another_session(self, hold_dags, session):
+        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
+        session.commit()
+        other_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+        # Another scheduler's critical section, or an API call, has run_a's task instance locked.
+        session.scalars(
+            with_row_locks(
+                select(TaskInstance.id).where(
+                    TaskInstance.dag_id == "hold_dag",
+                    TaskInstance.run_id == "run_a",
+                    TaskInstance.task_id == "t1",
+                ),
+                session,
+                of=TaskInstance,
+                key_share=False,
+            )
+        ).one()
+
+        def hold_step_in_another_session() -> set[tuple[str, str]]:
+            def step(other_session):
+                other_runner._apply_task_holds(session=other_session)
+                return _held_task_instances(other_session, "hold_dag")
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                return _result_or_release_locks(pool.submit(_with_own_session(step)), session)
+
+        # The step neither waits for the locked task instance nor fails: it holds the one it can.
+        assert hold_step_in_another_session() == {("run_b", "t1")}
+
+        session.commit()
+
+        assert hold_step_in_another_session() == {("run_a", "t1"), ("run_b", "t1")}
+
+    @pytest.mark.backend("postgres", "mysql")
+    def test_two_schedulers_expire_a_task_hold_once(self, dag_maker, session):
+        dag_id = "hold_expiry_race"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            EmptyOperator(task_id="t1")
+        hold = TaskHold(
+            dag_id=dag_id,
+            task_id="t1",
+            reason="test",
+            expires_at=timezone.utcnow() - timedelta(hours=1),
+        )
+        session.add(hold)
+        session.commit()
+        hold_id = hold.id
+        first, second = (SchedulerJobRunner(job=Job(), executors=[self.null_exec]) for _ in range(2))
+        first_expired, second_finished = threading.Event(), threading.Event()
+        expire_task_holds = SchedulerJobRunner._expire_task_holds
+
+        def staged_expiry(runner, holds, *, session):
+            """Let the second scheduler try to expire the hold while the first still has it locked."""
+            if runner is first:
+                expire_task_holds(runner, holds, session=session)
+                first_expired.set()
+                assert second_finished.wait(timeout=30)
+            else:
+                assert first_expired.wait(timeout=30)
+                expire_task_holds(runner, holds, session=session)
+                second_finished.set()
+
+        with (
+            mock.patch.object(
+                SchedulerJobRunner, "_expire_task_holds", autospec=True, side_effect=staged_expiry
+            ),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            futures = [
+                pool.submit(
+                    _with_own_session(lambda other, runner=runner: runner._apply_task_holds(session=other))
+                )
+                for runner in (first, second)
+            ]
+            for future in futures:
+                future.result(timeout=60)
+
+        hold = session.scalar(
+            select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+        )
+        assert (hold.released_by, hold.released_at) == ("expiry", hold.expires_at)
+        assert session.scalars(select(Log.event).where(Log.dag_id == dag_id)).all() == ["hold_expired"]
+
+    @pytest.mark.backend("postgres", "mysql")
+    @pytest.mark.parametrize("expiry_first", [True, False], ids=["expiry_first", "release_first"])
+    def test_releasing_a_task_hold_races_its_expiry(self, dag_maker, session, expiry_first):
+        # Log rows outlive the Dag, so each order gets a Dag of its own to count its log rows by.
+        dag_id = "hold_expiry_then_release" if expiry_first else "hold_release_then_expiry"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            EmptyOperator(task_id="t1")
+        # The release endpoint refuses a hold that has expired, so the release only wins the race for a
+        # hold that has not yet; the scheduler is made to try to expire it all the same.
+        expires_at = timezone.utcnow() + timedelta(hours=1 if not expiry_first else -1)
+        hold = TaskHold(dag_id=dag_id, task_id="t1", reason="test", expires_at=expires_at)
+        session.add(hold)
+        session.commit()
+        hold_id = hold.id
+        runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+        user = mock.MagicMock()
+        user.get_name.return_value = "api_user"
+        user.get_display_name.return_value = "API User"
+
+        def release(release_session):
+            return release_task_hold_endpoint(
+                dag_id=dag_id, hold_id=hold_id, user=user, session=release_session
+            )
+
+        def expire(expire_session):
+            runner._expire_task_holds([expire_session.get(TaskHold, hold_id)], session=expire_session)
+
+        if expiry_first:
+            # The scheduler holds the lock on the hold row; the release waits for it and then finds the hold gone.
+            expire(session)
+            session.flush()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                releasing = pool.submit(_with_own_session(release))
+                try:
+                    done, _ = wait([releasing], timeout=1)
+                    assert not done, "the release should wait for the scheduler's lock on the hold"
+                finally:
+                    session.commit()
+                with pytest.raises(HTTPException) as conflict:
+                    releasing.result(timeout=30)
+            assert conflict.value.status_code == 409
+            expected = ("expiry", {"hold_expired": 1})
+        else:
+            # The release holds the lock; the scheduler skips the hold rather than waiting for it.
+            release(session)
+            session.flush()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                _result_or_release_locks(pool.submit(_with_own_session(expire)), session)
+            session.commit()
+            expected = ("api_user", {"hold_released": 1})
+
+        hold = session.scalar(
+            select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+        )
+        logged = Counter(session.scalars(select(Log.event).where(Log.dag_id == dag_id)))
+        assert (hold.released_by, logged) == expected
+
+    @pytest.mark.backend("postgres", "mysql")
+    def test_marking_a_task_instance_waits_for_the_hold_step_and_wins(self, dag_maker, session):
+        dag_id = "hold_mark_during_step"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session) as dag:
+            BashOperator(task_id="task", bash_command="true")
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        run_id = dr.run_id
+        dr.task_instances[0].state = TaskInstanceState.SCHEDULED
+        _commit_task_hold(session, dag_id, task_id="task")
+        runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+        task = dag.get_task("task")
+        task.dag = dag
+
+        # The hold step has parked the task instance, but its transaction is still open: it holds the row.
+        runner._apply_task_holds(session=session, guard=SimpleNamespace(commit=lambda: None))
+        assert _held_task_instances(session, dag_id) == {(run_id, "task")}
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            marking = pool.submit(
+                _with_own_session(
+                    lambda other: set_state(
+                        tasks=[task],
+                        run_id=run_id,
+                        state=TaskInstanceState.SUCCESS,
+                        commit=True,
+                        session=other,
+                    )
+                )
+            )
+            try:
+                done, _ = wait([marking], timeout=1)
+                assert not done, "the mark should wait for the hold step's lock on the task instance"
+            finally:
+                session.commit()
+            marking.result(timeout=30)
+
+        assert _task_instance_states(session, dag_id) == {(run_id, "task"): TaskInstanceState.SUCCESS}
+        runner._apply_task_holds(session=session)
+        assert _task_instance_states(session, dag_id) == {(run_id, "task"): TaskInstanceState.SUCCESS}
+
+    @pytest.mark.backend("postgres", "mysql")
+    def test_task_hold_commits_each_batch_it_parks(self, dag_maker, session):
+        dag_id = "hold_batch_commits"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            for index in range(5):
+                EmptyOperator(task_id=f"t{index}")
+        dr = dag_maker.create_dagrun()
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        _commit_task_hold(session, dag_id, run_id=dr.run_id)
+        runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
+        move_task_instances = SchedulerJobRunner._move_task_instances
+        locked_by_another_session: list[int] = []
+        batches_parked = 0
+
+        def lock_parked_task_instances(other_session) -> int:
+            parked = select(TaskInstance.id).where(
+                TaskInstance.dag_id == dag_id, TaskInstance.state == TaskInstanceState.HELD
+            )
+            return len(
+                other_session.scalars(
+                    with_row_locks(parked, other_session, nowait=True, of=TaskInstance)
+                ).all()
+            )
+
+        def spy(runner, **kwargs):
+            """Before each batch but the first, lock what the earlier batches parked from another session."""
+            nonlocal batches_parked
+            if kwargs["to_state"] == TaskInstanceState.HELD:
+                if batches_parked:
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        locked_by_another_session.append(
+                            _result_or_release_locks(
+                                pool.submit(_with_own_session(lock_parked_task_instances)), session
+                            )
+                        )
+                batches_parked += 1
+            return move_task_instances(runner, **kwargs)
+
+        with (
+            mock.patch("airflow.jobs.scheduler_job_runner.MAX_HELD_TIS_PER_LOOP", 2),
+            mock.patch.object(SchedulerJobRunner, "_move_task_instances", autospec=True, side_effect=spy),
+            prohibit_commit(session) as guard,
+        ):
+            runner._apply_task_holds(session=session, guard=guard)
+            guard.commit()
+
+        # Batches of 2, 2 and 1 are all parked in the one step, and each earlier batch was already
+        # committed, and so unlocked, when the next one started.
+        assert len(_held_task_instances(session, dag_id)) == 5
+        assert locked_by_another_session == [2, 4]
 
     def test_retry_on_db_error_when_update_timeout_triggers(self, dag_maker, testing_dag_bundle, session):
         """

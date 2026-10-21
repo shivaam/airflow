@@ -186,9 +186,10 @@ still selects at least one runnable task instance queued behind blocked ones.
 """
 
 # Batch size of the task hold step's moves between the ``scheduled`` and ``held`` states. Bounds the rows
-# one statement locks. Parking repeats until no matching task instance is left ``scheduled``, so none
-# slips into the queueing step that follows; releasing stops after one batch per loop and the remainder
-# follows on the next loop.
+# one statement locks, and each batch of parked task instances is committed before the next, so a large
+# hold never keeps more than one batch of rows locked. Parking repeats until no matching task instance is
+# left ``scheduled``, so none slips into the queueing step that follows; releasing stops after one batch
+# per loop and the remainder follows on the next loop.
 MAX_HELD_TIS_PER_LOOP = 500
 
 
@@ -2273,7 +2274,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             # Park task instances covered by an operator-placed hold, and release those no longer
             # covered. This is the only place holds are consulted. It commits on its own, so a busy
             # critical section rolling back below does not undo it.
-            self._apply_task_holds(session=session)
+            self._apply_task_holds(session=session, guard=guard)
             guard.commit()
 
             # Attempt to schedule even if some executors are full but not all.
@@ -2307,7 +2308,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
         return num_queued_tis
 
-    def _apply_task_holds(self, *, session: Session) -> None:
+    def _apply_task_holds(self, *, session: Session, guard: CommitProhibitorGuard | None = None) -> None:
         """
         Move ``scheduled`` task instances that match an active hold to ``held``, and release the rest.
 
@@ -2319,9 +2320,12 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         The hold table is read in one query, and so is the ``held`` backlog, so a loop with no holds
         and no held task instances costs two cheap queries. Matching task instances are parked in batches
         of ``MAX_HELD_TIS_PER_LOOP`` until none is left, because a ``scheduled`` task instance that
-        escaped this step would be queued. At most one batch is released per loop; the remainder follows
-        on the next loop.
+        escaped this step would be queued. Each batch parked is committed through ``guard`` (the session
+        itself when there is none), so a large hold does not keep thousands of task instance rows locked
+        until the end of the loop. At most one batch is released per loop; the remainder follows on the
+        next loop, committed by the caller.
         """
+        commit = guard.commit if guard is not None else session.commit
         now = timezone.utcnow()
         # Expiring and releasing a hold both set ``released_at``, so the rows read here are the active
         # holds plus the ones that expired since the last loop.
@@ -2342,6 +2346,8 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                     session=session,
                 )
                 num_held += moved
+                if moved:
+                    commit()
                 if moved < MAX_HELD_TIS_PER_LOOP:
                     break
             release_criteria = ~match_clause

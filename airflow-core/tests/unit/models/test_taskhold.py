@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from airflow._shared.timezones import timezone
 from airflow.api.common.mark_tasks import set_dag_run_state_to_failed, set_state
@@ -113,7 +113,8 @@ def test_hold_must_name_a_task_or_a_run(dag_maker, session):
     session.flush()
     session.add(TaskHold(dag_id="task_hold_scope_check", reason="matches nothing in particular"))
 
-    with pytest.raises(IntegrityError):
+    # MySQL reports CHECK violations as OperationalError (3819) rather than IntegrityError.
+    with pytest.raises((IntegrityError, OperationalError)):
         session.flush()
     session.rollback()
 
