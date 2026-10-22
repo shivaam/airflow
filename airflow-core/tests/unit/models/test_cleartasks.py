@@ -102,7 +102,6 @@ def test_superseded_execution_is_archived_in_place_without_successor(dag_maker, 
         pytest.param(None, None, id="cleared"),
         pytest.param(TaskInstanceState.UP_FOR_RETRY, TaskInstanceState.UP_FOR_RETRY, id="up_for_retry"),
         pytest.param(TaskInstanceState.QUEUED, TaskInstanceState.QUEUED, id="queued"),
-        pytest.param(TaskInstanceState.HELD, TaskInstanceState.HELD, id="held"),
         pytest.param(TaskInstanceState.RUNNING, TaskInstanceState.FAILED, id="running"),
     ],
 )

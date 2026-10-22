@@ -24,7 +24,6 @@ import { useConfig } from "src/queries/useConfig";
 export const isStatePending = (state?: TaskInstanceState | null) =>
   state === "awaiting_input" ||
   state === "deferred" ||
-  state === "held" ||
   state === "scheduled" ||
   state === "running" ||
   state === "up_for_reschedule" ||

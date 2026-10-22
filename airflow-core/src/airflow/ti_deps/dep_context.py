@@ -24,14 +24,18 @@ from uuid import UUID
 import attr
 from sqlalchemy import select
 
+from airflow._shared.timezones import timezone
 from airflow.exceptions import TaskNotFound
 from airflow.utils.state import State
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.orm.session import Session
 
     from airflow.models.dagrun import DagRun
     from airflow.models.task_coordinates import SchedulingTI, TaskCoordinateResolver
+    from airflow.models.taskhold import TaskHold
     from airflow.models.taskinstance import TaskInstance
 
 
@@ -65,6 +69,8 @@ class DepContext:
     :param wait_for_past_depends_before_skipping: Wait for past depends before marking the ti as skipped
     :param ignore_in_retry_period: Ignore the retry period for task instances
     :param ignore_in_reschedule_period: Ignore the reschedule period for task instances
+    :param ignore_task_holds: Ignore the operator-placed task holds, so that a task instance a hold covers
+        counts as runnable once the hold is released, like a retry that waits out its delay
     :param ignore_unmapped_tasks: Ignore errors about mapped tasks not yet being expanded
     :param ignore_task_deps: Ignore task-specific dependencies such as depends_on_past and
         trigger rule
@@ -79,6 +85,7 @@ class DepContext:
     wait_for_past_depends_before_skipping: bool = False
     ignore_in_retry_period: bool = False
     ignore_in_reschedule_period: bool = False
+    ignore_task_holds: bool = False
     ignore_task_deps: bool = False
     ignore_ti_state: bool = False
     ignore_unmapped_tasks: bool = False
@@ -115,6 +122,14 @@ class DepContext:
     )
     coordinate_resolvers: dict[Session, TaskCoordinateResolver] = attr.ib(factory=dict, repr=False)
     dynamic_dags: dict[int, bool] = attr.ib(factory=dict, repr=False)
+    task_holds: dict[tuple[str, str], Sequence[TaskHold]] = attr.ib(factory=dict, repr=False)
+    """
+    Per-pass memo of the task holds that are active for a Dag run, keyed by ``(dag_id, run_id)``, so a
+    scheduling decision reads the hold table once per Dag run rather than once per task instance.
+
+    ``init=True`` for the same reasons as :attr:`upstream_task_id_counts`. A hold placed or released while
+    the pass runs is not seen by it; the queueing statement checks the table again.
+    """
 
     def has_regions(self, ti: TaskInstance, *, session: Session) -> bool:
         from airflow.models.dynamic_region import DynamicRegion
@@ -147,6 +162,21 @@ class DepContext:
                 enclosing_loop(task) is not None for task in dag.task_dict.values()
             )
         return self.dynamic_dags[id(dag)]
+
+    def covering_task_holds(self, ti: TaskInstance, *, session: Session) -> list[TaskHold]:
+        """Return the active task holds that cover ``ti``, reading the hold table once per Dag run."""
+        from airflow.models.taskhold import TaskHold
+
+        key = ti.dag_id, ti.run_id
+        if key not in self.task_holds:
+            self.task_holds[key] = TaskHold.active_for_run(
+                ti.dag_id, ti.run_id, now=timezone.utcnow(), session=session
+            )
+        return [
+            hold
+            for hold in self.task_holds[key]
+            if hold.matches(dag_id=ti.dag_id, task_id=ti.task_id, run_id=ti.run_id)
+        ]
 
     def coordinate_resolver(self, ti: TaskInstance, *, session: Session) -> TaskCoordinateResolver:
         from airflow.models.task_coordinates import TaskCoordinateResolver

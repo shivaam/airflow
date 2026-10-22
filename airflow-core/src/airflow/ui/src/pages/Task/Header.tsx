@@ -25,6 +25,7 @@ import type { TaskResponse } from "openapi/requests/types.gen";
 import DisplayMarkdownButton from "src/components/DisplayMarkdownButton";
 import { HeaderCard } from "src/components/HeaderCard";
 import { HoldButton } from "src/components/Hold";
+import { HoldLockBadge } from "src/components/HoldLockBadge";
 
 import { TaskIcon } from "src/assets/TaskIcon";
 
@@ -56,6 +57,11 @@ export const Header = ({ task }: { readonly task: TaskResponse }) => {
         { label: translate("task.operator"), value: task.operator_name },
         { label: translate("task.triggerRule"), value: task.trigger_rule },
       ]}
+      statusBadge={
+        task.task_id === null ? undefined : (
+          <HoldLockBadge subject={{ dag_id: dagId, task_id: task.task_id }} />
+        )
+      }
       title={`${task.task_display_name}${task.is_mapped ? " [ ]" : ""}`}
       type="task"
     />

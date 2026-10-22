@@ -45,7 +45,6 @@ class TaskInstanceStateCount(BaseModel):
     skipped: int
     deferred: int
     awaiting_input: int
-    held: int
 
 
 class HistoricalMetricDataResponse(BaseModel):

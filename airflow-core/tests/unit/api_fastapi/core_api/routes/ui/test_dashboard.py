@@ -265,22 +265,6 @@ class TestHistoricalMetricsDataEndpoint:
         assert states["running"] == 1
         assert response.json()["task_instance_counts_are_lower_bounds"] is False
 
-    @pytest.mark.usefixtures("freeze_time_for_dagruns", "make_dag_runs")
-    def test_held_task_instances_are_counted(self, test_client, session):
-        ti = session.scalar(select(TaskInstance).where(TaskInstance.state == TaskInstanceState.SUCCESS))
-        ti.state = TaskInstanceState.HELD
-        session.commit()
-
-        response = test_client.get(
-            "/dashboard/historical_metrics_data",
-            params={"start_date": "2023-01-01T00:00", "end_date": "2023-08-02T00:00"},
-        )
-
-        assert response.status_code == 200
-        states = response.json()["task_instance_states"]
-        assert states["held"] == 1
-        assert states["success"] == 1
-
     @pytest.mark.parametrize(
         ("params", "expected"),
         [
@@ -292,7 +276,6 @@ class TestHistoricalMetricsDataEndpoint:
                         "awaiting_input": 0,
                         "deferred": 0,
                         "failed": 2,
-                        "held": 0,
                         "no_status": 4,
                         "queued": 0,
                         "removed": 0,
@@ -317,7 +300,6 @@ class TestHistoricalMetricsDataEndpoint:
                         "awaiting_input": 0,
                         "deferred": 0,
                         "failed": 2,
-                        "held": 0,
                         "no_status": 2,
                         "queued": 0,
                         "removed": 0,
@@ -342,7 +324,6 @@ class TestHistoricalMetricsDataEndpoint:
                         "awaiting_input": 0,
                         "deferred": 0,
                         "failed": 2,
-                        "held": 0,
                         "no_status": 4,
                         "queued": 0,
                         "removed": 0,

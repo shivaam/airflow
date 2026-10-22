@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, and_, or_
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, and_, exists, or_, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from airflow._shared.timezones import timezone
@@ -28,19 +28,26 @@ from airflow.models.base import Base, StringID
 from airflow.utils.sqlalchemy import UtcDateTime
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from sqlalchemy.orm import Session
     from sqlalchemy.sql import ColumnElement
 
 
 class TaskHold(Base):
     """
-    An operator-placed hold that stops matching task instances from being queued.
+    An operator-placed lock that stops matching task instances from being scheduled and queued.
 
-    A hold matches task instances by coordinates, never by task instance id, so it keeps applying
-    across retries and clears. ``task_id`` set and ``run_id`` unset holds that task in every current
-    and future run; ``run_id`` set and ``task_id`` unset holds the whole run; both set hold one task
-    instance (all map indexes). The scheduler moves matching ``scheduled`` task instances to ``held``
-    just before queueing, and moves ``held`` task instances back to ``scheduled`` once no active hold
-    matches them.
+    A hold is a lock, not a task state: it never changes the state of a task instance it covers. A hold
+    matches task instances by coordinates, never by task instance id, so it keeps applying across retries
+    and clears. ``task_id`` set and ``run_id`` unset holds that task in every current and future run;
+    ``run_id`` set and ``task_id`` unset holds the whole run; both set hold one task instance (all map
+    indexes). A hold is *active* until it is released or expires.
+
+    The scheduler reads the table at two gates. The ``TaskHoldDep`` dependency keeps a covered task
+    instance from moving to ``scheduled``, whatever state it waits in, and the statement that moves a
+    ``scheduled`` task instance to ``queued`` refuses a covered one. The attempt of a task instance that is
+    already queued or running continues; later attempts are held.
     """
 
     __tablename__ = "task_hold"
@@ -74,6 +81,37 @@ class TaskHold(Base):
             cls.released_at.is_(None),
             or_(cls.expires_at.is_(None), cls.expires_at > now),
         )
+
+    @classmethod
+    def covering_clause(cls, now: datetime) -> ColumnElement[bool]:
+        """
+        Return an ``EXISTS`` clause that is true for the task instances an active hold covers at ``now``.
+
+        The clause is correlated with the ``task_instance`` table of the statement it is used in, so
+        ``~TaskHold.covering_clause(now)`` in the ``WHERE`` of a ``SELECT`` or an ``UPDATE`` leaves out the
+        covered rows, checked by the same statement that reads or writes them. It is the SQL counterpart
+        of :meth:`matches`: a hold without a ``task_id`` or a ``run_id`` matches any.
+        """
+        from airflow.models.taskinstance import TaskInstance
+
+        return exists().where(
+            cls.dag_id == TaskInstance.dag_id,
+            or_(cls.task_id.is_(None), cls.task_id == TaskInstance.task_id),
+            or_(cls.run_id.is_(None), cls.run_id == TaskInstance.run_id),
+            cls.active_clause(now),
+        )
+
+    @classmethod
+    def active_for_run(
+        cls, dag_id: str, run_id: str, *, now: datetime, session: Session
+    ) -> Sequence[TaskHold]:
+        """Load the holds that are active at ``now`` and can cover a task instance of the given Dag run."""
+        return session.scalars(
+            select(cls)
+            .where(cls.dag_id == dag_id, or_(cls.run_id.is_(None), cls.run_id == run_id))
+            .where(cls.active_clause(now))
+            .order_by(cls.id)
+        ).all()
 
     def is_active(self, now: datetime) -> bool:
         """Whether this hold is neither released nor expired at ``now``."""

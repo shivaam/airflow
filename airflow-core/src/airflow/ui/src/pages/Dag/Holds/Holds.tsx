@@ -37,11 +37,18 @@ import ReleaseHoldDialog from "src/components/Hold/ReleaseHoldDialog";
 import Time from "src/components/Time";
 
 import { SearchParamsKeys } from "src/constants/searchParams";
+import { useGridStructure } from "src/queries/useGridStructure";
 import { useAutoRefresh } from "src/utils";
-import { getHoldScope, getHoldStatus, type HoldStatus } from "src/utils/taskHolds";
+import {
+  getHoldScope,
+  getHoldScopeLink,
+  getHoldStatus,
+  getMappedTaskIds,
+  type HoldStatus,
+} from "src/utils/taskHolds";
 
 const statusPalettes = {
-  active: "held",
+  active: "indigo",
   expired: "gray",
   released: "success",
 } as const satisfies Record<HoldStatus, string>;
@@ -51,28 +58,20 @@ type HoldsFilter = "active" | "all";
 const isHoldsFilter = (value: string | null): value is HoldsFilter => value === "active" || value === "all";
 
 type ColumnProps = {
+  readonly mappedTaskIds: ReadonlySet<string>;
   readonly onRelease: (hold: TaskHoldResponse) => void;
   readonly translate: TFunction;
 };
 
-const getScopeLink = (hold: TaskHoldResponse): string => {
-  const scope = getHoldScope(hold);
-
-  return scope === "run"
-    ? `/dags/${hold.dag_id}/runs/${hold.run_id}`
-    : scope === "task"
-      ? `/dags/${hold.dag_id}/tasks/${hold.task_id}`
-      : `/dags/${hold.dag_id}/runs/${hold.run_id}/tasks/${hold.task_id}`;
-};
-
 const getColumns = ({
+  mappedTaskIds,
   onRelease,
   translate,
 }: ColumnProps): Array<ColumnDef<DataTableFeatures, TaskHoldResponse>> => [
   {
     accessorKey: "scope",
     cell: ({ row: { original } }) => (
-      <RouterLink to={getScopeLink(original)}>
+      <RouterLink to={getHoldScopeLink(original, mappedTaskIds)}>
         {translate(`dags:taskHold.scope.${getHoldScope(original)}`, {
           runId: original.run_id,
           taskId: original.task_id,
@@ -138,7 +137,7 @@ const getColumns = ({
       original.active ? (
         <HStack gap={1}>
           <Button
-            colorPalette="held"
+            colorPalette="indigo"
             data-testid="release-hold"
             onClick={() => onRelease(original)}
             size="xs"
@@ -171,6 +170,11 @@ export const Holds = () => {
 
   const orderBy = sort ? [`${sort.desc ? "-" : ""}${sort.id}`] : ["-created_at"];
 
+  // A task and run hold covers every map index, and only the structure says whether the task is mapped
+  // and so which page lists its instances.
+  const { data: dagStructure } = useGridStructure({ limit: 1 });
+  const mappedTaskIds = getMappedTaskIds(dagStructure);
+
   const { data, error, isLoading } = useTaskHoldServiceListTaskHolds(
     {
       active: filter === "active",
@@ -198,6 +202,7 @@ export const Holds = () => {
   };
 
   const columns = getColumns({
+    mappedTaskIds,
     onRelease: (hold) => {
       setReleasing(hold);
       onOpen();

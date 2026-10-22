@@ -1676,7 +1676,6 @@ class TaskInstance(Base, LoggingMixin, BaseWorkload):
             TaskInstanceState.SCHEDULED,
             TaskInstanceState.QUEUED,
             TaskInstanceState.UP_FOR_RETRY,
-            TaskInstanceState.HELD,
         )
         if self.state not in State.finished and not never_started:
             self.state = TaskInstanceState.FAILED

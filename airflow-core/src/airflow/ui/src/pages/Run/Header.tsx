@@ -32,6 +32,7 @@ import { ClearRunButton } from "src/components/Clear";
 import { DagVersion } from "src/components/DagVersion";
 import { HeaderCard } from "src/components/HeaderCard";
 import { HoldButton } from "src/components/Hold";
+import { HoldLockBadge } from "src/components/HoldLockBadge";
 import { LimitedItemsList } from "src/components/LimitedItemsList";
 import { MarkRunAsButton } from "src/components/MarkAs";
 import { NeedsReviewButtonWithModal } from "src/components/NeedsReviewButton";
@@ -168,6 +169,7 @@ export const Header = ({ dagRun }: { readonly dagRun: DAGRunResponse }) => {
               ]
             : []),
         ]}
+        statusBadge={<HoldLockBadge subject={{ dag_id: dagId, dag_run_id: dagRunId }} />}
         title={dagRun.dag_run_id}
         type="dagRun"
       />

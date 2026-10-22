@@ -17,7 +17,7 @@
  * under the License.
  */
 import { Box, Separator, Heading, HStack, Stack } from "@chakra-ui/react";
-import type { TaskInstanceStateCount } from "openapi-gen/requests/types.gen";
+import type { TaskInstanceState, TaskInstanceStateCount } from "openapi-gen/requests/types.gen";
 import { useTranslation } from "react-i18next";
 import { MdOutlineTask } from "react-icons/md";
 
@@ -80,7 +80,7 @@ export const TaskInstanceMetrics = ({
               kind="task_instances"
               runs={taskInstanceStates[state]}
               startDate={startDate}
-              state={state}
+              state={state as TaskInstanceState}
               total={total}
             />
           ) : undefined,

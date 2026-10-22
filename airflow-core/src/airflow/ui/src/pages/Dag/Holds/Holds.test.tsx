@@ -89,6 +89,8 @@ const renderHolds = (initialEntry = "/dags/example_dag/holds") =>
     </BaseWrapper>,
   );
 
+const getLinkTargets = () => screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+
 afterEach(() => {
   requestedFilters.length = 0;
 });
@@ -117,6 +119,44 @@ describe("Holds", () => {
     expect(screen.getByRole("link", { name: /taskHold\.scope\.run$/u })).toHaveAttribute(
       "href",
       "/dags/example_dag/runs/run_1",
+    );
+  });
+
+  it("links a hold on a task and run to the task instance, or to the instances of a mapped task", async () => {
+    server.use(
+      http.get("/api/v2/dags/example_dag/holds", () =>
+        HttpResponse.json({
+          task_holds: [
+            makeHold({ id: 3, run_id: "run_1", task_id: "load" }),
+            makeHold({ id: 4, run_id: "run_1", task_id: "transform" }),
+            makeHold({ id: 5, run_id: "run_1", task_id: "group.expand" }),
+          ],
+          total_entries: 3,
+        }),
+      ),
+      // A task inside a mapped task group is marked as mapped too, but the group itself is no task.
+      http.get("/ui/grid/structure/example_dag", () =>
+        HttpResponse.json([
+          { id: "load", is_mapped: null, label: "load" },
+          { id: "transform", is_mapped: true, label: "transform" },
+          {
+            children: [{ id: "group.expand", is_mapped: true, label: "expand" }],
+            id: "group",
+            is_mapped: true,
+            label: "group",
+          },
+        ]),
+      ),
+    );
+    renderHolds();
+
+    // The structure arrives after the holds, and the links follow it.
+    await waitFor(() =>
+      expect(getLinkTargets()).toEqual([
+        "/dags/example_dag/runs/run_1/tasks/load",
+        "/dags/example_dag/runs/run_1/tasks/transform/mapped",
+        "/dags/example_dag/runs/run_1/tasks/group.expand/mapped",
+      ]),
     );
   });
 

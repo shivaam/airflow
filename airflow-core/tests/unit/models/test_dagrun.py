@@ -75,6 +75,7 @@ from airflow.models.deadline_alert import DeadlineAlert as DeadlineAlertModel
 from airflow.models.dynamic_region import LOOP_DECISION_REASON_KEY, SENTINEL_REGION_ID, DynamicRegion
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.task_coordinates import TaskCoordinateResolver
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import (
     TaskInstance,
     TaskInstanceNote,
@@ -718,7 +719,7 @@ class TestDagRun:
         dr.update_state(session=session)
         assert dr.state == DagRunState.FAILED
 
-    def test_dagrun_no_deadlock_with_held_task_instance(self, dag_maker, session):
+    def test_dagrun_no_deadlock_with_task_instance_covered_by_a_hold(self, dag_maker, session):
         with dag_maker(schedule=datetime.timedelta(days=1), session=session):
             op1 = EmptyOperator(task_id="A")
             op2 = EmptyOperator(task_id="B")
@@ -734,14 +735,41 @@ class TestDagRun:
         ti_op1.set_state(state=TaskInstanceState.SUCCESS, session=session)
         ti_op2.set_state(state=None, session=session)
         ti_op2.task.trigger_rule = "invalid"
-        ti_op3.set_state(state=TaskInstanceState.HELD, session=session)
+        hold = TaskHold(dag_id=dr.dag_id, task_id="C", reason="test")
+        session.add(hold)
+        session.flush()
 
-        # B can never run, but a held task instance is parked rather than stuck, so the run waits for it.
+        # B can never run, but C only waits for its hold to be released, like a retry waiting out its delay:
+        # the run waits for it.
         dr.update_state(session=session)
         assert dr.state == DagRunState.RUNNING
+        assert ti_op3.state is None
 
-        # Once nothing is held the deadlock is detected as usual.
+        # Once the hold is released and C has run nothing is left to wait for, and the deadlock is detected
+        # as usual.
+        hold.released_at = timezone.utcnow()
         ti_op3.set_state(state=TaskInstanceState.SUCCESS, session=session)
+        dr.update_state(session=session)
+        assert dr.state == DagRunState.FAILED
+
+    def test_dagrun_deadlock_is_detected_for_a_task_instance_a_hold_covers(self, dag_maker, session):
+        """A hold only postpones a task instance: one that could never run is still a deadlock."""
+        with dag_maker(schedule=datetime.timedelta(days=1), session=session):
+            op1 = EmptyOperator(task_id="A")
+            op2 = EmptyOperator(task_id="B")
+            op2.trigger_rule = TriggerRule.ONE_FAILED
+            op2.set_upstream(op1)
+
+        dr = dag_maker.create_dagrun()
+
+        ti_op1: TI = dr.get_task_instance(task_id=op1.task_id, session=session)
+        ti_op2: TI = dr.get_task_instance(task_id=op2.task_id, session=session)
+        ti_op1.set_state(state=TaskInstanceState.SUCCESS, session=session)
+        ti_op2.set_state(state=None, session=session)
+        ti_op2.task.trigger_rule = "invalid"
+        session.add(TaskHold(dag_id=dr.dag_id, run_id=dr.run_id, reason="test"))
+        session.flush()
+
         dr.update_state(session=session)
         assert dr.state == DagRunState.FAILED
 

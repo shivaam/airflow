@@ -57,7 +57,6 @@ class IntermediateTIState(str, Enum):
     UP_FOR_RESCHEDULE = "up_for_reschedule"
     DEFERRED = "deferred"
     AWAITING_INPUT = "awaiting_input"
-    HELD = "held"
 
     def __str__(self) -> str:
         return self.value
@@ -90,7 +89,6 @@ class TaskInstanceState(str, Enum):
     SKIPPED = TerminalTIState.SKIPPED  # Skipped by branching or some other mechanism
     DEFERRED = IntermediateTIState.DEFERRED  # Deferrable operator waiting on a trigger
     AWAITING_INPUT = IntermediateTIState.AWAITING_INPUT  # Parked waiting for human input (HITL)
-    HELD = IntermediateTIState.HELD  # Parked by an operator-placed task hold
 
     def __str__(self) -> str:
         return self.value
@@ -146,7 +144,6 @@ class State:
     SKIPPED = TaskInstanceState.SKIPPED
     DEFERRED = TaskInstanceState.DEFERRED
     AWAITING_INPUT = TaskInstanceState.AWAITING_INPUT
-    HELD = TaskInstanceState.HELD
 
     finished_dr_states: frozenset[DagRunState] = frozenset([DagRunState.SUCCESS, DagRunState.FAILED])
     unfinished_dr_states: frozenset[DagRunState] = frozenset([DagRunState.QUEUED, DagRunState.RUNNING])
@@ -175,7 +172,6 @@ class State:
         TaskInstanceState.SCHEDULED: "tan",
         TaskInstanceState.DEFERRED: "mediumpurple",
         TaskInstanceState.AWAITING_INPUT: "darkorange",
-        TaskInstanceState.HELD: "slategray",
     }
 
     @classmethod
@@ -220,7 +216,6 @@ class State:
             TaskInstanceState.UP_FOR_RESCHEDULE,
             TaskInstanceState.DEFERRED,
             TaskInstanceState.AWAITING_INPUT,
-            TaskInstanceState.HELD,
         ]
     )
     """

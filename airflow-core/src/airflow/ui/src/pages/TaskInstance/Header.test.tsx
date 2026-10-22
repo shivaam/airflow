@@ -18,11 +18,13 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LoopSummaryResponse, TaskInstanceResponse } from "openapi/requests/types.gen";
+import type { LoopSummaryResponse, TaskHoldResponse, TaskInstanceResponse } from "openapi/requests/types.gen";
 
 import i18n from "src/i18n/config";
+import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import commonLocale from "../../../public/i18n/locales/en/common.json";
@@ -174,5 +176,44 @@ describe("Header state reason banner", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId("state-reason-stat")).toHaveTextContent("auth error");
+  });
+});
+
+describe("Header hold lock", () => {
+  const hold: TaskHoldResponse = {
+    active: true,
+    created_at: "2026-10-20T10:00:00Z",
+    created_by: "admin",
+    dag_id: "test_dag",
+    expires_at: null,
+    id: 1,
+    reason: "Upstream data is wrong",
+    release_reason: null,
+    released_at: null,
+    released_by: null,
+    run_id: "run_1",
+    task_id: "test_task",
+  };
+
+  const serveHolds = (holds: Array<TaskHoldResponse>) =>
+    server.use(
+      http.get("/api/v2/dags/test_dag/holds", () =>
+        HttpResponse.json({ task_holds: holds, total_entries: holds.length }),
+      ),
+    );
+
+  it("locks a task instance an active hold covers", async () => {
+    serveHolds([hold]);
+    renderHeader({ state: "scheduled" });
+
+    expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
+  });
+
+  // A hold sets no map index, so it covers each instance of a mapped task.
+  it("locks every instance of a mapped task the hold covers", async () => {
+    serveHolds([hold]);
+    renderHeader({ map_index: 2, rendered_map_index: "2", state: "running" });
+
+    expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
   });
 });

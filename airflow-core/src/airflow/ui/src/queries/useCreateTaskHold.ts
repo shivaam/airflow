@@ -41,8 +41,9 @@ export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () =
   };
 
   const onSuccess = async (_hold: TaskHoldResponse, { dagId }: CreateTaskHoldData) => {
-    // The scheduler parks the matching task instances on its next pass, so the lists that show
-    // holds refresh now and the task instance views follow through their own polling.
+    // A hold changes no task instance, though the scheduler may send a scheduled one back to none
+    // on its next pass, so the lists that show holds refresh now and the task instance views follow
+    // through their own polling.
     await Promise.all(
       [
         [useTaskHoldServiceListTaskHoldsKey],

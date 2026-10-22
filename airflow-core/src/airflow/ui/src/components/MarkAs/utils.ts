@@ -22,7 +22,6 @@ export const allowedStates: Array<DagRunMutableStates> = ["success", "failed"];
 
 // Narrower than isStatePending: excludes states where the task has started or may start at any moment.
 const skippableTaskInstanceStates: Array<TaskInstanceState> = [
-  "held",
   "scheduled",
   "up_for_reschedule",
   "up_for_retry",

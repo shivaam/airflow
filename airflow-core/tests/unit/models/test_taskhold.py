@@ -30,6 +30,8 @@ from airflow.models.taskinstance import TaskInstance, clear_task_instances
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.utils.state import DagRunState, TaskInstanceState
 
+from unit.models import DEFAULT_DATE
+
 pytestmark = [pytest.mark.db_test, pytest.mark.need_serialized_dag]
 
 NOW = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
@@ -119,33 +121,161 @@ def test_hold_must_name_a_task_or_a_run(dag_maker, session):
     session.rollback()
 
 
-def test_clearing_a_held_task_instance_resets_it_to_none(dag_maker, session):
+def _two_dags_with_two_runs_and_two_tasks(dag_maker, session) -> set[tuple[str, str, str]]:
+    """Create ``dag`` and ``other`` with runs ``r1`` and ``r2`` of tasks ``t1`` and ``t2``; return their keys."""
+    for dag_id in ("dag", "other"):
+        with dag_maker(dag_id, schedule=None, session=session):
+            EmptyOperator(task_id="t1")
+            EmptyOperator(task_id="t2")
+        for offset, run_id in enumerate(("r1", "r2")):
+            dag_maker.create_dagrun(
+                run_id=run_id, logical_date=DEFAULT_DATE + timedelta(days=offset), session=session
+            )
+    session.flush()
+    return {
+        (dag_id, run_id, task_id)
+        for dag_id in ("dag", "other")
+        for run_id in ("r1", "r2")
+        for task_id in ("t1", "t2")
+    }
+
+
+@pytest.mark.parametrize(
+    ("hold_task_id", "hold_run_id"),
+    [
+        pytest.param("t1", None, id="task_hold"),
+        pytest.param(None, "r1", id="run_hold"),
+        pytest.param("t1", "r1", id="task_in_run_hold"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("released_at", "expires_at", "active"),
+    [
+        pytest.param(None, None, True, id="open_ended"),
+        pytest.param(None, NOW - HOUR, False, id="expired"),
+        pytest.param(NOW - HOUR, None, False, id="released"),
+    ],
+)
+def test_covering_clause_selects_the_task_instances_matches_accepts(
+    dag_maker, session, hold_task_id, hold_run_id, released_at, expires_at, active
+):
+    """The SQL clause and the Python rule are the same rule: an active hold covers what ``matches`` says."""
+    keys = _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
+    hold = TaskHold(
+        dag_id="dag",
+        task_id=hold_task_id,
+        run_id=hold_run_id,
+        reason="test",
+        released_at=released_at,
+        expires_at=expires_at,
+    )
+    session.add(hold)
+    session.flush()
+
+    covered = set(
+        session.execute(
+            select(TaskInstance.dag_id, TaskInstance.run_id, TaskInstance.task_id).where(
+                TaskHold.covering_clause(NOW)
+            )
+        )
+    )
+
+    assert covered == {
+        (dag_id, run_id, task_id)
+        for dag_id, run_id, task_id in keys
+        if active and hold.matches(dag_id=dag_id, task_id=task_id, run_id=run_id)
+    }
+    # Every scope covers at least this task instance, so an empty result is not a vacuous pass.
+    assert (("dag", "r1", "t1") in covered) is active
+
+
+def test_covering_clause_covers_a_task_instance_until_every_hold_that_matches_it_is_over(dag_maker, session):
+    _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
+    task_hold = TaskHold(dag_id="dag", task_id="t1", reason="task")
+    run_hold = TaskHold(dag_id="dag", run_id="r1", reason="run")
+    session.add_all([task_hold, run_hold])
+    session.flush()
+
+    def covered() -> set[tuple[str, str]]:
+        return set(
+            session.execute(
+                select(TaskInstance.run_id, TaskInstance.task_id).where(
+                    TaskInstance.dag_id == "dag", TaskHold.covering_clause(NOW)
+                )
+            )
+        )
+
+    assert covered() == {("r1", "t1"), ("r2", "t1"), ("r1", "t2")}
+
+    task_hold.released_at = NOW - HOUR
+    session.flush()
+    # (r1, t1) is still covered by the run hold; (r2, t1) was only covered by the task hold.
+    assert covered() == {("r1", "t1"), ("r1", "t2")}
+
+    run_hold.expires_at = NOW - HOUR
+    session.flush()
+    assert covered() == set()
+
+
+def test_active_for_run_loads_only_the_active_holds_that_can_cover_the_run(dag_maker, session):
+    _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
+    holds = {
+        "task": TaskHold(dag_id="dag", task_id="t1", reason="task"),
+        "this_run": TaskHold(dag_id="dag", run_id="r1", reason="this run"),
+        "task_in_this_run": TaskHold(dag_id="dag", task_id="t2", run_id="r1", reason="task in this run"),
+        "other_run": TaskHold(dag_id="dag", run_id="r2", reason="other run"),
+        "other_dag": TaskHold(dag_id="other", task_id="t1", reason="other dag"),
+        "released": TaskHold(dag_id="dag", task_id="t1", reason="released", released_at=NOW - HOUR),
+        "expired": TaskHold(dag_id="dag", task_id="t1", reason="expired", expires_at=NOW - HOUR),
+    }
+    session.add_all(holds.values())
+    session.flush()
+
+    loaded = TaskHold.active_for_run("dag", "r1", now=NOW, session=session)
+
+    assert [hold.id for hold in loaded] == sorted(
+        holds[name].id for name in ("task", "this_run", "task_in_this_run")
+    )
+
+
+def test_a_cleared_task_instance_is_covered_by_the_hold_that_covered_its_earlier_attempt(dag_maker, session):
     with dag_maker("task_hold_clear", schedule=None, session=session):
         EmptyOperator(task_id="task")
     dr = dag_maker.create_dagrun(session=session)
     ti = dr.task_instances[0]
-    ti.state = TaskInstanceState.HELD
+    ti.state = TaskInstanceState.FAILED
+    ti.try_number = 1
+    session.add(TaskHold(dag_id=dr.dag_id, task_id="task", reason="test"))
     session.flush()
+    old_id = ti.id
 
     clear_task_instances([ti], session)
     session.flush()
 
-    state = session.scalar(
-        select(TaskInstance.state).where(
-            TaskInstance.dag_id == dr.dag_id, TaskInstance.run_id == dr.run_id, TaskInstance.task_id == "task"
+    covered_ids = set(session.scalars(select(TaskInstance.id).where(TaskHold.covering_clause(NOW))))
+    live = session.scalars(
+        select(TaskInstance).where(
+            TaskInstance.dag_id == dr.dag_id,
+            TaskInstance.run_id == dr.run_id,
+            TaskInstance.working_set.is_(True),
         )
-    )
-    assert state is None
+    ).one()
+    # The new attempt has an id of its own and no state; the hold goes by coordinates, so it covers it.
+    assert live.id != old_id
+    assert live.state is None
+    assert live.id in covered_ids
 
 
 @pytest.mark.parametrize(
     "state", [TaskInstanceState.SUCCESS, TaskInstanceState.FAILED, TaskInstanceState.SKIPPED]
 )
-def test_a_held_task_instance_can_be_marked(dag_maker, session, state):
+def test_a_task_instance_a_hold_covers_can_be_marked(dag_maker, session, state):
     with dag_maker("task_hold_mark", schedule=None, session=session) as dag:
         EmptyOperator(task_id="task")
     dr = dag_maker.create_dagrun(session=session)
-    dr.task_instances[0].state = TaskInstanceState.HELD
+    dr.task_instances[0].state = TaskInstanceState.SCHEDULED
+    hold = TaskHold(dag_id=dr.dag_id, task_id="task", reason="test")
+    session.add(hold)
     session.flush()
     task = dag.get_task("task")
     task.dag = dag
@@ -154,21 +284,23 @@ def test_a_held_task_instance_can_be_marked(dag_maker, session, state):
 
     assert [ti.task_id for ti in altered] == ["task"]
     assert altered[0].state == state
+    assert hold.is_active(timezone.utcnow())
 
 
-def test_marking_a_run_failed_skips_its_held_task_instances(dag_maker, session):
+def test_marking_a_run_failed_skips_the_unfinished_task_instances_a_hold_covers(dag_maker, session):
     with dag_maker("task_hold_mark_run_failed", schedule=None, session=session) as dag:
         EmptyOperator(task_id="held")
         EmptyOperator(task_id="running")
         EmptyOperator(task_id="finished")
     dr = dag_maker.create_dagrun(session=session)
     states = {
-        "held": TaskInstanceState.HELD,
+        "held": TaskInstanceState.SCHEDULED,
         "running": TaskInstanceState.RUNNING,
         "finished": TaskInstanceState.SUCCESS,
     }
     for ti in dr.task_instances:
         ti.state = states[ti.task_id]
+    session.add(TaskHold(dag_id=dr.dag_id, run_id=dr.run_id, reason="test"))
     session.flush()
 
     set_dag_run_state_to_failed(dag=dag, run_id=dr.run_id, commit=True, session=session)

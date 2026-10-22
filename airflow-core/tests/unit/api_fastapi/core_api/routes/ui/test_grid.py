@@ -1270,32 +1270,6 @@ class TestGetGridDataEndpoint:
         assert by_task_id[TASK_ID]["has_note"] is True
         assert all(not ti["has_note"] for task_id, ti in by_task_id.items() if task_id != TASK_ID)
 
-    def test_grid_ti_summaries_held_outranks_queued_and_scheduled(self, session, test_client):
-        """A held task instance makes its mapped task and task group report held."""
-        states = {
-            0: TaskInstanceState.HELD,
-            1: TaskInstanceState.QUEUED,
-            2: TaskInstanceState.SCHEDULED,
-        }
-        for ti in session.scalars(
-            select(TaskInstance).where(
-                TaskInstance.run_id == "run_2", TaskInstance.task_id == f"{TASK_GROUP_ID}.{MAPPED_TASK_ID}"
-            )
-        ):
-            if ti.map_index in states:
-                ti.state = states[ti.map_index]
-        session.commit()
-
-        response = test_client.get(f"/grid/ti_summaries/{DAG_ID}?run_ids=run_2")
-        assert response.status_code == 200
-        [data] = self._parse_ndjson(response)
-        by_task_id = {ti["task_id"]: ti for ti in data["task_instances"]}
-
-        mapped_task = by_task_id[f"{TASK_GROUP_ID}.{MAPPED_TASK_ID}"]
-        assert mapped_task["state"] == "held"
-        assert mapped_task["child_states"] == {"held": 1, "queued": 1, "scheduled": 1, "none": 1}
-        assert by_task_id[TASK_GROUP_ID]["state"] == "held"
-
     @staticmethod
     def _parse_ndjson(response) -> list[dict]:
         """Parse NDJSON streaming response into a list of dicts."""

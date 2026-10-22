@@ -96,7 +96,6 @@ from airflow.models.dynamic_region import (
     DynamicRegion,
     public_region_filter,
 )
-from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance as TI, _add_and_prime_mapped_ti
 from airflow.models.tasklog import LogTemplate
 from airflow.serialization.definitions.deadline import SerializedReferenceModels
@@ -1385,12 +1384,7 @@ class DagRun(Base, LoggingMixin):
                         getattr(t.task, "max_active_tis_per_dagrun", None) is None for t in self.tis if t.task
                     )
                     and all(
-                        t.state
-                        not in (
-                            TaskInstanceState.DEFERRED,
-                            TaskInstanceState.AWAITING_INPUT,
-                            TaskInstanceState.HELD,
-                        )
+                        t.state not in (TaskInstanceState.DEFERRED, TaskInstanceState.AWAITING_INPUT)
                         for t in self.tis
                     )
                 )
@@ -2002,10 +1996,12 @@ class DagRun(Base, LoggingMixin):
             flag_upstream_failed=True,
             ignore_in_retry_period=True,
             ignore_in_reschedule_period=True,
+            ignore_task_holds=True,
             finished_tis=finished_tis,
         )
         # there might be runnable tasks that are up for retry and for some reason(retry delay, etc.) are
-        # not ready yet, so we set the flags to count them in
+        # not ready yet, or that an operator-placed task hold keeps back until it is released, so we set
+        # the flags to count them in
         return (
             any(ut.are_dependencies_met(dep_context=dep_context, session=session) for ut in unfinished_tis),
             dep_context.have_changed_ti_states,
@@ -2828,63 +2824,37 @@ class DagRun(Base, LoggingMixin):
         Each element of ``schedulable_tis`` should have its ``task`` attribute already set.
 
         Any EmptyOperator without ``on_execute_callback`` or ``on_success_callback`` or ``inlets`` or
-        ``outlets`` is instead set straight to the success state, without execution, unless an active
-        task hold covers it: then it is scheduled like any other task, so the scheduler can park it.
+        ``outlets`` is instead set straight to the success state, without execution.
 
         All the TIs should belong to this DagRun, but this code is in the hot-path, this is not checked -- it
         is the caller's responsibility to call this function only with TIs from a single dag run.
         """
         # Get list of TI IDs that do not need to executed, these are
         # tasks using EmptyOperator and without on_execute_callback / on_success_callback
-        empty_tis: list[TI] = []
+        empty_ti_ids: list[UUID] = []
         schedulable_ti_ids: list[UUID] = []
         debug_try_number_check = self.log.isEnabledFor(logging.DEBUG)
         expected_try_number_by_ti_id: dict[UUID, tuple[int, int, str | None]] = {}
-
-        def add_schedulable_ti(ti: TI) -> None:
-            schedulable_ti_ids.append(ti.id)
-            if debug_try_number_check:
-                expected_try_number_by_ti_id[ti.id] = (
-                    max(1, ti.try_number),
-                    ti.try_number,
-                    ti.state,
-                )
-
         for ti in schedulable_tis:
             if ti.state == TaskInstanceState.UP_FOR_RETRY:
                 if TYPE_CHECKING:
                     assert ti.task
                 ti.refresh_from_task(ti.task, dag_run=self)
             if not ti.is_schedulable:
-                empty_tis.append(ti)
+                empty_ti_ids.append(ti.id)
             # The defer_task method will check "start_trigger_args" to see whether the operator
             # start execution from triggerer. If so, we'll also check "start_from_trigger"
             # to see whether this feature is turned on and defer this task.
             # If not, we'll add this "ti" into "schedulable_ti_ids" and later
             # execute it to run in the worker.
             elif not ti.defer_task(session=session):
-                add_schedulable_ti(ti)
-
-        empty_ti_ids: list[UUID] = []
-        if empty_tis:
-            # An empty task instance never reaches ``scheduled``, where the scheduler parks task
-            # instances covered by a task hold. Send the ones a hold covers down the normal path.
-            now = timezone.utcnow()
-            active_holds = [
-                hold
-                for hold in session.scalars(
-                    select(TaskHold).where(TaskHold.released_at.is_(None), TaskHold.dag_id == self.dag_id)
-                )
-                if hold.is_active(now)
-            ]
-            for ti in empty_tis:
-                if any(
-                    hold.matches(dag_id=self.dag_id, task_id=ti.task_id, run_id=self.run_id)
-                    for hold in active_holds
-                ):
-                    add_schedulable_ti(ti)
-                else:
-                    empty_ti_ids.append(ti.id)
+                schedulable_ti_ids.append(ti.id)
+                if debug_try_number_check:
+                    expected_try_number_by_ti_id[ti.id] = (
+                        max(1, ti.try_number),
+                        ti.try_number,
+                        ti.state,
+                    )
 
         count = 0
         # Don't only check if the TI.id is in id_chunk

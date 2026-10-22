@@ -8745,7 +8745,7 @@ export const $TaskInstanceResponse = {
 
 export const $TaskInstanceState = {
     type: 'string',
-    enum: ['removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input', 'held'],
+    enum: ['removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input'],
     title: 'TaskInstanceState',
     description: `All possible states that a Task Instance can be in.
 
@@ -13616,14 +13616,10 @@ export const $TaskInstanceStateCount = {
         awaiting_input: {
             type: 'integer',
             title: 'Awaiting Input'
-        },
-        held: {
-            type: 'integer',
-            title: 'Held'
         }
     },
     type: 'object',
-    required: ['no_status', 'removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input', 'held'],
+    required: ['no_status', 'removed', 'scheduled', 'queued', 'running', 'success', 'restarting', 'failed', 'up_for_retry', 'up_for_reschedule', 'upstream_failed', 'skipped', 'deferred', 'awaiting_input'],
     title: 'TaskInstanceStateCount',
     description: 'TaskInstance serializer for responses.'
 } as const;

@@ -33,8 +33,8 @@ type Props = {
 /** Reports that the Dag has active task holds, linking to its Holds tab. */
 export const ActiveHoldsBanner = ({ dagId }: Props) => {
   const { t: translate } = useTranslation("dags");
-  // Not keyed to the Dag, whose paused state stops auto-refresh: a hold keeps parking task
-  // instances on a paused Dag, so the banner has to keep up with it either way.
+  // Not keyed to the Dag, whose paused state stops auto-refresh: holds can be placed, released and
+  // expire on a paused Dag too, so the banner has to keep up with them either way.
   const refetchInterval = useAutoRefresh({});
 
   const { data } = useTaskHoldServiceListTaskHolds({ active: true, dagId, limit: 1 }, undefined, {
@@ -52,7 +52,7 @@ export const ActiveHoldsBanner = ({ dagId }: Props) => {
 
   return (
     <RouterLink to={`/dags/${dagId}/holds`}>
-      <Badge colorPalette="held" cursor="pointer" data-testid="active-holds-banner" variant="subtle">
+      <Badge colorPalette="indigo" cursor="pointer" data-testid="active-holds-banner" variant="subtle">
         <LuHand size={12} />
         {translate("taskHold.activeCount", { count })}
       </Badge>

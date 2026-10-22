@@ -18,12 +18,14 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as OpenapiQueries from "openapi/queries";
-import type { DAGRunResponse } from "openapi/requests/types.gen";
+import type { DAGRunResponse, TaskHoldResponse } from "openapi/requests/types.gen";
 
 import i18n from "src/i18n/config";
+import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import { Header } from "./Header";
@@ -112,5 +114,42 @@ describe("Header", () => {
     render(<Header dagRun={{ ...baseDagRun, team_name: "team-a" }} />, { wrapper: Wrapper });
 
     expect(screen.queryByText(i18n.t("common:dagDetails.team"))).not.toBeInTheDocument();
+  });
+});
+
+describe("Header hold lock", () => {
+  const runHold: TaskHoldResponse = {
+    active: true,
+    created_at: "2026-10-20T10:00:00Z",
+    created_by: "admin",
+    dag_id: "test_dag",
+    expires_at: null,
+    id: 1,
+    reason: "Upstream data is wrong",
+    release_reason: null,
+    released_at: null,
+    released_by: null,
+    run_id: "run_1",
+    task_id: null,
+  };
+
+  const serveHolds = (holds: Array<TaskHoldResponse>) =>
+    server.use(
+      http.get("/api/v2/dags/test_dag/holds", () =>
+        HttpResponse.json({ task_holds: holds, total_entries: holds.length }),
+      ),
+    );
+
+  beforeEach(() => {
+    vi.mocked(useDeadlinesServiceGetDagDeadlineAlerts).mockReturnValue({
+      data: undefined,
+    } as ReturnType<typeof useDeadlinesServiceGetDagDeadlineAlerts>);
+  });
+
+  it("locks a run an active hold covers whole", async () => {
+    serveHolds([runHold]);
+    render(<Header dagRun={baseDagRun} />, { wrapper: Wrapper });
+
+    expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
   });
 });

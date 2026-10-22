@@ -170,7 +170,6 @@ state_priority: list[None | TaskInstanceState] = [
     TaskInstanceState.RESTARTING,
     TaskInstanceState.DEFERRED,
     TaskInstanceState.AWAITING_INPUT,
-    TaskInstanceState.HELD,
     TaskInstanceState.QUEUED,
     TaskInstanceState.SCHEDULED,
     None,

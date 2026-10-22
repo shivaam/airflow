@@ -2345,7 +2345,7 @@ export type TaskInstanceResponse = {
  *
  * Note that None is also allowed, so always use this in a type hint with Optional.
  */
-export type TaskInstanceState = 'removed' | 'scheduled' | 'queued' | 'running' | 'success' | 'restarting' | 'failed' | 'up_for_retry' | 'up_for_reschedule' | 'upstream_failed' | 'skipped' | 'deferred' | 'awaiting_input' | 'held';
+export type TaskInstanceState = 'removed' | 'scheduled' | 'queued' | 'running' | 'success' | 'restarting' | 'failed' | 'up_for_retry' | 'up_for_reschedule' | 'upstream_failed' | 'skipped' | 'deferred' | 'awaiting_input';
 
 /**
  * Task Instance body for get batch.
@@ -3465,7 +3465,6 @@ export type TaskInstanceStateCount = {
     skipped: number;
     deferred: number;
     awaiting_input: number;
-    held: number;
 };
 
 /**

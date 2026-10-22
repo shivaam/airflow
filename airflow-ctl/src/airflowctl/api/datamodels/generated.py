@@ -1461,7 +1461,6 @@ class TaskInstanceState(str, Enum):
     SKIPPED = "skipped"
     DEFERRED = "deferred"
     AWAITING_INPUT = "awaiting_input"
-    HELD = "held"
 
 
 class TaskInstancesBatchBody(BaseModel):

@@ -448,7 +448,6 @@ const defaultAirflowTheme: ThemingConfig = {
       restarting: generateSemanticTokens("violet"),
       deferred: generateSemanticTokens("purple"),
       awaiting_input: generateSemanticTokens("orange"),
-      held: generateSemanticTokens("indigo"),
       scheduled: generateSemanticTokens("zinc"),
       none: generateSemanticTokens("gray"),
       no_status: generateSemanticTokens("gray"),

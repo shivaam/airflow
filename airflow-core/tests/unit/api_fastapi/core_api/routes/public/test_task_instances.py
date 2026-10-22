@@ -46,6 +46,7 @@ from airflow.models.dagbundle import DagBundleModel
 from airflow.models.dynamic_region import LOOP_DECISION_REASON_KEY, DynamicRegion
 from airflow.models.renderedtifields import RenderedTaskInstanceFields as RTIF
 from airflow.models.task_state_store import TaskStateStoreModel
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import clear_loop_task_instances, clear_task_instances, uuid7
 from airflow.models.team import Team
 from airflow.models.trigger import Trigger
@@ -2800,6 +2801,32 @@ class TestGetTaskDependencies(TestTaskInstanceEndpoint):
         )
         assert response.status_code == 200, response.text
         assert response.json() == dependencies
+
+    def test_should_respond_task_hold_dependency(self, test_client, session):
+        self.create_task_instances(session, task_instances=[{"state": State.SCHEDULED}], update_extras=True)
+        hold = TaskHold(
+            dag_id="example_python_operator", task_id="print_the_context", reason="incident INC-42"
+        )
+        session.add(hold)
+        session.commit()
+        try:
+            response = test_client.get(
+                "/dags/example_python_operator/dagRuns/TEST_DAG_RUN_ID/taskInstances/"
+                "print_the_context/dependencies",
+            )
+
+            assert response.status_code == 200, response.text
+            task_hold_dependencies = [
+                dependency
+                for dependency in response.json()["dependencies"]
+                if dependency["name"] == "Task Hold"
+            ]
+            assert task_hold_dependencies == [
+                {"name": "Task Hold", "reason": f"Task hold {hold.id} is active: incident INC-42"}
+            ]
+        finally:
+            session.execute(delete(TaskHold))
+            session.commit()
 
     def test_should_respond_dependencies_mapped(self, test_client, session):
         tis = self.create_task_instances(

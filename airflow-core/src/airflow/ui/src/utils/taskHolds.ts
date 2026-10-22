@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import type { TaskHoldResponse, TaskInstanceState } from "openapi/requests/types.gen";
+import type { GridNodeResponse, TaskHoldResponse, TaskInstanceState } from "openapi/requests/types.gen";
 
 // What the scheduler records as `released_by` when it marks a hold that has expired.
 const EXPIRY_RELEASED_BY = "expiry";
@@ -47,44 +47,109 @@ export const holdMatches = (
   (hold.task_id === null || hold.task_id === taskId) &&
   (hold.run_id === null || hold.run_id === runId);
 
-// A hold only parks a task instance that is still waiting to be queued. One that already finished,
-// or that is queued or running, is left alone, so a matching hold changes nothing for it.
-const unaffectedByHoldStates: ReadonlySet<TaskInstanceState> = new Set<TaskInstanceState>([
-  "failed",
-  "queued",
-  "removed",
-  "running",
-  "skipped",
-  "success",
-  "upstream_failed",
-]);
+/**
+ * What an active hold means where it is shown. A hold is a lock the scheduler checks, so a task
+ * instance keeps the state it has and what the lock does to it depends on how far along it is. A task
+ * across its runs, and a run as a whole, have no state of their own and are simply held.
+ */
+export type HoldLockKind = "awaitingInput" | "deferred" | "held" | "queued" | "run" | "running" | "task";
+
+// The scheduler checks the lock before it schedules a task instance and again before it queues one.
+// An attempt that is already queued or running has passed both and carries on, so only the next one,
+// a retry or a clear, is held. A deferred or awaiting-input task instance is held when it comes back
+// through the scheduler. One that has finished has nothing left to hold.
+const lockKindByState: Record<TaskInstanceState, HoldLockKind | undefined> = {
+  awaiting_input: "awaitingInput",
+  deferred: "deferred",
+  failed: undefined,
+  queued: "queued",
+  removed: undefined,
+  restarting: "held",
+  running: "running",
+  scheduled: "held",
+  skipped: undefined,
+  success: undefined,
+  up_for_reschedule: "held",
+  up_for_retry: "held",
+  upstream_failed: undefined,
+};
 
 /**
- * Whether an active hold covers a task instance that the scheduler has not parked yet, so it shows
- * "hold pending" until the scheduler's next pass moves it to `held`.
+ * What a lock is shown for: a task instance, or, with `task_id` or `dag_run_id` left out, a task across
+ * all of its runs or a run as a whole. A task instance response is one.
  */
-export const isHoldPending = (
-  holds: ReadonlyArray<TaskHoldResponse>,
-  taskInstance: {
-    readonly dag_id: string;
-    readonly dag_run_id: string;
-    readonly state?: TaskInstanceState | null;
-    readonly task_id: string;
-  },
-): boolean => {
-  const { state } = taskInstance;
+export type HoldLockSubject = {
+  readonly dag_id: string;
+  /** Left out for a task across all of its runs. */
+  readonly dag_run_id?: string;
+  /** What a hold does to a task instance depends on it. Not read for a task or a run as a whole. */
+  readonly state?: TaskInstanceState | null;
+  /** Left out for a run as a whole. */
+  readonly task_id?: string;
+};
 
-  if (state === "held" || (state !== null && state !== undefined && unaffectedByHoldStates.has(state))) {
-    return false;
+/**
+ * The kind of lock to show for a subject, or nothing when no active hold covers it or the hold has
+ * nothing left to do to it. A task instance is covered by a hold that matches its Dag, its task and its
+ * run wherever the hold sets them, whatever its map index. A task or a run as a whole is covered only
+ * by a hold set at exactly that scope, not by one on a single run of the task or a single task of the run.
+ */
+export const getHoldLockKind = (
+  holds: ReadonlyArray<TaskHoldResponse>,
+  { dag_id: dagId, dag_run_id: runId, state, task_id: taskId }: HoldLockSubject,
+): HoldLockKind | undefined => {
+  const active = holds.filter((hold) => hold.active && hold.dag_id === dagId);
+
+  if (taskId === undefined) {
+    return active.some((hold) => hold.task_id === null && hold.run_id === runId) ? "run" : undefined;
   }
 
-  const target = {
-    dagId: taskInstance.dag_id,
-    runId: taskInstance.dag_run_id,
-    taskId: taskInstance.task_id,
+  if (runId === undefined) {
+    return active.some((hold) => hold.run_id === null && hold.task_id === taskId) ? "task" : undefined;
+  }
+
+  const kind = state === null || state === undefined ? "held" : lockKindByState[state];
+
+  return active.some((hold) => holdMatches(hold, { dagId, runId, taskId })) ? kind : undefined;
+};
+
+/** The ids of the tasks the structure marks as mapped, including those inside a mapped task group. */
+export const getMappedTaskIds = (nodes: ReadonlyArray<GridNodeResponse> | undefined): Set<string> => {
+  const ids = new Set<string>();
+  const collect = (list: ReadonlyArray<GridNodeResponse>) => {
+    for (const node of list) {
+      if (node.is_mapped === true) {
+        ids.add(node.id);
+      }
+      collect(node.children ?? []);
+    }
   };
 
-  return holds.some((hold) => hold.active && holdMatches(hold, target));
+  collect(nodes ?? []);
+
+  return ids;
+};
+
+/**
+ * Where to follow the scope of a hold to. A hold on a task and a run covers every map index, so for a
+ * mapped task it links to the list of its instances in that run: the page of a single task instance
+ * does not exist for it.
+ */
+export const getHoldScopeLink = (
+  hold: Pick<TaskHoldResponse, "dag_id" | "run_id" | "task_id">,
+  mappedTaskIds: ReadonlySet<string>,
+): string => {
+  const { dag_id: dagId, run_id: runId, task_id: taskId } = hold;
+
+  if (taskId === null) {
+    return `/dags/${dagId}/runs/${runId}`;
+  }
+
+  if (runId === null) {
+    return `/dags/${dagId}/tasks/${taskId}`;
+  }
+
+  return `/dags/${dagId}/runs/${runId}/tasks/${taskId}${mappedTaskIds.has(taskId) ? "/mapped" : ""}`;
 };
 
 export type HoldStatus = "active" | "expired" | "released";

@@ -166,7 +166,7 @@
     },
     "dialog": {
       "confirm": "Place hold",
-      "description": "Matching task instances wait in the held state instead of being queued. Task instances that are already queued or running are not affected.",
+      "description": "While the hold is active, matching task instances are not scheduled or queued, and they keep their state. A queued or running attempt finishes; a retry or clear is held.",
       "error": "Failed to place hold",
       "expiresAt": {
         "helper": "Leave empty to hold until it is released.",
@@ -181,7 +181,7 @@
       },
       "scope": "Scope",
       "success": {
-        "description": "Matching task instances are held when the scheduler next picks them up.",
+        "description": "Matching task instances are not scheduled or queued until the hold is released or expires.",
         "title": "Hold placed"
       },
       "title": "Place hold"
@@ -190,16 +190,23 @@
       "active": "Active",
       "all": "All"
     },
+    "lock": {
+      "tooltip": {
+        "awaitingInput": "Hold active: answers are still accepted; the task is held when answered",
+        "deferred": "Hold active: the trigger keeps waiting; the task is held when it resumes",
+        "held": "Held: won't be queued until the hold is released or expires",
+        "queued": "Hold active: this attempt was queued before the hold and will still start; later attempts are held",
+        "run": "Hold active: tasks in this run won't be queued until the hold is released or expires",
+        "running": "Hold active: this attempt finishes; a retry or clear will be held",
+        "task": "Hold active: this task won't be queued in any run until the hold is released or expires"
+      }
+    },
     "noActiveHolds": "No active holds.",
     "noHolds": "No holds.",
-    "pending": {
-      "label": "Hold pending",
-      "tooltip": "An active hold covers this task instance. It is held when the scheduler next picks it up."
-    },
     "release": {
       "button": "Release",
       "confirm": "Release hold",
-      "description": "Held task instances that no other active hold covers return to scheduled.",
+      "description": "Task instances that no other active hold covers are scheduled and queued again.",
       "error": "Failed to release hold",
       "reasonLabel": "Reason (optional)",
       "reasonPlaceholder": "Why is this being released?",

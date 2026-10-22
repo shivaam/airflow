@@ -2869,11 +2869,14 @@ export const useXcomServiceCreateXcomEntry = <TData = Common.XcomServiceCreateXc
 * Create Task Hold
 * Place a hold on a task or a run.
 *
-* The scheduler stops queueing the matching task instances while the hold is active.
-* A hold on a task covers every current and future run of it, a hold on a run covers every
-* task in that run, and a hold on both covers that one task instance.
-* Task instances that are already queued or running are not affected, and task instance
-* states are never changed by this endpoint.
+* A hold is a lock, not a task instance state: while it is active the scheduler neither schedules nor
+* queues the task instances it covers, and they keep the state they have.
+* A hold on a task covers every map index of it in every current and future run, a hold on a run covers
+* every task in that run, and a hold on both covers that one task instance.
+* The current attempt of a queued or running task instance continues, and later attempts, such as a
+* retry or a clear, are held. A task instance that is scheduled but not queued yet goes back to `none`,
+* so that its trigger rule is checked again on release, unless it is resuming from a deferral or a human
+* answer. This endpoint changes no task instance.
 * @param data The data for the request.
 * @param data.dagId
 * @param data.requestBody
@@ -2891,8 +2894,8 @@ export const useTaskHoldServiceCreateTaskHold = <TData = Common.TaskHoldServiceC
 * Release Task Hold
 * Release a task hold.
 *
-* The scheduler moves the task instances that no active hold matches any more back to
-* `scheduled`. The request body is optional.
+* The scheduler schedules and queues the task instances that no active hold covers any more on its
+* next loops. The release itself changes no task instance. The request body is optional.
 * @param data The data for the request.
 * @param data.dagId
 * @param data.holdId

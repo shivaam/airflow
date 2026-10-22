@@ -31,7 +31,7 @@ import ClearTaskInstanceDialog from "src/components/Clear/TaskInstance/ClearTask
 import { DagVersion } from "src/components/DagVersion";
 import { HeaderCard } from "src/components/HeaderCard";
 import { HoldButton } from "src/components/Hold";
-import { HoldPendingBadge } from "src/components/HoldPendingBadge";
+import { HoldLockBadge } from "src/components/HoldLockBadge";
 import { LoopDecisionReason } from "src/components/LoopDecisionReason";
 import { MarkTaskInstanceAsButton } from "src/components/MarkAs";
 import { NotePreview } from "src/components/NotePreview";
@@ -194,7 +194,7 @@ export const Header = ({ taskInstance }: { readonly taskInstance: TaskInstanceRe
         icon={<MdOutlineTask />}
         state={taskInstance.state}
         stats={stats}
-        statusBadge={<HoldPendingBadge taskInstance={taskInstance} />}
+        statusBadge={<HoldLockBadge subject={taskInstance} />}
         title={`${taskInstance.task_display_name}${taskInstance.map_index > -1 ? ` [${taskInstance.rendered_map_index ?? taskInstance.map_index}]` : ""}`}
         type="taskInstance"
       />
