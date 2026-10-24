@@ -26,9 +26,11 @@ from airflow._shared.timezones import timezone
 from airflow.models.taskhold import TaskHold
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.sdk import BaseOperator
 from airflow.serialization.definitions.baseoperator import DEFAULT_OPERATOR_DEPS
 from airflow.ti_deps.dep_context import DepContext
 from airflow.ti_deps.deps.task_hold_dep import TaskHoldDep
+from airflow.triggers.base import StartTriggerArgs
 from airflow.utils.state import TaskInstanceState
 
 from tests_common.test_utils.asserts import assert_queries_count
@@ -66,6 +68,34 @@ def task_instances(dag_maker, session):
                 result[(dag_id, run_id, ti.task_id, ti.map_index)] = ti
     session.flush()
     return result
+
+
+class StartsFromTrigger(BaseOperator):
+    """An operator the scheduler sends straight to the triggerer, past ``scheduled``."""
+
+    start_trigger_args = StartTriggerArgs(
+        trigger_cls="airflow.triggers.testing.SuccessTrigger",
+        trigger_kwargs={},
+        next_method="execute_complete",
+        timeout=None,
+    )
+    start_from_trigger = True
+
+    def execute_complete(self):
+        pass
+
+
+@pytest.fixture
+def start_from_trigger_ti(dag_maker, session):
+    """The task instance of a ``start_from_trigger`` task, with a hold on its task."""
+    with dag_maker("trigger_dag", schedule=None, session=session):
+        StartsFromTrigger(task_id="trigger_task")
+    serialized_dag = dag_maker.serialized_dag
+    ti = dag_maker.create_dagrun(run_id="r1", session=session).task_instances[0]
+    ti.task = serialized_dag.get_task("trigger_task")
+    session.add(TaskHold(dag_id="trigger_dag", task_id="trigger_task", reason="test"))
+    session.flush()
+    return ti
 
 
 def failing_hold_ids(ti, session, **context_args) -> list[int]:
@@ -191,6 +221,23 @@ class TestTaskHoldDep:
 
         with assert_queries_count(0, session=session):
             assert TaskHoldDep().is_met(ti, DepContext(), session=session)
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            pytest.param(None, id="none"),
+            *(pytest.param(state, id=state.value) for state in TaskInstanceState),
+        ],
+    )
+    def test_a_hold_keeps_a_start_from_trigger_task_instance_wherever_scheduling_would_defer_it(
+        self, start_from_trigger_ti, session, state
+    ):
+        """Scheduling such a task instance sends it straight to the triggerer, past ``scheduled``."""
+        start_from_trigger_ti.state = state
+        session.flush()
+
+        kept_in_place = state in (None, TaskInstanceState.UP_FOR_RETRY, TaskInstanceState.UP_FOR_RESCHEDULE)
+        assert TaskHoldDep().is_met(start_from_trigger_ti, DepContext(), session=session) is not kept_in_place
 
     def test_every_covering_hold_fails_the_dependency_until_the_last_one_is_over(
         self, task_instances, session

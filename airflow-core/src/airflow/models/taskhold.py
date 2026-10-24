@@ -47,8 +47,10 @@ class TaskHold(Base):
     The scheduler reads the table at two gates. The ``TaskHoldDep`` dependency keeps a covered task
     instance that has not started in ``none``, and the statement that moves a ``scheduled`` task instance
     to ``queued`` refuses a covered one. Any other task instance that is about to start again, such as a
-    retry, a reschedule or one resuming from a trigger, reaches ``scheduled`` as usual and waits there. The
-    attempt of a task instance that is already queued or running continues; later attempts are held.
+    retry, a reschedule or one resuming from a trigger, reaches ``scheduled`` as usual and waits there,
+    except a ``start_from_trigger`` retry or reschedule: scheduling it skips ``scheduled``, so the
+    dependency keeps it where it is. The attempt of a task instance that is already queued or running
+    continues; later attempts are held.
     """
 
     __tablename__ = "task_hold"

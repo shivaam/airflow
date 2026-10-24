@@ -129,8 +129,9 @@ def create_task_hold(
     every task in that run, and a hold on both covers that one task instance.
     The current attempt of a queued or running task instance continues, and later attempts, such as a
     retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
-    answer reach `scheduled` as usual and wait there, and a task instance that is already `scheduled` keeps
-    the decision it has. This endpoint changes no task instance.
+    answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task that
+    starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is already
+    `scheduled` keeps the decision it has. This endpoint changes no task instance.
     """
     now = timezone.utcnow()
     dag = get_latest_version_of_dag(dag_bag, dag_id, session)

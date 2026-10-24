@@ -524,6 +524,21 @@ _WRITE_LANDS_AT = pytest.mark.parametrize(
 )
 
 
+class StartsFromTrigger(BaseOperator):
+    """An operator the scheduler sends straight to the triggerer, past ``scheduled``."""
+
+    start_trigger_args = StartTriggerArgs(
+        trigger_cls="airflow.triggers.testing.SuccessTrigger",
+        trigger_kwargs={},
+        next_method="execute_complete",
+        timeout=None,
+    )
+    start_from_trigger = True
+
+    def execute_complete(self):
+        pass
+
+
 @patch.dict(
     ExecutorLoader.executors, {MOCK_EXECUTOR: f"{MockExecutor.__module__}.{MockExecutor.__qualname__}"}
 )
@@ -11146,18 +11161,6 @@ class TestSchedulerJob:
     def test_task_hold_keeps_a_start_from_trigger_task_from_deferring(
         self, dag_maker, mock_executors, session, hold
     ):
-        class StartsFromTrigger(BaseOperator):
-            start_trigger_args = StartTriggerArgs(
-                trigger_cls="airflow.triggers.testing.SuccessTrigger",
-                trigger_kwargs={},
-                next_method="execute_complete",
-                timeout=None,
-            )
-            start_from_trigger = True
-
-            def execute_complete(self):
-                pass
-
         dag_id = "hold_start_from_trigger"
         with dag_maker(dag_id=dag_id, schedule=None, session=session):
             StartsFromTrigger(task_id="task")
@@ -11176,6 +11179,44 @@ class TestSchedulerJob:
             assert self.job_runner._do_scheduling(session) == 0
             assert _live_task_instance(session, dag_id, "task").state == expected_state
             assert session.scalar(select(func.count()).select_from(Trigger)) == (0 if hold else 1)
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    def test_task_hold_keeps_a_retrying_start_from_trigger_task_from_deferring(
+        self, dag_maker, mock_executors, session
+    ):
+        dag_id = "hold_retry_start_from_trigger"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            StartsFromTrigger(task_id="task", retries=1)
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        failed = dr.task_instances[0]
+        # What the Execution API records when an attempt fails and may be retried: the failed attempt is
+        # archived and its successor waits for the retry delay.
+        failed.state = TaskInstanceState.UP_FOR_RETRY
+        failed.try_number = 1
+        failed.max_tries = 1
+        failed.end_date = timezone.utcnow()
+        session.flush()
+        failed.prepare_db_for_next_try(session)
+        session.flush()
+        retry = _live_task_instance(session, dag_id, "task")
+        assert (retry.state, retry.try_number) == (TaskInstanceState.UP_FOR_RETRY, 2)
+        # The retry delay has passed.
+        retry.end_date = timezone.utcnow() - timedelta(hours=1)
+        hold_id = _commit_task_hold(session, dag_id, task_id="task")
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        # Scheduling the retry would send it straight to its trigger, past ``scheduled``, where the queueing
+        # statement could have held it. So it stays where it is, and no trigger is created for it.
+        for _ in range(2):
+            assert self.job_runner._do_scheduling(session) == 0
+            assert _live_task_instance(session, dag_id, "task").state == TaskInstanceState.UP_FOR_RETRY
+            assert session.scalar(select(func.count()).select_from(Trigger)) == 0
+
+        _release_task_hold(session, hold_id)
+        assert self.job_runner._do_scheduling(session) == 0
+        deferred = _live_task_instance(session, dag_id, "task")
+        assert (deferred.state, deferred.try_number) == (TaskInstanceState.DEFERRED, 2)
+        assert session.scalar(select(func.count()).select_from(Trigger)) == 1
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     @pytest.mark.parametrize(

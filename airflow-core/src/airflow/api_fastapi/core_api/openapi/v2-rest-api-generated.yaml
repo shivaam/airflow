@@ -7860,10 +7860,13 @@ paths:
         retry or a clear, are held. A retry, a sensor reschedule and a task resuming
         after a trigger or a human
 
-        answer reach `scheduled` as usual and wait there, and a task instance that
-        is already `scheduled` keeps
+        answer reach `scheduled` as usual and wait there, except that a retry or reschedule
+        of a task that
 
-        the decision it has. This endpoint changes no task instance.'
+        starts from its trigger (`start_from_trigger`) waits in its state. A task
+        instance that is already
+
+        `scheduled` keeps the decision it has. This endpoint changes no task instance.'
       operationId: create_task_hold
       security:
       - OAuth2PasswordBearer: []

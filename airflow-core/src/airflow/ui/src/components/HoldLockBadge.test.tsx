@@ -119,7 +119,7 @@ describe("HoldLockBadge", () => {
     it.each([
       {
         state: null,
-        tooltip: "Held: waits here until the hold is released or expires",
+        tooltip: "Hold active: waits here until the hold is released or expires",
       },
       {
         state: "scheduled",
@@ -135,7 +135,7 @@ describe("HoldLockBadge", () => {
       },
       {
         state: "restarting",
-        tooltip: "Held: waits here until the hold is released or expires",
+        tooltip: "Hold active: waits here until the hold is released or expires",
       },
       {
         state: "queued",

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airflow.ti_deps.dependencies_states import SCHEDULEABLE_STATES
 from airflow.ti_deps.deps.base_ti_dep import BaseTIDep
 
 if TYPE_CHECKING:
@@ -33,20 +34,23 @@ if TYPE_CHECKING:
 
 class TaskHoldDep(BaseTIDep):
     """
-    Determines whether no operator-placed task hold covers a task instance that has not started.
+    Determines whether no operator-placed task hold covers a task instance that waits in its state.
 
     This is the first of the two gates a task hold has in the scheduler. It sits among the dependencies the
     scheduler evaluates when it decides whether a task instance can move to ``scheduled``, so a covered
-    task instance in ``none`` stays there, and is evaluated again by every scheduling decision until the
-    hold is released or expires. That also keeps an ``EmptyOperator`` task from being marked ``success``
-    and a ``start_from_trigger`` task from being sent to the triggerer. The task instance's state, its try
-    number and its trigger rule are never touched by the hold, and the trigger rule is evaluated afresh on
-    release.
+    task instance that has not started stays in ``none``, and is evaluated again by every scheduling
+    decision until the hold is released or expires. That also keeps an ``EmptyOperator`` task from being
+    marked ``success``. The task instance's state, its try number and its trigger rule are never touched by
+    the hold, and the trigger rule is evaluated afresh on release.
 
-    A task instance in any other state passes. A retry, a sensor that reschedules, a task resuming after a
-    trigger or a human answer, and one that was already ``scheduled`` when the hold was placed all reach
-    ``scheduled`` as usual and wait there, because the statement that moves a ``scheduled`` task instance
-    to ``queued`` refuses a covered one. That statement is the second gate.
+    A ``start_from_trigger`` task is kept in the same way in ``up_for_retry`` and ``up_for_reschedule``:
+    scheduling it sends it straight to the triggerer, past ``scheduled``, so the second gate would never
+    see it.
+
+    Any other task instance passes. A retry, a sensor that reschedules, a task resuming after a trigger or
+    a human answer, and one that was already ``scheduled`` when the hold was placed all reach ``scheduled``
+    as usual and wait there, because the statement that moves a ``scheduled`` task instance to ``queued``
+    refuses a covered one. That statement is the second gate.
 
     A hold covers every map index of the task. A hold without a ``task_id`` covers every task of its run,
     and a hold without a ``run_id`` covers its task in every run.
@@ -58,6 +62,11 @@ class TaskHoldDep(BaseTIDep):
     NAME = "Task Hold"
     IGNORABLE = True
 
+    @staticmethod
+    def _is_kept_in_place(ti: TaskInstance) -> bool:
+        """Whether a covered task instance waits in the state it is in, instead of reaching ``scheduled``."""
+        return ti.state in SCHEDULEABLE_STATES and (ti.state is None or ti.start_trigger_args is not None)
+
     def _get_dep_statuses(
         self, ti: TaskInstance, dep_context: DepContext, *, session: Session
     ) -> Iterator[TIDepStatus]:
@@ -65,8 +74,8 @@ class TaskHoldDep(BaseTIDep):
             yield self._passing_status(reason="The context specified that task holds can be ignored.")
             return
 
-        if ti.state is not None:
-            yield self._passing_status(reason="A task hold only keeps a task instance that has not started.")
+        if not self._is_kept_in_place(ti):
+            yield self._passing_status(reason="A task hold does not keep this task instance where it is.")
             return
 
         holds = dep_context.covering_task_holds(ti, session=session)
