@@ -115,73 +115,85 @@ describe("HoldLockBadge", () => {
   });
 
   describe("on a task instance", () => {
-    // What a hold does to a task instance depends on its state, and so does what the tooltip says.
+    const stopsNow = "Won't run until the hold is released or expires.";
+    const carriesOn = "This attempt carries on. Its next start or resume is held.";
+
+    // What a hold does to a task instance depends on its state, and so does what the badge says. It is
+    // a solid "Held" where the hold is stopping the task instance now, and a dashed "Hold pending"
+    // where there is nothing to stop yet.
     it.each([
+      { label: "Held", pending: false, state: null, tooltip: stopsNow },
+      { label: "Held", pending: false, state: "scheduled", tooltip: stopsNow },
+      { label: "Held", pending: false, state: "up_for_retry", tooltip: stopsNow },
+      { label: "Held", pending: false, state: "up_for_reschedule", tooltip: stopsNow },
+      { label: "Held", pending: false, state: "restarting", tooltip: stopsNow },
+      { label: "Hold pending", pending: true, state: "queued", tooltip: carriesOn },
+      { label: "Hold pending", pending: true, state: "running", tooltip: carriesOn },
       {
-        state: null,
-        tooltip: "Hold active: waits here until the hold is released or expires",
-      },
-      {
-        state: "scheduled",
-        tooltip: "Held: won't be queued until the hold is released or expires",
-      },
-      {
-        state: "up_for_retry",
-        tooltip: "Held: won't be queued until the hold is released or expires",
-      },
-      {
-        state: "up_for_reschedule",
-        tooltip: "Held: won't be queued until the hold is released or expires",
-      },
-      {
-        state: "restarting",
-        tooltip: "Hold active: waits here until the hold is released or expires",
-      },
-      {
-        state: "queued",
-        tooltip:
-          "Hold active: this attempt was queued before the hold and will still start; later attempts are held",
-      },
-      {
-        state: "running",
-        tooltip: "Hold active: this attempt finishes; a retry or clear will be held",
-      },
-      {
+        label: "Hold pending",
+        pending: true,
         state: "deferred",
-        tooltip: "Hold active: the trigger keeps waiting; the task is held when it resumes",
+        tooltip: "The trigger keeps waiting. Held when it resumes.",
       },
       {
+        label: "Hold pending",
+        pending: true,
         state: "awaiting_input",
-        tooltip: "Hold active: answers are still accepted; the task is held when answered",
+        tooltip: "You can still answer. Held when it resumes.",
       },
-    ] as const)("locks a $state task instance a hold covers", async ({ state, tooltip }) => {
-      serveHolds([hold]);
-      render(<HoldLockBadge subject={taskInstance(state)} />, { wrapper: Wrapper });
+    ] as const)(
+      "locks a $state task instance a hold covers as $label",
+      async ({ label, pending, state, tooltip }) => {
+        serveHolds([hold]);
+        render(<HoldLockBadge subject={taskInstance(state)} />, { wrapper: Wrapper });
 
-      const badge = await screen.findByTestId("hold-lock-badge");
+        const badge = await screen.findByTestId("hold-lock-badge");
 
-      expect(badge).toHaveTextContent("Hold");
-      expect(await getTooltipText(badge)).toBe(tooltip);
-    });
+        expect(badge.textContent).toBe(label);
+        expect(badge).toHaveAttribute("data-hold-pending", String(pending));
+        expect(await getTooltipText(badge)).toBe(tooltip);
+      },
+    );
 
+    // Nothing is left to stop, but if it is cleared the new attempt waits.
     it.each(["success", "failed", "skipped", "upstream_failed", "removed"] as const)(
-      "is absent once the task instance is %s, the hold having nothing left to hold",
+      "shows a pending hold on a task instance that is already %s",
       async (state) => {
         serveHolds([hold]);
+        render(<HoldLockBadge subject={taskInstance(state)} />, { wrapper: Wrapper });
+
+        const badge = await screen.findByTestId("hold-lock-badge");
+
+        expect(badge.textContent).toBe("Hold pending");
+        expect(badge).toHaveAttribute("data-hold-pending", "true");
+        expect(await getTooltipText(badge)).toBe("Held if it's cleared.");
+      },
+    );
+
+    // The look is what tells the two apart at a glance: a pending hold is a dashed outline.
+    it("draws a pending hold dashed and a hold that is stopping the task now solid", async () => {
+      serveHolds([hold]);
+      const { rerender } = render(<HoldLockBadge subject={taskInstance("running")} />, { wrapper: Wrapper });
+
+      expect(await screen.findByTestId("hold-lock-badge")).toHaveStyle({
+        borderStyle: "dashed",
+        borderWidth: "1px",
+      });
+
+      rerender(<HoldLockBadge subject={taskInstance("scheduled")} />);
+      expect(screen.getByTestId("hold-lock-badge")).not.toHaveStyle({ borderStyle: "dashed" });
+    });
+
+    it.each(["scheduled", "success"] as const)(
+      "is absent when no active hold covers a %s task instance",
+      async (state) => {
+        serveHolds([{ ...hold, task_id: "extract" }]);
         render(<HoldLockBadge subject={taskInstance(state)} />, { wrapper: Wrapper });
 
         await settle();
         expect(screen.queryByTestId("hold-lock-badge")).not.toBeInTheDocument();
       },
     );
-
-    it("is absent when no active hold covers the task instance", async () => {
-      serveHolds([{ ...hold, task_id: "extract" }]);
-      render(<HoldLockBadge subject={taskInstance("scheduled")} />, { wrapper: Wrapper });
-
-      await settle();
-      expect(screen.queryByTestId("hold-lock-badge")).not.toBeInTheDocument();
-    });
 
     it("is absent for a hold that has been released", async () => {
       serveHolds([{ ...hold, active: false }]);
@@ -204,8 +216,12 @@ describe("HoldLockBadge", () => {
       serveHolds([hold]);
       render(<HoldLockBadge subject={{ dag_id: "example_dag", task_id: "load" }} />, { wrapper: Wrapper });
 
-      expect(await getTooltipText(await screen.findByTestId("hold-lock-badge"))).toBe(
-        "Hold active: this task won't be queued in any run until the hold is released or expires",
+      const badge = await screen.findByTestId("hold-lock-badge");
+
+      expect(badge.textContent).toBe("Held");
+      expect(badge).toHaveAttribute("data-hold-pending", "false");
+      expect(await getTooltipText(badge)).toBe(
+        "This task won't start or resume in any run until the hold is released or expires.",
       );
     });
 
@@ -225,8 +241,12 @@ describe("HoldLockBadge", () => {
         wrapper: Wrapper,
       });
 
-      expect(await getTooltipText(await screen.findByTestId("hold-lock-badge"))).toBe(
-        "Hold active: tasks in this run won't be queued until the hold is released or expires",
+      const badge = await screen.findByTestId("hold-lock-badge");
+
+      expect(badge.textContent).toBe("Held");
+      expect(badge).toHaveAttribute("data-hold-pending", "false");
+      expect(await getTooltipText(badge)).toBe(
+        "Tasks in this run won't start or resume until the hold is released or expires.",
       );
     });
 
@@ -264,13 +284,21 @@ describe("HoldLockBadge refreshing the holds", () => {
     await waitFor(() => expect(holdsRequests).toBeGreaterThan(2), { timeout: 3000 });
   });
 
-  it("stops asking once the task instance has finished", async () => {
-    serveHolds([hold]);
+  it("stops asking once the task instance has finished and shows no lock", async () => {
+    serveHolds([{ ...hold, task_id: "extract" }]);
     render(<HoldLockBadge subject={taskInstance("success")} />, { wrapper: Wrapper });
 
     await settle();
     await advanceClock();
     expect(holdsRequests).toBe(1);
+  });
+
+  // Its state is settled, but the hold can be released or run out on its own, as one on a task can.
+  it("keeps asking while a finished task instance shows a pending hold", async () => {
+    serveHolds([hold]);
+    render(<HoldLockBadge subject={taskInstance("success")} />, { wrapper: Wrapper });
+
+    await waitFor(() => expect(holdsRequests).toBeGreaterThan(2), { timeout: 3000 });
   });
 
   it("keeps asking while a task or a run shows a lock, which can run out on its own", async () => {

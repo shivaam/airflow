@@ -17,7 +17,7 @@
  * under the License.
  */
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -215,5 +215,16 @@ describe("Header hold lock", () => {
     renderHeader({ map_index: 2, rendered_map_index: "2", state: "running" });
 
     expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
+  });
+
+  // What a hold does to a task instance depends on its state, so the dialog is told it.
+  it("tells the hold dialog the state of the task instance", async () => {
+    renderHeader({ state: "running" });
+
+    fireEvent.click(screen.getByRole("button", { name: /taskHold\.button/u }));
+
+    expect((await screen.findByTestId("hold-state-line")).textContent).toBe(
+      "taskHold.dialog.stateLine.running",
+    );
   });
 });

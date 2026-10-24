@@ -166,7 +166,8 @@
     },
     "dialog": {
       "confirm": "Place hold",
-      "description": "While the hold is active, matching task instances are not scheduled or queued, and they keep their state. A queued or running attempt finishes; a retry or clear is held.",
+      "description": "A hold stops the task from starting or resuming until it is released or expires. A running attempt carries on.",
+      "descriptionRun": "A hold stops the tasks in this run from starting or resuming until it is released or expires. A running attempt carries on.",
       "error": "Failed to place hold",
       "expiresAt": {
         "helper": "Leave empty to hold until it is released.",
@@ -180,8 +181,17 @@
         "required": "A reason is required."
       },
       "scope": "Scope",
+      "stateLine": {
+        "awaitingInput": "You can still answer. After the answer, the task waits instead of resuming.",
+        "deferred": "Its trigger keeps waiting. When it fires, the task waits instead of resuming.",
+        "finished": "It has finished. If it is cleared, the new attempt waits.",
+        "notStarted": "It hasn't started, and won't until the hold ends.",
+        "queued": "This attempt starts anyway. Its next start or resume waits.",
+        "running": "This attempt keeps running. Its next start or resume waits: a retry, a re-run, or resuming after a trigger.",
+        "waitingToRun": "It won't run until the hold ends."
+      },
       "success": {
-        "description": "Matching task instances are not scheduled or queued until the hold is released or expires.",
+        "description": "Matching tasks won't start or resume until the hold is released or expires.",
         "title": "Hold placed"
       },
       "title": "Place hold"
@@ -191,15 +201,20 @@
       "all": "All"
     },
     "lock": {
+      "label": {
+        "held": "Held",
+        "pending": "Hold pending"
+      },
       "tooltip": {
-        "awaitingInput": "Hold active: answers are still accepted; the task is held when answered",
-        "deferred": "Hold active: the trigger keeps waiting; the task is held when it resumes",
-        "held": "Held: won't be queued until the hold is released or expires",
-        "queued": "Hold active: this attempt was queued before the hold and will still start; later attempts are held",
-        "run": "Hold active: tasks in this run won't be queued until the hold is released or expires",
-        "running": "Hold active: this attempt finishes; a retry or clear will be held",
-        "task": "Hold active: this task won't be queued in any run until the hold is released or expires",
-        "waiting": "Hold active: waits here until the hold is released or expires"
+        "awaitingInput": "You can still answer. Held when it resumes.",
+        "deferred": "The trigger keeps waiting. Held when it resumes.",
+        "finished": "Held if it's cleared.",
+        "held": "Won't run until the hold is released or expires.",
+        "queued": "This attempt carries on. Its next start or resume is held.",
+        "run": "Tasks in this run won't start or resume until the hold is released or expires.",
+        "running": "This attempt carries on. Its next start or resume is held.",
+        "task": "This task won't start or resume in any run until the hold is released or expires.",
+        "waiting": "Won't run until the hold is released or expires."
       }
     },
     "noActiveHolds": "No active holds.",
@@ -207,12 +222,12 @@
     "release": {
       "button": "Release",
       "confirm": "Release hold",
-      "description": "Task instances that no other active hold covers are scheduled and queued again.",
+      "description": "Tasks that no other active hold covers can start or resume again.",
       "error": "Failed to release hold",
       "reasonLabel": "Reason (optional)",
       "reasonPlaceholder": "Why is this being released?",
       "success": {
-        "description": "Task instances that no active hold covers any more are scheduled again.",
+        "description": "Tasks that no active hold covers any more can start or resume again.",
         "title": "Hold released"
       },
       "title": "Release hold"

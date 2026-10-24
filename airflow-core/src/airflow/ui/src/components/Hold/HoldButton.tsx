@@ -21,6 +21,8 @@ import { useDisclosure } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
 import { LuHand } from "react-icons/lu";
 
+import type { TaskInstanceState } from "openapi/requests/types.gen";
+
 import { IconButton } from "src/system-components";
 
 import { getHoldScope } from "src/utils/taskHolds";
@@ -32,6 +34,8 @@ type Props = {
   readonly isMapped?: boolean;
   /** Set to hold every task in this run, or with `taskId` just that task instance. */
   readonly runId?: string;
+  /** The state of the task instance, for the dialog to say what the hold does to it. */
+  readonly state?: TaskInstanceState | null;
   /** Set to hold this task in every run, or with `runId` just that task instance. */
   readonly taskId?: string;
 } & ButtonProps;
@@ -43,7 +47,7 @@ const typeKeys = {
 } as const;
 
 /** Opens the dialog that places a hold, its scope fixed by where the button sits. */
-export const HoldButton = ({ dagId, isMapped, runId, taskId, ...rest }: Props) => {
+export const HoldButton = ({ dagId, isMapped, runId, state, taskId, ...rest }: Props) => {
   const { onClose, onOpen, open } = useDisclosure();
   const { t: translate } = useTranslation();
 
@@ -64,6 +68,7 @@ export const HoldButton = ({ dagId, isMapped, runId, taskId, ...rest }: Props) =
         onClose={onClose}
         open={open}
         runId={runId}
+        state={state}
         taskId={taskId}
       />
     </>

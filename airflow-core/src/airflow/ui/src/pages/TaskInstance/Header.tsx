@@ -181,6 +181,7 @@ export const Header = ({ taskInstance }: { readonly taskInstance: TaskInstanceRe
               dagId={taskInstance.dag_id}
               isMapped={taskInstance.map_index > -1}
               runId={taskInstance.dag_run_id}
+              state={taskInstance.state}
               taskId={taskInstance.task_id}
               variant="outline"
             />

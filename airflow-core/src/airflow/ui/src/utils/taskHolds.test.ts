@@ -25,10 +25,13 @@ import {
   getHoldLockKind,
   getHoldScope,
   getHoldScopeLink,
+  getHoldStateLineKey,
   getMappedTaskIds,
   holdMatches,
+  isHoldLockPending,
   validateHoldForm,
   type HoldLockKind,
+  type HoldStateLineKey,
 } from "./taskHolds";
 
 const makeHold = (overrides: Partial<TaskHoldResponse> = {}): TaskHoldResponse => ({
@@ -48,6 +51,16 @@ const makeHold = (overrides: Partial<TaskHoldResponse> = {}): TaskHoldResponse =
 });
 
 const target = { dagId: "example_dag", runId: "run_1", taskId: "load" };
+
+// States grouped as the lock design's table does, by what a hold does to a task instance in them.
+const heldStates: Array<TaskInstanceState> = ["scheduled", "up_for_retry", "up_for_reschedule"];
+const finishedStates: Array<TaskInstanceState> = [
+  "success",
+  "failed",
+  "skipped",
+  "upstream_failed",
+  "removed",
+];
 
 // A task instance response also carries a map index, which a hold never looks at.
 const makeTaskInstance = (state: TaskInstanceState | null, mapIndex = -1) => ({
@@ -112,22 +125,13 @@ describe("getHoldLockKind", () => {
   describe("for a task instance", () => {
     const holds = [makeHold({ task_id: "load" })];
 
-    // The states of the lock design's table, grouped by what a hold does to a task instance in them.
     const waitingStates: Array<TaskInstanceState> = ["restarting"];
-    const heldStates: Array<TaskInstanceState> = ["scheduled", "up_for_retry", "up_for_reschedule"];
     const carryingOnKinds = {
       awaiting_input: "awaitingInput",
       deferred: "deferred",
       queued: "queued",
       running: "running",
     } as const satisfies Partial<Record<TaskInstanceState, HoldLockKind>>;
-    const finishedStates: Array<TaskInstanceState> = [
-      "success",
-      "failed",
-      "skipped",
-      "upstream_failed",
-      "removed",
-    ];
 
     it.each(heldStates)("is held while the task instance waits in %s", (state) => {
       expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("held");
@@ -148,9 +152,18 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind(holds, makeTaskInstance(state as TaskInstanceState))).toBe(kind);
     });
 
-    it.each(finishedStates)("shows nothing for a task instance that is already %s", (state) => {
-      expect(getHoldLockKind(holds, makeTaskInstance(state))).toBeUndefined();
+    // Nothing is left to stop, but if it is cleared the new attempt waits.
+    it.each(finishedStates)("locks a task instance that is already %s as finished", (state) => {
+      expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("finished");
     });
+
+    it.each(finishedStates)(
+      "shows nothing for a task instance that is already %s and no hold covers",
+      (state) => {
+        expect(getHoldLockKind([makeHold({ task_id: "extract" })], makeTaskInstance(state))).toBeUndefined();
+        expect(getHoldLockKind([], makeTaskInstance(state))).toBeUndefined();
+      },
+    );
 
     it("decides every task instance state", () => {
       const decided = [...heldStates, ...waitingStates, ...Object.keys(carryingOnKinds), ...finishedStates];
@@ -258,6 +271,60 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind([makeHold({ dag_id: "other_dag", run_id: "run_1" })], subject)).toBeUndefined();
       expect(getHoldLockKind([makeHold({ active: false, run_id: "run_1" })], subject)).toBeUndefined();
     });
+  });
+});
+
+describe("isHoldLockPending", () => {
+  // A lock is pending where the hold has nothing to stop yet; everywhere else it is stopping the task now.
+  const pendingByKind = {
+    awaitingInput: true,
+    deferred: true,
+    finished: true,
+    held: false,
+    queued: true,
+    run: false,
+    running: true,
+    task: false,
+    waiting: false,
+  } as const satisfies Record<HoldLockKind, boolean>;
+
+  it.each(Object.entries(pendingByKind))("tells whether the %s lock is pending: %s", (kind, isPending) => {
+    expect(isHoldLockPending(kind as HoldLockKind)).toBe(isPending);
+  });
+});
+
+describe("getHoldStateLineKey", () => {
+  const startedKinds = {
+    awaiting_input: "awaitingInput",
+    deferred: "deferred",
+    queued: "queued",
+    running: "running",
+  } as const satisfies Partial<Record<TaskInstanceState, HoldStateLineKey>>;
+
+  it("says a task instance with no state has not started", () => {
+    expect(getHoldStateLineKey(null)).toBe("notStarted");
+  });
+
+  it.each(heldStates)("says a task instance waiting in %s will not run", (state) => {
+    expect(getHoldStateLineKey(state)).toBe("waitingToRun");
+  });
+
+  it.each(Object.entries(startedKinds))("gives a task instance in %s the %s line", (state, key) => {
+    expect(getHoldStateLineKey(state as TaskInstanceState)).toBe(key);
+  });
+
+  it.each(finishedStates)("says a task instance that is already %s has finished", (state) => {
+    expect(getHoldStateLineKey(state)).toBe("finished");
+  });
+
+  it("has no line for a task instance that is restarting", () => {
+    expect(getHoldStateLineKey("restarting")).toBeUndefined();
+  });
+
+  it("decides every task instance state", () => {
+    const decided = [...heldStates, ...Object.keys(startedKinds), ...finishedStates, "restarting"];
+
+    expect(decided.sort()).toEqual([...$TaskInstanceState.enum].sort());
   });
 });
 

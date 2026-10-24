@@ -22,12 +22,14 @@ import { Box, Button, Field, Text, Textarea, VStack } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
 import { LuHand } from "react-icons/lu";
 
+import type { TaskInstanceState } from "openapi/requests/types.gen";
+
 import { Modal } from "src/system-components";
 
 import { DateTimeInput } from "src/components/DateTimeInput";
 
 import { useCreateTaskHold } from "src/queries/useCreateTaskHold";
-import { getHoldScope, validateHoldForm } from "src/utils/taskHolds";
+import { getHoldScope, getHoldStateLineKey, validateHoldForm } from "src/utils/taskHolds";
 
 type Props = {
   readonly dagId: string;
@@ -37,11 +39,16 @@ type Props = {
   readonly open: boolean;
   /** Set to hold every task in this run, or with `taskId` just that task instance. */
   readonly runId?: string;
+  /**
+   * The state of the task instance, for the dialog to say what the hold does to it. Left out where it
+   * is not known, and not read for a task in every run or a run as a whole.
+   */
+  readonly state?: TaskInstanceState | null;
   /** Set to hold this task in every run, or with `runId` just that task instance. */
   readonly taskId?: string;
 };
 
-const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, taskId }: Props) => {
+const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, taskId }: Props) => {
   const { t: translate } = useTranslation("dags");
 
   const [reason, setReason] = useState("");
@@ -50,6 +57,8 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, taskId }: P
   const [showErrors, setShowErrors] = useState(false);
 
   const scope = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
+  const stateLineKey =
+    scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
   const errors = validateHoldForm({ expiresAt, reason });
   const isReasonInvalid = showErrors && errors.reason !== undefined;
   const isExpiresAtInvalid = showErrors && errors.expiresAt !== undefined;
@@ -98,9 +107,16 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, taskId }: P
       title={translate("taskHold.dialog.title")}
     >
       <VStack align="stretch" gap={4}>
-        <Text color="fg.muted" fontSize="sm">
-          {translate("taskHold.dialog.description")}
-        </Text>
+        <VStack align="stretch" gap={2}>
+          <Text color="fg.muted" fontSize="sm">
+            {translate(scope === "run" ? "taskHold.dialog.descriptionRun" : "taskHold.dialog.description")}
+          </Text>
+          {stateLineKey === undefined ? undefined : (
+            <Text bg="bg.muted" borderRadius="md" data-testid="hold-state-line" fontSize="sm" px={3} py={2}>
+              {translate(`taskHold.dialog.stateLine.${stateLineKey}`)}
+            </Text>
+          )}
+        </VStack>
         <Box>
           <Text fontWeight="bold" mb={1}>
             {translate("taskHold.dialog.scope")}

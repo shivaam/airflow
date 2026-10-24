@@ -48,34 +48,82 @@ export const holdMatches = (
   (hold.run_id === null || hold.run_id === runId);
 
 /**
- * What an active hold means where it is shown. A hold only stops a new start and never changes the
- * state of a task instance, so what the lock does to it depends on how far along it is. A task across
- * its runs, and a run as a whole, have no state of their own and are simply held.
+ * What an active hold means where it is shown. A hold only stops a start or a resume and never changes
+ * the state of a task instance, so what the lock does to it depends on how far along it is. Either the hold
+ * is stopping the task now, or it is pending, with nothing to stop yet (see `isHoldLockPending`). A task
+ * across its runs, and a run as a whole, have no state of their own and are simply held.
  */
 export type HoldLockKind =
-  "awaitingInput" | "deferred" | "held" | "queued" | "run" | "running" | "task" | "waiting";
+  "awaitingInput" | "deferred" | "finished" | "held" | "queued" | "run" | "running" | "task" | "waiting";
 
 // The scheduler checks the lock before it moves a task instance out of `none`, so one that has not
 // started waits where it is, and again before it queues a `scheduled` one. Every other task instance
 // that is about to start again waits once it is `scheduled`: a retry or a reschedule moves there as
 // usual when its time comes, and a deferred or awaiting-input task instance moves there when it
-// resumes. An attempt that is already queued or running has passed both checks and carries on, so only
-// the next one, a retry or a clear, is held. One that has finished has nothing left to hold.
-const lockKindByState: Record<TaskInstanceState, HoldLockKind | undefined> = {
+// resumes. An attempt that is already queued or running has passed both checks and carries on, so the
+// hold stops its next start or resume: a retry, a clear, or resuming after it defers. One that has
+// finished has nothing to stop yet, but if it is cleared the new attempt waits, so it shows a pending
+// hold as well.
+const lockKindByState: Record<TaskInstanceState, HoldLockKind> = {
   awaiting_input: "awaitingInput",
   deferred: "deferred",
-  failed: undefined,
+  failed: "finished",
   queued: "queued",
-  removed: undefined,
+  removed: "finished",
   restarting: "waiting",
   running: "running",
   scheduled: "held",
-  skipped: undefined,
-  success: undefined,
+  skipped: "finished",
+  success: "finished",
   up_for_reschedule: "held",
   up_for_retry: "held",
-  upstream_failed: undefined,
+  upstream_failed: "finished",
 };
+
+// A lock is pending where the hold has nothing to stop yet: the attempt carries on or has finished,
+// and the hold takes effect at its next start or resume. Everywhere else it is stopping the task now.
+const pendingByLockKind: Record<HoldLockKind, boolean> = {
+  awaitingInput: true,
+  deferred: true,
+  finished: true,
+  held: false,
+  queued: true,
+  run: false,
+  running: true,
+  task: false,
+  waiting: false,
+};
+
+/** Whether a lock is pending, with nothing to stop yet, rather than stopping the task now. */
+export const isHoldLockPending = (kind: HoldLockKind): boolean => pendingByLockKind[kind];
+
+/** Which line of `taskHold.dialog.stateLine` says what a hold does to a task instance in its state. */
+export type HoldStateLineKey =
+  "awaitingInput" | "deferred" | "finished" | "notStarted" | "queued" | "running" | "waitingToRun";
+
+// A restarting task instance has no line. One with no state is told apart in `getHoldStateLineKey`.
+const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefined> = {
+  awaiting_input: "awaitingInput",
+  deferred: "deferred",
+  failed: "finished",
+  queued: "queued",
+  removed: "finished",
+  restarting: undefined,
+  running: "running",
+  scheduled: "waitingToRun",
+  skipped: "finished",
+  success: "finished",
+  up_for_reschedule: "waitingToRun",
+  up_for_retry: "waitingToRun",
+  upstream_failed: "finished",
+};
+
+/**
+ * The line the hold dialog shows for a task instance in this state, or nothing for a state it has no
+ * line for. A task instance with no state has not started.
+ */
+export const getHoldStateLineKey = (state: TaskInstanceState | null): HoldStateLineKey | undefined =>
+  state === null ? "notStarted" : stateLineKeyByState[state];
 
 /**
  * What a lock is shown for: a task instance, or, with `task_id` or `dag_run_id` left out, a task across
@@ -92,10 +140,11 @@ export type HoldLockSubject = {
 };
 
 /**
- * The kind of lock to show for a subject, or nothing when no active hold covers it or the hold has
- * nothing left to do to it. A task instance is covered by a hold that matches its Dag, its task and its
- * run wherever the hold sets them, whatever its map index. A task or a run as a whole is covered only
- * by a hold set at exactly that scope, not by one on a single run of the task or a single task of the run.
+ * The kind of lock to show for a subject, or nothing when no active hold covers it. A task instance is
+ * covered by a hold that matches its Dag, its task and its run wherever the hold sets them, whatever its
+ * map index, and a finished one is covered too: if it is cleared, the new attempt waits. A task or a run
+ * as a whole is covered only by a hold set at exactly that scope, not by one on a single run of the task
+ * or a single task of the run.
  */
 export const getHoldLockKind = (
   holds: ReadonlyArray<TaskHoldResponse>,

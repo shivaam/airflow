@@ -127,3 +127,59 @@ describe("HoldDialog", () => {
     expect(screen.getByTestId("hold-scope")).toHaveTextContent("taskHold.dialog.mappedHint");
   });
 });
+
+describe("HoldDialog description", () => {
+  it.each([
+    { props: { taskId: "load" }, title: "a task in every run" },
+    { props: { runId: "run_1", taskId: "load" }, title: "a task instance" },
+  ])("describes a hold on $title as stopping the task", ({ props }) => {
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open {...props} />, { wrapper: Wrapper });
+
+    expect(screen.getByText("taskHold.dialog.description")).toBeInTheDocument();
+    expect(screen.queryByText("taskHold.dialog.descriptionRun")).not.toBeInTheDocument();
+  });
+
+  it("describes a hold on a run as stopping the tasks in it", () => {
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" />, { wrapper: Wrapper });
+
+    expect(screen.getByText("taskHold.dialog.descriptionRun")).toBeInTheDocument();
+    expect(screen.queryByText("taskHold.dialog.description")).not.toBeInTheDocument();
+  });
+});
+
+describe("HoldDialog state line", () => {
+  // The states of a group get the same line.
+  it.each([
+    { key: "notStarted", state: null },
+    { key: "waitingToRun", state: "scheduled" },
+    { key: "waitingToRun", state: "up_for_retry" },
+    { key: "waitingToRun", state: "up_for_reschedule" },
+    { key: "deferred", state: "deferred" },
+    { key: "awaitingInput", state: "awaiting_input" },
+    { key: "queued", state: "queued" },
+    { key: "running", state: "running" },
+    { key: "finished", state: "success" },
+    { key: "finished", state: "failed" },
+    { key: "finished", state: "skipped" },
+    { key: "finished", state: "upstream_failed" },
+    { key: "finished", state: "removed" },
+  ] as const)("says what the hold does to a task instance in state $state", ({ key, state }) => {
+    render(
+      <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state={state} taskId="load" />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByTestId("hold-state-line").textContent).toBe(`taskHold.dialog.stateLine.${key}`);
+  });
+
+  it.each([
+    { props: { runId: "run_1", state: "restarting", taskId: "load" }, title: "a restarting task instance" },
+    { props: { runId: "run_1", taskId: "load" }, title: "a task instance whose state is not given" },
+    { props: { state: "running", taskId: "load" }, title: "a task in every run" },
+    { props: { runId: "run_1", state: "running" }, title: "a run" },
+  ] as const)("has no state line for $title", ({ props }) => {
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open {...props} />, { wrapper: Wrapper });
+
+    expect(screen.queryByTestId("hold-state-line")).not.toBeInTheDocument();
+  });
+});
