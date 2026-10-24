@@ -48,23 +48,26 @@ export const holdMatches = (
   (hold.run_id === null || hold.run_id === runId);
 
 /**
- * What an active hold means where it is shown. A hold is a lock the scheduler checks, so a task
- * instance keeps the state it has and what the lock does to it depends on how far along it is. A task
- * across its runs, and a run as a whole, have no state of their own and are simply held.
+ * What an active hold means where it is shown. A hold only stops a new start and never changes the
+ * state of a task instance, so what the lock does to it depends on how far along it is. A task across
+ * its runs, and a run as a whole, have no state of their own and are simply held.
  */
-export type HoldLockKind = "awaitingInput" | "deferred" | "held" | "queued" | "run" | "running" | "task";
+export type HoldLockKind =
+  "awaitingInput" | "deferred" | "held" | "queued" | "run" | "running" | "task" | "waiting";
 
-// The scheduler checks the lock before it schedules a task instance and again before it queues one.
-// An attempt that is already queued or running has passed both and carries on, so only the next one,
-// a retry or a clear, is held. A deferred or awaiting-input task instance is held when it comes back
-// through the scheduler. One that has finished has nothing left to hold.
+// The scheduler checks the lock before it moves a task instance out of `none`, so one that has not
+// started waits where it is, and again before it queues a `scheduled` one. Every other task instance
+// that is about to start again waits once it is `scheduled`: a retry or a reschedule moves there as
+// usual when its time comes, and a deferred or awaiting-input task instance moves there when it
+// resumes. An attempt that is already queued or running has passed both checks and carries on, so only
+// the next one, a retry or a clear, is held. One that has finished has nothing left to hold.
 const lockKindByState: Record<TaskInstanceState, HoldLockKind | undefined> = {
   awaiting_input: "awaitingInput",
   deferred: "deferred",
   failed: undefined,
   queued: "queued",
   removed: undefined,
-  restarting: "held",
+  restarting: "waiting",
   running: "running",
   scheduled: "held",
   skipped: undefined,
@@ -108,7 +111,7 @@ export const getHoldLockKind = (
     return active.some((hold) => hold.run_id === null && hold.task_id === taskId) ? "task" : undefined;
   }
 
-  const kind = state === null || state === undefined ? "held" : lockKindByState[state];
+  const kind = state === null || state === undefined ? "waiting" : lockKindByState[state];
 
   return active.some((hold) => holdMatches(hold, { dagId, runId, taskId })) ? kind : undefined;
 };

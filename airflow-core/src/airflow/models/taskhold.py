@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 class TaskHold(Base):
     """
-    An operator-placed lock that stops matching task instances from being scheduled and queued.
+    An operator-placed lock that stops matching task instances from starting.
 
     A hold is a lock, not a task state: it never changes the state of a task instance it covers. A hold
     matches task instances by coordinates, never by task instance id, so it keeps applying across retries
@@ -45,9 +45,10 @@ class TaskHold(Base):
     indexes). A hold is *active* until it is released or expires.
 
     The scheduler reads the table at two gates. The ``TaskHoldDep`` dependency keeps a covered task
-    instance from moving to ``scheduled``, whatever state it waits in, and the statement that moves a
-    ``scheduled`` task instance to ``queued`` refuses a covered one. The attempt of a task instance that is
-    already queued or running continues; later attempts are held.
+    instance that has not started in ``none``, and the statement that moves a ``scheduled`` task instance
+    to ``queued`` refuses a covered one. Any other task instance that is about to start again, such as a
+    retry, a reschedule or one resuming from a trigger, reaches ``scheduled`` as usual and waits there. The
+    attempt of a task instance that is already queued or running continues; later attempts are held.
     """
 
     __tablename__ = "task_hold"

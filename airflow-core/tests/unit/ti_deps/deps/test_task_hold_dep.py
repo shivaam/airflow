@@ -29,6 +29,7 @@ from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.serialization.definitions.baseoperator import DEFAULT_OPERATOR_DEPS
 from airflow.ti_deps.dep_context import DepContext
 from airflow.ti_deps.deps.task_hold_dep import TaskHoldDep
+from airflow.utils.state import TaskInstanceState
 
 from tests_common.test_utils.asserts import assert_queries_count
 from unit.models import DEFAULT_DATE
@@ -165,6 +166,31 @@ class TestTaskHoldDep:
         session.flush()
 
         assert {key[:2] for key in covered_keys(task_instances, session)} == {("dag", "r2")}
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            pytest.param(None, id="none"),
+            *(pytest.param(state, id=state.value) for state in TaskInstanceState),
+        ],
+    )
+    def test_a_hold_keeps_only_a_task_instance_that_has_not_started(self, task_instances, session, state):
+        """A hold only delays a start: a task instance in any other state is left to the scheduler's decisions."""
+        session.add(TaskHold(dag_id="dag", task_id="t1", reason="test"))
+        ti = task_instances[("dag", "r1", "t1", -1)]
+        ti.state = state
+        session.flush()
+
+        assert TaskHoldDep().is_met(ti, DepContext(), session=session) is (state is not None)
+
+    def test_a_task_instance_that_has_started_does_not_read_the_hold_table(self, task_instances, session):
+        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
+        ti = task_instances[("dag", "r1", "t1", -1)]
+        ti.state = TaskInstanceState.UP_FOR_RETRY
+        session.flush()
+
+        with assert_queries_count(0, session=session):
+            assert TaskHoldDep().is_met(ti, DepContext(), session=session)
 
     def test_every_covering_hold_fails_the_dependency_until_the_last_one_is_over(
         self, task_instances, session

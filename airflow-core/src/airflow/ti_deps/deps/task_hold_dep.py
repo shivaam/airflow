@@ -33,14 +33,20 @@ if TYPE_CHECKING:
 
 class TaskHoldDep(BaseTIDep):
     """
-    Determines whether no operator-placed task hold covers the task instance.
+    Determines whether no operator-placed task hold covers a task instance that has not started.
 
     This is the first of the two gates a task hold has in the scheduler. It sits among the dependencies the
     scheduler evaluates when it decides whether a task instance can move to ``scheduled``, so a covered
-    task instance stays where it is (``none``, ``up_for_retry`` or ``up_for_reschedule``) and is
-    evaluated again by every scheduling decision until the hold is released or expires. The task
-    instance's state, its try number and its trigger rule are never touched by the hold, and the trigger
-    rule is evaluated afresh on release.
+    task instance in ``none`` stays there, and is evaluated again by every scheduling decision until the
+    hold is released or expires. That also keeps an ``EmptyOperator`` task from being marked ``success``
+    and a ``start_from_trigger`` task from being sent to the triggerer. The task instance's state, its try
+    number and its trigger rule are never touched by the hold, and the trigger rule is evaluated afresh on
+    release.
+
+    A task instance in any other state passes. A retry, a sensor that reschedules, a task resuming after a
+    trigger or a human answer, and one that was already ``scheduled`` when the hold was placed all reach
+    ``scheduled`` as usual and wait there, because the statement that moves a ``scheduled`` task instance
+    to ``queued`` refuses a covered one. That statement is the second gate.
 
     A hold covers every map index of the task. A hold without a ``task_id`` covers every task of its run,
     and a hold without a ``run_id`` covers its task in every run.
@@ -57,6 +63,10 @@ class TaskHoldDep(BaseTIDep):
     ) -> Iterator[TIDepStatus]:
         if dep_context.ignore_task_holds:
             yield self._passing_status(reason="The context specified that task holds can be ignored.")
+            return
+
+        if ti.state is not None:
+            yield self._passing_status(reason="A task hold only keeps a task instance that has not started.")
             return
 
         holds = dep_context.covering_task_holds(ti, session=session)

@@ -2803,7 +2803,8 @@ class TestGetTaskDependencies(TestTaskInstanceEndpoint):
         assert response.json() == dependencies
 
     def test_should_respond_task_hold_dependency(self, test_client, session):
-        self.create_task_instances(session, task_instances=[{"state": State.SCHEDULED}], update_extras=True)
+        # A hold keeps back a task instance that has not started, so that is the one it blocks.
+        self.create_task_instances(session, task_instances=[{"state": State.NONE}], update_extras=True)
         hold = TaskHold(
             dag_id="example_python_operator", task_id="print_the_context", reason="incident INC-42"
         )

@@ -49,7 +49,7 @@ from airflow import settings
 from airflow._shared.module_loading import qualname
 from airflow._shared.observability.metrics.base_stats_logger import StatsLogger
 from airflow._shared.timezones import timezone
-from airflow.api.common.mark_tasks import set_dag_run_state_to_failed, set_state
+from airflow.api.common.mark_tasks import set_dag_run_state_to_failed
 from airflow.api_fastapi.auth.tokens import JWTGenerator
 from airflow.api_fastapi.core_api.routes.public.task_holds import (
     release_task_hold as release_task_hold_endpoint,
@@ -475,12 +475,12 @@ def _staged_in_scheduling_loop(
     """
     Run ``action`` once, at a chosen point of the scheduler loop, as another process would.
 
-    * ``before``: just before the loop's task hold step (which expires holds and sends covered ``scheduled``
-      task instances back to ``none``), so the step sees what ``action`` wrote.
+    * ``before``: just before the loop's task hold step (which records the expiry of holds), so the step sees
+      what ``action`` wrote.
     * ``after``: just after the hold step, in the window before the critical section that queues the
       ``scheduled`` task instances.
     * ``queueing``: at the entry of that critical section, after everything the loop does between its hold
-      step and it. No pass of the hold step placed earlier, such as a second one, can see or undo the write.
+      step and it.
     * ``statement``: just before the statement that selects the task instances to queue, once its predicates
       are built. Nothing the loop read beforehand can see the write; only the statement itself can.
 
@@ -515,8 +515,8 @@ def _staged_in_scheduling_loop(
     assert staged_writes, f"the scheduler loop never reached {point}, where the write was staged"
 
 
-# Where ``_staged_in_scheduling_loop`` lands a write: ahead of the hold step (the control), right after it, and
-# at the entry of the queueing step.
+# Where ``_staged_in_scheduling_loop`` lands a write: ahead of the hold step, right after it, and at the entry
+# of the queueing step.
 _WRITE_LANDS_AT = pytest.mark.parametrize(
     "when",
     ["before", "after", "queueing"],
@@ -9873,136 +9873,6 @@ class TestSchedulerJob:
         session.flush()
         self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
 
-    @pytest.mark.parametrize(
-        ("scope", "expected_covered"),
-        [
-            pytest.param({"task_id": "t1"}, {("run_a", "t1"), ("run_b", "t1")}, id="task_only"),
-            pytest.param({"run_id": "run_a"}, {("run_a", "t1"), ("run_a", "t2")}, id="run_only"),
-            pytest.param({"task_id": "t1", "run_id": "run_a"}, {("run_a", "t1")}, id="task_and_run"),
-        ],
-    )
-    def test_task_hold_sends_covered_scheduled_task_instances_back_to_none(
-        self, hold_dags, session, scope, expected_covered
-    ):
-        session.add(TaskHold(dag_id="hold_dag", reason="test", **scope))
-        session.flush()
-
-        self.job_runner._maintain_task_holds(session=session)
-
-        assert _task_instances_in_state(session, "hold_dag", None) == expected_covered
-        # Everything else, including the same ids in another Dag, is left scheduled.
-        assert {
-            state
-            for key, state in _task_instance_states(session, "hold_dag").items()
-            if key not in expected_covered
-        } == {TaskInstanceState.SCHEDULED}
-        assert set(_task_instance_states(session, "other_dag").values()) == {TaskInstanceState.SCHEDULED}
-
-    @pytest.mark.parametrize("with_run_id", [False, True], ids=["task_only", "task_and_run"])
-    def test_task_hold_sends_every_map_index_of_a_mapped_task_back_to_none(
-        self, dag_maker, session, with_run_id
-    ):
-        with dag_maker(dag_id="hold_mapped", schedule=None, session=session):
-            BashOperator.partial(task_id="mapped", bash_command="true").expand(
-                env=[{"n": str(n)} for n in range(3)]
-            )
-            EmptyOperator(task_id="plain")
-        dr = dag_maker.create_dagrun()
-        for ti in dr.task_instances:
-            ti.state = TaskInstanceState.SCHEDULED
-        session.add(
-            TaskHold(
-                dag_id="hold_mapped",
-                task_id="mapped",
-                run_id=dr.run_id if with_run_id else None,
-                reason="test",
-            )
-        )
-        session.flush()
-        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-
-        self.job_runner._maintain_task_holds(session=session)
-
-        rows = session.execute(
-            select(TaskInstance.task_id, TaskInstance.map_index, TaskInstance.state).where(
-                TaskInstance.dag_id == "hold_mapped"
-            )
-        )
-        assert {(task_id, map_index): state for task_id, map_index, state in rows} == {
-            ("mapped", 0): None,
-            ("mapped", 1): None,
-            ("mapped", 2): None,
-            ("plain", -1): TaskInstanceState.SCHEDULED,
-        }
-
-    def test_task_hold_only_sends_scheduled_task_instances_back_to_none(self, dag_maker, session):
-        states = {
-            "none": None,
-            "scheduled": TaskInstanceState.SCHEDULED,
-            "queued": TaskInstanceState.QUEUED,
-            "running": TaskInstanceState.RUNNING,
-            "deferred": TaskInstanceState.DEFERRED,
-            "up_for_retry": TaskInstanceState.UP_FOR_RETRY,
-            "success": TaskInstanceState.SUCCESS,
-        }
-        with dag_maker(dag_id="hold_states", schedule=None, session=session):
-            for task_id in states:
-                EmptyOperator(task_id=task_id)
-        dr = dag_maker.create_dagrun()
-        for ti in dr.task_instances:
-            ti.state = states[ti.task_id]
-        session.add(TaskHold(dag_id="hold_states", run_id=dr.run_id, reason="test"))
-        session.flush()
-        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-
-        self.job_runner._maintain_task_holds(session=session)
-
-        assert {
-            task_id: state for (_, task_id), state in _task_instance_states(session, "hold_states").items()
-        } == {**states, "scheduled": None}
-
-    def test_task_hold_leaves_a_task_instance_resuming_from_a_deferral_scheduled(self, hold_dags, session):
-        """
-        Only a fresh attempt goes back to ``none``; a resuming one keeps the event it is resuming from.
-
-        A task instance resuming from a deferral or a human answer is ``scheduled`` with ``next_method`` and
-        ``next_kwargs`` set. Run from ``none`` it would start over without them, so it waits for the release in
-        ``scheduled``, where the queueing statement keeps it out of the queue.
-        """
-        resuming = session.scalars(
-            select(TaskInstance).where(
-                TaskInstance.dag_id == "hold_dag",
-                TaskInstance.run_id == "run_a",
-                TaskInstance.task_id == "t1",
-            )
-        ).one()
-        resuming.next_method = "execute_complete"
-        resuming.next_kwargs = {"event": {"status": "done"}}
-        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
-        session.flush()
-
-        self.job_runner._maintain_task_holds(session=session)
-
-        assert _task_instance_states(session, "hold_dag") == {
-            ("run_a", "t1"): TaskInstanceState.SCHEDULED,
-            ("run_b", "t1"): None,
-            ("run_a", "t2"): TaskInstanceState.SCHEDULED,
-            ("run_b", "t2"): TaskInstanceState.SCHEDULED,
-        }
-        resuming = session.scalars(
-            select(TaskInstance)
-            .where(
-                TaskInstance.dag_id == "hold_dag",
-                TaskInstance.run_id == "run_a",
-                TaskInstance.task_id == "t1",
-            )
-            .execution_options(populate_existing=True)
-        ).one()
-        assert (resuming.next_method, resuming.next_kwargs) == (
-            "execute_complete",
-            {"event": {"status": "done"}},
-        )
-
     def test_a_released_task_hold_covers_nothing_and_is_left_as_it_was(self, hold_dags, session):
         hold = TaskHold(
             dag_id="hold_dag",
@@ -10084,23 +9954,6 @@ class TestSchedulerJob:
         assert hold.released_at == hold.expires_at
         assert hold.released_by == "expiry"
 
-    def test_task_hold_sends_a_bounded_batch_back_to_none_per_loop(self, dag_maker, session):
-        """A large hold costs a loop one bounded batch; the rest follows on the next loops."""
-        with dag_maker(dag_id="hold_batches", schedule=None, session=session):
-            for index in range(5):
-                EmptyOperator(task_id=f"t{index}")
-        dr = dag_maker.create_dagrun()
-        for ti in dr.task_instances:
-            ti.state = TaskInstanceState.SCHEDULED
-        session.add(TaskHold(dag_id="hold_batches", run_id=dr.run_id, reason="test"))
-        session.flush()
-        self.job_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-
-        with mock.patch("airflow.jobs.scheduler_job_runner.MAX_TASK_HOLD_UNSCHEDULES_PER_LOOP", 2):
-            for expected_in_none in (2, 4, 5, 5):
-                self.job_runner._maintain_task_holds(session=session)
-                assert len(_task_instances_in_state(session, "hold_batches", None)) == expected_in_none
-
     def test_task_hold_step_is_one_query_when_there_are_no_holds(self, hold_dags, session):
         with assert_queries_count(1, session=session):
             self.job_runner._maintain_task_holds(session=session)
@@ -10144,6 +9997,109 @@ class TestSchedulerJob:
         assert _task_instance_states(session, "hold_loop")[(dag_run.run_id, "held_task")] == (
             TaskInstanceState.QUEUED
         )
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    def test_task_hold_keeps_a_task_that_has_not_started_in_none_until_release(
+        self, dag_maker, mock_executors, session
+    ):
+        dag_id = "hold_not_started"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            # Can't use EmptyOperator as that goes straight to success
+            BashOperator(task_id="held_task", bash_command="true")
+            BashOperator(task_id="other_task", bash_command="true")
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        run_id = dr.run_id
+        hold_id = _commit_task_hold(session, dag_id, task_id="held_task")
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        # A task instance that has not started waits where it is: the scheduler does not schedule it, so its
+        # trigger rule is not decided yet. The task instance no hold covers goes through.
+        for expected_queued in (1, 0):
+            assert self.job_runner._do_scheduling(session) == expected_queued
+            assert _task_instance_states(session, dag_id) == {
+                (run_id, "held_task"): None,
+                (run_id, "other_task"): TaskInstanceState.QUEUED,
+            }
+        assert _live_task_instance(session, dag_id, "held_task").scheduled_dttm is None
+
+        # Released, it is scheduled and then queued.
+        _release_task_hold(session, hold_id)
+        assert self.job_runner._do_scheduling(session) == 1
+        released = _live_task_instance(session, dag_id, "held_task")
+        assert released.state == TaskInstanceState.QUEUED
+        assert released.scheduled_dttm is not None, "the task instance was queued without being scheduled"
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    def test_task_hold_leaves_a_task_that_was_already_scheduled_scheduled_until_release(
+        self, dag_maker, mock_executors, session
+    ):
+        dag_id = "hold_already_scheduled"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            BashOperator(task_id="held_task", bash_command="true")
+            BashOperator(task_id="other_task", bash_command="true")
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        run_id = dr.run_id
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        session.commit()
+        scheduled_id = _live_task_instance(session, dag_id, "held_task").id
+        # The hold is placed after the task instance was scheduled and before the scheduler queued it.
+        hold_id = _commit_task_hold(session, dag_id, task_id="held_task")
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        # A hold never changes a status: the task instance keeps the decision it has and is kept out of the
+        # queue. It is not sent back to ``none``, however many loops pass. The task instance no hold covers
+        # is queued.
+        for expected_queued in (1, 0, 0):
+            assert self.job_runner._do_scheduling(session) == expected_queued
+            assert _task_instance_states(session, dag_id) == {
+                (run_id, "held_task"): TaskInstanceState.SCHEDULED,
+                (run_id, "other_task"): TaskInstanceState.QUEUED,
+            }
+        assert _live_task_instance(session, dag_id, "held_task").id == scheduled_id
+        sent = [
+            call.args[0].ti.task_id
+            for executor in mock_executors
+            for call in executor.queue_workload.call_args_list
+        ]
+        assert sent == ["other_task"]
+
+        # Released, it is queued as it was.
+        _release_task_hold(session, hold_id)
+        assert self.job_runner._do_scheduling(session) == 1
+        held = _live_task_instance(session, dag_id, "held_task")
+        assert (held.id, held.state) == (scheduled_id, TaskInstanceState.QUEUED)
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    @pytest.mark.parametrize("with_run_id", [False, True], ids=["task_only", "task_and_run"])
+    def test_task_hold_keeps_every_map_index_of_a_mapped_task_out_of_the_queue(
+        self, dag_maker, mock_executors, session, with_run_id
+    ):
+        dag_id = "hold_mapped"
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            BashOperator.partial(task_id="mapped", bash_command="true").expand(
+                env=[{"n": str(n)} for n in range(3)]
+            )
+            BashOperator(task_id="plain", bash_command="true")
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        for ti in dr.task_instances:
+            ti.state = TaskInstanceState.SCHEDULED
+        _commit_task_hold(session, dag_id, task_id="mapped", run_id=dr.run_id if with_run_id else None)
+        self.job_runner = SchedulerJobRunner(job=Job())
+
+        assert self.job_runner._do_scheduling(session) == 1
+
+        rows = session.execute(
+            select(TaskInstance.task_id, TaskInstance.map_index, TaskInstance.state).where(
+                TaskInstance.dag_id == dag_id
+            )
+        )
+        assert {(task_id, map_index): state for task_id, map_index, state in rows} == {
+            ("mapped", 0): TaskInstanceState.SCHEDULED,
+            ("mapped", 1): TaskInstanceState.SCHEDULED,
+            ("mapped", 2): TaskInstanceState.SCHEDULED,
+            ("plain", -1): TaskInstanceState.QUEUED,
+        }
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     def test_task_hold_on_an_empty_task_keeps_its_downstream_from_running(
@@ -10329,7 +10285,7 @@ class TestSchedulerJob:
         assert (ti.next_method, ti.next_kwargs) == resume
 
     @pytest.mark.usefixtures("testing_dag_bundle")
-    def test_task_hold_keeps_a_sensor_whose_reschedule_date_passed_waiting(
+    def test_task_hold_lets_a_sensor_reschedule_become_scheduled_but_not_queued_until_release(
         self, dag_maker, mock_executors, session
     ):
         dag_id = "hold_sensor_reschedule"
@@ -10353,11 +10309,11 @@ class TestSchedulerJob:
         hold_id = _commit_task_hold(session, dag_id, task_id="sensor")
         self.job_runner = SchedulerJobRunner(job=Job())
 
-        # The reschedule date is still ahead: the sensor keeps waiting, untouched by the hold.
+        # The reschedule date is still ahead: the sensor waits for it as it does without a hold.
         assert self.job_runner._do_scheduling(session) == 0
         assert _live_task_instance(session, dag_id, "sensor").state == TaskInstanceState.UP_FOR_RESCHEDULE
 
-        # Once the date passes the sensor would be scheduled again, but the hold keeps it where it is.
+        # Once the date passes the sensor is scheduled as usual, and the hold keeps it out of the queue.
         session.execute(
             update(TaskReschedule)
             .where(TaskReschedule.ti_id == ti_id)
@@ -10366,14 +10322,15 @@ class TestSchedulerJob:
         session.commit()
         for _ in range(2):
             assert self.job_runner._do_scheduling(session) == 0
-            assert _live_task_instance(session, dag_id, "sensor").state == TaskInstanceState.UP_FOR_RESCHEDULE
+            assert _live_task_instance(session, dag_id, "sensor").state == TaskInstanceState.SCHEDULED
+        assert not any(executor.queue_workload.called for executor in mock_executors)
 
         _release_task_hold(session, hold_id)
         assert self.job_runner._do_scheduling(session) == 1
         assert _live_task_instance(session, dag_id, "sensor").state == TaskInstanceState.QUEUED
 
     @pytest.mark.usefixtures("testing_dag_bundle")
-    def test_task_hold_keeps_a_retry_waiting_without_using_an_extra_try(
+    def test_task_hold_lets_a_retry_become_scheduled_but_not_queued_until_release(
         self, dag_maker, mock_executors, session
     ):
         dag_id = "hold_retry"
@@ -10401,17 +10358,18 @@ class TestSchedulerJob:
             assert ti.state == state
             assert (ti.id, ti.try_number, ti.max_tries) == attempt
 
-        # The retry delay has not passed yet: the task keeps waiting, untouched by the hold.
+        # The retry delay has not passed yet: the task waits it out as it does without a hold.
         assert self.job_runner._do_scheduling(session) == 0
         assert_attempt(TaskInstanceState.UP_FOR_RETRY)
 
-        # Once the delay has passed the retry would be scheduled, but the hold keeps it where it is.
+        # Once the delay has passed the retry is scheduled as usual, and the hold keeps it out of the queue.
         retry = _live_task_instance(session, dag_id, "flaky")
         retry.end_date = timezone.utcnow() - timedelta(hours=1)
         session.commit()
         for _ in range(2):
             assert self.job_runner._do_scheduling(session) == 0
-            assert_attempt(TaskInstanceState.UP_FOR_RETRY)
+            assert_attempt(TaskInstanceState.SCHEDULED)
+        assert not any(executor.queue_workload.called for executor in mock_executors)
 
         # Being held and released used no extra try: the retry is the second attempt, as it was before.
         _release_task_hold(session, hold_id)
@@ -10465,7 +10423,7 @@ class TestSchedulerJob:
         assert self.job_runner._do_scheduling(session) == 0
         assert _task_instance_states(session, dag_id) == {
             (run_id, "kept"): TaskInstanceState.SUCCESS,
-            (run_id, "dropped"): None,
+            (run_id, "dropped"): TaskInstanceState.SCHEDULED,
         }
 
         # A new version of the Dag no longer has the covered task.
@@ -10631,9 +10589,10 @@ class TestSchedulerJob:
             ti.state = TaskInstanceState.SCHEDULED if ti.task_id == "held_task" else TaskInstanceState.RUNNING
         _commit_task_hold(session, dag_id, task_id="held_task")
         self.job_runner = SchedulerJobRunner(job=Job())
-        self.job_runner._maintain_task_holds(session=session)
+        # The hold leaves the scheduled task instance as it is: it is only kept out of the queue.
+        assert self.job_runner._do_scheduling(session) == 0
         assert _task_instance_states(session, dag_id) == {
-            (run_id, "held_task"): None,
+            (run_id, "held_task"): TaskInstanceState.SCHEDULED,
             (run_id, "running_task"): TaskInstanceState.RUNNING,
         }
 
@@ -10793,40 +10752,6 @@ class TestSchedulerJob:
             assert transform_state() == TaskInstanceState.QUEUED
 
     @pytest.mark.backend("postgres", "mysql")
-    def test_task_hold_step_skips_task_instances_locked_by_another_session(self, hold_dags, session):
-        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
-        session.commit()
-        other_runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-        # Another scheduler's critical section, or an API call, has run_a's task instance locked.
-        session.scalars(
-            with_row_locks(
-                select(TaskInstance.id).where(
-                    TaskInstance.dag_id == "hold_dag",
-                    TaskInstance.run_id == "run_a",
-                    TaskInstance.task_id == "t1",
-                ),
-                session,
-                of=TaskInstance,
-                key_share=False,
-            )
-        ).one()
-
-        def hold_step_in_another_session() -> set[tuple[str, str]]:
-            def step(other_session):
-                other_runner._maintain_task_holds(session=other_session)
-                return _task_instances_in_state(other_session, "hold_dag", None)
-
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                return _result_or_release_locks(pool.submit(_with_own_session(step)), session)
-
-        # The step neither waits for the locked task instance nor fails: it moves the one it can.
-        assert hold_step_in_another_session() == {("run_b", "t1")}
-
-        session.commit()
-
-        assert hold_step_in_another_session() == {("run_a", "t1"), ("run_b", "t1")}
-
-    @pytest.mark.backend("postgres", "mysql")
     def test_two_schedulers_expire_a_task_hold_once(self, dag_maker, session):
         dag_id = "hold_expiry_race"
         with dag_maker(dag_id=dag_id, schedule=None, session=session):
@@ -10933,47 +10858,6 @@ class TestSchedulerJob:
         logged = Counter(session.scalars(select(Log.event).where(Log.dag_id == dag_id)))
         assert (hold.released_by, logged) == expected
 
-    @pytest.mark.backend("postgres", "mysql")
-    def test_marking_a_task_instance_waits_for_the_hold_step_and_wins(self, dag_maker, session):
-        dag_id = "hold_mark_during_step"
-        with dag_maker(dag_id=dag_id, schedule=None, session=session) as dag:
-            BashOperator(task_id="task", bash_command="true")
-        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
-        run_id = dr.run_id
-        dr.task_instances[0].state = TaskInstanceState.SCHEDULED
-        _commit_task_hold(session, dag_id, task_id="task")
-        runner = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-        task = dag.get_task("task")
-        task.dag = dag
-
-        # The hold step has sent the task instance back to ``none``, but its transaction is still open: it
-        # holds the row.
-        runner._maintain_task_holds(session=session)
-        assert _task_instances_in_state(session, dag_id, None) == {(run_id, "task")}
-
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            marking = pool.submit(
-                _with_own_session(
-                    lambda other: set_state(
-                        tasks=[task],
-                        run_id=run_id,
-                        state=TaskInstanceState.SUCCESS,
-                        commit=True,
-                        session=other,
-                    )
-                )
-            )
-            try:
-                done, _ = wait([marking], timeout=1)
-                assert not done, "the mark should wait for the hold step's lock on the task instance"
-            finally:
-                session.commit()
-            marking.result(timeout=30)
-
-        assert _task_instance_states(session, dag_id) == {(run_id, "task"): TaskInstanceState.SUCCESS}
-        runner._maintain_task_holds(session=session)
-        assert _task_instance_states(session, dag_id) == {(run_id, "task"): TaskInstanceState.SUCCESS}
-
     @pytest.mark.usefixtures("testing_dag_bundle")
     def test_task_hold_keeps_a_covered_task_instance_from_taking_a_rank(
         self, dag_maker, mock_executors, session
@@ -11061,10 +10945,10 @@ class TestSchedulerJob:
         """
         The write that marks the selected task instances ``queued`` does not overwrite a state set in between.
 
-        No hold is involved: an operator marks the task instance, or another scheduler sends it back to ``none``,
-        after the query picked it. The select locks the row from then on, so no other session can do that at the
-        write; the test changes it in the scheduler's own transaction, which leaves the same row. Queueing it
-        would overwrite the operator's state and run the task instance anyway.
+        No hold is involved: an operator marks or clears the task instance after the query picked it. The select
+        locks the row from then on, so no other session can do that at the write; the test changes it in the
+        scheduler's own transaction, which leaves the same row. Queueing it would overwrite the operator's state
+        and run the task instance anyway.
         """
         dag_id = "hold_race_state_changed"
         with dag_maker(dag_id=dag_id, schedule=None, session=session):
@@ -11102,22 +10986,19 @@ class TestSchedulerJob:
             "the task instance was sent to an executor although it was no longer scheduled"
         )
 
-    # Task holds against writes that land between the hold step and the queueing step of one loop.
+    # Task holds against writes that land during one scheduler loop, before its queueing step.
     #
-    # ``_do_scheduling`` sends the ``scheduled`` task instances a hold covers back to ``none`` in its hold step,
-    # and then queues the ``scheduled`` ones. A task instance that another process moves to ``scheduled`` in
-    # between is not covered by that step, so only the queueing step can keep it out of the queue. Each test
-    # stages such a write inside a real loop and expects the task instance never to be queued: the loop may
-    # leave it ``scheduled``, and the next one sends a fresh one back to ``none``, while one that is resuming
-    # from an event stays ``scheduled``. The ``before`` cases, where the write lands ahead of the hold step
-    # instead, are the controls: the hold step sees it.
+    # A hold never moves a task instance that is ``scheduled``, so only the queueing step keeps it out of the
+    # queue. ``_do_scheduling`` records the expiry of holds in its hold step, and then queues the ``scheduled``
+    # task instances. Each test stages a write inside a real loop, such as another process moving a task
+    # instance to ``scheduled`` or an operator placing a hold, and expects the task instance never to be
+    # queued: it stays ``scheduled`` for as long as the hold lasts.
     #
-    # The write lands at one of several points (see ``_staged_in_scheduling_loop``). Right after the hold step a
-    # second pass of the hold step would still undo it, which only narrows the window. At the entry of the
-    # queueing step no earlier pass can see it. For a hold that is placed late, just before the queueing
-    # statement runs, no list of holds the loop read beforehand can see it either: only the statement itself,
-    # which has to check the hold table. The write guard test at the end goes one statement further, to the write
-    # that marks the selected task instances ``queued``, which the select does not guard.
+    # The write lands at one of several points (see ``_staged_in_scheduling_loop``): ahead of the hold step,
+    # right after it, or at the entry of the queueing step. For a hold that is placed late, just before the
+    # queueing statement runs, nothing the loop read beforehand can see it: only the statement itself, which has
+    # to check the hold table. The write guard test at the end goes one statement further, to the write that
+    # marks the selected task instances ``queued``, which the select does not guard.
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     @_WRITE_LANDS_AT
@@ -11233,7 +11114,7 @@ class TestSchedulerJob:
 
         with create_session(scoped=False) as scheduler_b:
             # Scheduler B has the run locked, as it does while it makes its scheduling decisions. This
-            # scheduler skips the locked run, so its task instance is still unscheduled at the hold step.
+            # scheduler skips the locked run, so its task instance is still in ``none`` at the hold step.
             scheduler_b.scalar(select(DagRun.id).where(DagRun.id == dag_run_id).with_for_update())
 
             def scheduler_b_schedules_the_task_instance():
@@ -11252,56 +11133,13 @@ class TestSchedulerJob:
                     pool.submit(_with_own_session(self.job_runner._do_scheduling)), scheduler_b
                 )
 
-        assert _live_task_instance(session, dag_id, "task").state in (
-            TaskInstanceState.SCHEDULED,
-            None,
-        ), "the task instance was queued although a hold covers it"
+        assert _live_task_instance(session, dag_id, "task").state == TaskInstanceState.SCHEDULED, (
+            "the task instance was queued although a hold covers it"
+        )
 
-        # If the loop scheduler B scheduled it in did not send it back, the next one does.
+        # It keeps the decision scheduler B made and waits for the release where it is.
         self.job_runner._do_scheduling(session)
-        assert _live_task_instance(session, dag_id, "task").state is None
-
-    @pytest.mark.usefixtures("testing_dag_bundle")
-    def test_task_hold_placed_while_another_scheduler_unschedules_keeps_the_task_out_of_the_queue(
-        self, dag_maker, mock_executors, session
-    ):
-        dag_id = "hold_race_other_scheduler_unschedules"
-        with dag_maker(dag_id=dag_id, schedule=None, session=session):
-            BashOperator(task_id="task", bash_command="true")
-        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
-        run_id = dr.run_id
-        dr.task_instances[0].state = TaskInstanceState.SCHEDULED
-        session.commit()
-        scheduler_a = SchedulerJobRunner(job=Job(), executors=[self.null_exec])
-        scheduler_b = self.job_runner = SchedulerJobRunner(job=Job())
-
-        def hold_lands_and_scheduler_a_unschedules():
-            """
-            Place a hold after scheduler B read the holds, none of them active, and let scheduler A act on it.
-
-            Scheduler A's hold step sends the task instance back to ``none``. Scheduler B is past its own step
-            by then, and goes on to its critical section with what it read.
-            """
-            _in_another_session(
-                session, lambda other: other.add(TaskHold(dag_id=dag_id, task_id="task", reason="test"))
-            )
-            _in_another_session(session, lambda other: scheduler_a._maintain_task_holds(session=other))
-            unscheduled = _in_another_session(
-                session, lambda other: _task_instances_in_state(other, dag_id, None)
-            )
-            assert unscheduled == {(run_id, "task")}, "scheduler A should have sent the task instance back"
-
-        with _staged_in_scheduling_loop(hold_lands_and_scheduler_a_unschedules, when="after"):
-            scheduler_b._do_scheduling(session)
-
-        assert _live_task_instance(session, dag_id, "task").state in (
-            TaskInstanceState.SCHEDULED,
-            None,
-        ), "the task instance was queued although a hold covers it"
-
-        # Scheduler B's next loop does not schedule it again while the hold lasts.
-        scheduler_b._do_scheduling(session)
-        assert _live_task_instance(session, dag_id, "task").state is None
+        assert _live_task_instance(session, dag_id, "task").state == TaskInstanceState.SCHEDULED
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     @pytest.mark.parametrize("hold", [False, True], ids=["no_hold", "hold"])
@@ -11339,50 +11177,6 @@ class TestSchedulerJob:
             assert _live_task_instance(session, dag_id, "task").state == expected_state
             assert session.scalar(select(func.count()).select_from(Trigger)) == (0 if hold else 1)
 
-    @pytest.mark.backend("postgres", "mysql")
-    @pytest.mark.usefixtures("testing_dag_bundle")
-    @pytest.mark.parametrize("when", ["after", "queueing"], ids=["after_hold_step", "at_queueing_step"])
-    def test_task_hold_keeps_a_task_instance_its_step_skipped_as_locked_out_of_the_queue(
-        self, dag_maker, mock_executors, session, when
-    ):
-        dag_id = "hold_race_locked_row"
-        with dag_maker(dag_id=dag_id, schedule=None, session=session):
-            BashOperator(task_id="task", bash_command="true")
-        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
-        dr.task_instances[0].state = TaskInstanceState.SCHEDULED
-        _commit_task_hold(session, dag_id, task_id="task")
-        self.job_runner = SchedulerJobRunner(job=Job())
-
-        with create_session(scoped=False) as locker:
-            # Another scheduler's critical section, or an API call, has the task instance locked.
-            locker.scalars(
-                with_row_locks(
-                    select(TaskInstance.id).where(TaskInstance.dag_id == dag_id),
-                    locker,
-                    of=TaskInstance,
-                    key_share=False,
-                )
-            ).one()
-
-            # The hold step skips the locked task instance, and the lock is then released with the row
-            # unchanged, before the critical section of the same loop or at its entry.
-            with (
-                _staged_in_scheduling_loop(locker.rollback, when=when),
-                ThreadPoolExecutor(max_workers=1) as pool,
-            ):
-                _result_or_release_locks(
-                    pool.submit(_with_own_session(self.job_runner._do_scheduling)), locker
-                )
-
-        assert _live_task_instance(session, dag_id, "task").state in (
-            TaskInstanceState.SCHEDULED,
-            None,
-        ), "the task instance was queued although a hold covers it"
-
-        # The step could not send it back while it was locked; the next loop does.
-        self.job_runner._do_scheduling(session)
-        assert _live_task_instance(session, dag_id, "task").state is None
-
     @pytest.mark.usefixtures("testing_dag_bundle")
     @pytest.mark.parametrize(
         "when",
@@ -11395,11 +11189,10 @@ class TestSchedulerJob:
         """
         A hold committed before the queueing statement starts is respected.
 
-        The task instance is already ``scheduled`` and no hold covers it, so the hold step has nothing to send
-        back to ``none``. An operator then places a hold, committed from a session of its own, and the loop goes
-        on to queue. Holds the loop read earlier, whether in its hold step or just before queueing, do not
-        include it; only the queueing statement can still see it. Where the hold lands ahead of the hold step
-        instead, the step sends the task instance back: that case is the control.
+        The task instance is already ``scheduled`` and no hold covers it. An operator then places a hold,
+        committed from a session of its own, and the loop goes on to queue. Holds the loop read earlier,
+        whether in its hold step or just before queueing, do not include it; only the queueing statement can
+        still see it. The task instance keeps the decision it has and stays ``scheduled``.
         """
         dag_id = "hold_race_late_hold"
         with dag_maker(dag_id=dag_id, schedule=None, session=session):
@@ -11417,14 +11210,13 @@ class TestSchedulerJob:
         ):
             self.job_runner._do_scheduling(session)
 
-        assert _live_task_instance(session, dag_id, "task").state in (
-            TaskInstanceState.SCHEDULED,
-            None,
-        ), "the task instance was queued although a hold covers it"
+        assert _live_task_instance(session, dag_id, "task").state == TaskInstanceState.SCHEDULED, (
+            "the task instance was queued although a hold covers it"
+        )
 
-        # If the loop the hold was placed in did not send it back, the next one does.
+        # The next loop leaves it as it is.
         self.job_runner._do_scheduling(session)
-        assert _live_task_instance(session, dag_id, "task").state is None
+        assert _live_task_instance(session, dag_id, "task").state == TaskInstanceState.SCHEDULED
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     @pytest.mark.parametrize(
@@ -11478,9 +11270,9 @@ class TestSchedulerJob:
             TaskInstanceState.QUEUED
         }, "the same ids in another Dag were kept out of the queue"
 
-        # What the loop left ``scheduled`` is sent back to ``none`` by the next one.
+        # What the loop left ``scheduled`` stays so: the next loop does not queue it either.
         self.job_runner._do_scheduling(session)
-        assert _task_instances_in_state(session, "hold_late_dag", None) == covered
+        assert _task_instances_in_state(session, "hold_late_dag", TaskInstanceState.SCHEDULED) == covered
 
     @pytest.mark.backend("postgres", "mysql")
     @pytest.mark.usefixtures("testing_dag_bundle")
@@ -11546,9 +11338,11 @@ class TestSchedulerJob:
         )
         assert num_queued == 0
 
-        # A task instance the write left ``scheduled`` is sent back to ``none`` by the next loop.
+        # The next loop does not queue it either, and does not move a covered task instance.
         self.job_runner._do_scheduling(session)
-        assert _live_task_instance(session, dag_id, "task").state is None
+        assert _live_task_instance(session, dag_id, "task").state == (
+            None if unscheduled else TaskInstanceState.SCHEDULED
+        )
 
     def test_retry_on_db_error_when_update_timeout_triggers(self, dag_maker, testing_dag_bundle, session):
         """

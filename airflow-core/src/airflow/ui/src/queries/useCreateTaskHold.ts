@@ -19,18 +19,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import {
-  useTaskHoldServiceCreateTaskHold,
-  useTaskHoldServiceListTaskHoldsKey,
-  useTaskInstanceServiceGetTaskInstancesKey,
-} from "openapi/queries";
-import type { CreateTaskHoldData, TaskHoldResponse } from "openapi/requests/types.gen";
+import { useTaskHoldServiceCreateTaskHold, useTaskHoldServiceListTaskHoldsKey } from "openapi/queries";
 
 import { toaster } from "src/system-components";
 
 import { createErrorToaster } from "src/utils";
-
-import { gridQueryKeys } from "./gridViewQueryKeys";
 
 export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () => void }) => {
   const queryClient = useQueryClient();
@@ -40,17 +33,9 @@ export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () =
     createErrorToaster(error, { titleKey: "dags:taskHold.dialog.error" }, translate);
   };
 
-  const onSuccess = async (_hold: TaskHoldResponse, { dagId }: CreateTaskHoldData) => {
-    // A hold changes no task instance, though the scheduler may send a scheduled one back to none
-    // on its next pass, so the lists that show holds refresh now and the task instance views follow
-    // through their own polling.
-    await Promise.all(
-      [
-        [useTaskHoldServiceListTaskHoldsKey],
-        [useTaskInstanceServiceGetTaskInstancesKey],
-        ...gridQueryKeys(dagId),
-      ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-    );
+  const onSuccess = async () => {
+    // A hold changes no task instance, so only the lists that show holds change.
+    await queryClient.invalidateQueries({ queryKey: [useTaskHoldServiceListTaskHoldsKey] });
 
     toaster.create({
       description: translate("taskHold.dialog.success.description"),

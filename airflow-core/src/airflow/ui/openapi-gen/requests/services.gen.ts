@@ -4908,14 +4908,15 @@ export class TaskHoldService {
      * Create Task Hold
      * Place a hold on a task or a run.
      *
-     * A hold is a lock, not a task instance state: while it is active the scheduler neither schedules nor
-     * queues the task instances it covers, and they keep the state they have.
+     * A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
+     * stops a new start. While it is active the scheduler does not schedule a task instance that has not
+     * started, which waits in `none`, and does not queue one that is `scheduled`.
      * A hold on a task covers every map index of it in every current and future run, a hold on a run covers
      * every task in that run, and a hold on both covers that one task instance.
      * The current attempt of a queued or running task instance continues, and later attempts, such as a
-     * retry or a clear, are held. A task instance that is scheduled but not queued yet goes back to `none`,
-     * so that its trigger rule is checked again on release, unless it is resuming from a deferral or a human
-     * answer. This endpoint changes no task instance.
+     * retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
+     * answer reach `scheduled` as usual and wait there, and a task instance that is already `scheduled` keeps
+     * the decision it has. This endpoint changes no task instance.
      * @param data The data for the request.
      * @param data.dagId
      * @param data.requestBody

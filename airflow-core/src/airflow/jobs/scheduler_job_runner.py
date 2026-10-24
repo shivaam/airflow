@@ -185,12 +185,6 @@ still selects at least one runnable task instance queued behind blocked ones.
 :meta private:
 """
 
-# Most fresh ``scheduled`` task instances that the task hold step sends back to ``none`` per scheduler loop.
-# It bounds the rows one statement locks and the work one loop does for a large hold. The step is best
-# effort, so what it leaves follows on the next loops; the queueing statement keeps it out of the queue
-# in the meantime.
-MAX_TASK_HOLD_UNSCHEDULES_PER_LOOP = 500
-
 
 def _eager_load_dag_run_for_validation() -> tuple[LoaderOption, LoaderOption]:
     """
@@ -2275,8 +2269,8 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
             # Upkeep for operator-placed task holds. The holds themselves are enforced where the
             # scheduler decides (TaskHoldDep) and where it writes ``queued``; this only records the expiry
-            # of holds and tidies up. Its changes are committed right away, so a busy critical section
-            # rolling back below does not undo them.
+            # of holds. Its changes are committed right away, so a busy critical section rolling back below
+            # does not undo them.
             self._maintain_task_holds(session=session)
             guard.commit()
 
@@ -2313,64 +2307,20 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
     def _maintain_task_holds(self, *, session: Session) -> None:
         """
-        Record the expiry of task holds and send covered ``scheduled`` task instances back to ``none``.
+        Record the expiry of task holds.
 
         Runs once per scheduler loop, just before the queueing critical section. It does not enforce a
         hold: a hold is a lock that two gates read, ``TaskHoldDep`` ahead of ``scheduled`` and the
         statement that writes ``queued``. Holds that expired since the last loop are marked as released
-        by ``expiry`` and logged as ``hold_expired``. If a hold is still active, the covered task instances
-        that became ``scheduled`` before it was placed are unscheduled (see
-        :meth:`_unschedule_covered_task_instances`).
+        by ``expiry`` and logged as ``hold_expired``. No task instance is touched.
 
-        The unreleased holds are read in one query, so a loop with no holds costs that single cheap query.
+        A loop with no expired hold costs a single cheap query.
         """
-        now = timezone.utcnow()
-        # Expiring and releasing a hold both set ``released_at``, so the rows read here are the active
-        # holds plus the ones that expired since the last loop.
-        unreleased_holds = session.scalars(select(TaskHold).where(TaskHold.released_at.is_(None))).all()
-        expired_holds = [hold for hold in unreleased_holds if not hold.is_active(now)]
+        expired_holds = session.scalars(
+            select(TaskHold).where(TaskHold.released_at.is_(None), TaskHold.expires_at <= timezone.utcnow())
+        ).all()
         if expired_holds:
             self._expire_task_holds(expired_holds, session=session)
-        if len(expired_holds) < len(unreleased_holds):
-            self._unschedule_covered_task_instances(now, session=session)
-
-    def _unschedule_covered_task_instances(self, now: datetime, *, session: Session) -> None:
-        """
-        Move fresh ``scheduled`` task instances that an active hold covers back to ``none``.
-
-        A task instance can be ``scheduled`` before a hold is placed. It cannot be queued while the hold
-        lasts, so it would sit in ``scheduled`` with the trigger rule verdict it was scheduled on, and
-        run on it at release even if its upstream changed in the meantime. Back in ``none`` it goes
-        through the scheduler's decisions again, so its trigger rule is evaluated afresh when the hold is
-        released.
-
-        Only a fresh attempt (``next_method`` unset) is sent back. A task instance resuming from deferral
-        or from a human answer has its event stored in ``next_method`` and ``next_kwargs``, which a ``none``
-        task instance would run from the start without, so it stays ``scheduled`` and waits for the
-        release there.
-
-        This is best effort, not a guarantee, and it commits nothing: a task instance locked by another
-        transaction is skipped, and a loop moves at most ``MAX_TASK_HOLD_UNSCHEDULES_PER_LOOP`` of them. What
-        remains is kept out of the queue by the queueing statement, and is moved on a later loop.
-        """
-        criteria = (
-            TI.state == TaskInstanceState.SCHEDULED,
-            TI.next_method.is_(None),
-            TaskHold.covering_clause(now),
-        )
-        query = select(TI.id).where(*criteria).limit(MAX_TASK_HOLD_UNSCHEDULES_PER_LOOP)
-        # Lock the rows so schedulers running in parallel neither move the same task instance twice
-        # nor wait on each other.
-        ti_ids = session.scalars(with_row_locks(query, of=TI, session=session, skip_locked=True)).all()
-        if not ti_ids:
-            return
-        session.execute(
-            update(TI)
-            .where(TI.id.in_(ti_ids), *criteria)
-            .values(state=None)
-            .execution_options(synchronize_session=False)
-        )
-        self.log.info("Task holds: sent %d scheduled task instances back to none", len(ti_ids))
 
     def _expire_task_holds(self, holds: Collection[TaskHold], *, session: Session) -> None:
         """Mark holds that passed their expiry as released by ``expiry``, logging each as ``hold_expired``."""

@@ -198,7 +198,8 @@
         "queued": "Hold active: this attempt was queued before the hold and will still start; later attempts are held",
         "run": "Hold active: tasks in this run won't be queued until the hold is released or expires",
         "running": "Hold active: this attempt finishes; a retry or clear will be held",
-        "task": "Hold active: this task won't be queued in any run until the hold is released or expires"
+        "task": "Hold active: this task won't be queued in any run until the hold is released or expires",
+        "waiting": "Held: waits here until the hold is released or expires"
       }
     },
     "noActiveHolds": "No active holds.",

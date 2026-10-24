@@ -2000,8 +2000,8 @@ class DagRun(Base, LoggingMixin):
             finished_tis=finished_tis,
         )
         # there might be runnable tasks that are up for retry and for some reason(retry delay, etc.) are
-        # not ready yet, or that an operator-placed task hold keeps back until it is released, so we set
-        # the flags to count them in
+        # not ready yet, or that have not started and an operator-placed task hold keeps in ``none`` until
+        # it is released, so we set the flags to count them in
         return (
             any(ut.are_dependencies_met(dep_context=dep_context, session=session) for ut in unfinished_tis),
             dep_context.have_changed_ti_states,

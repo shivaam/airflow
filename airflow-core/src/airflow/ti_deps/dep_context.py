@@ -69,8 +69,9 @@ class DepContext:
     :param wait_for_past_depends_before_skipping: Wait for past depends before marking the ti as skipped
     :param ignore_in_retry_period: Ignore the retry period for task instances
     :param ignore_in_reschedule_period: Ignore the reschedule period for task instances
-    :param ignore_task_holds: Ignore the operator-placed task holds, so that a task instance a hold covers
-        counts as runnable once the hold is released, like a retry that waits out its delay
+    :param ignore_task_holds: Ignore the operator-placed task holds, so that a task instance that has not
+        started and a hold covers counts as runnable once the hold is released, like a retry that waits out
+        its delay
     :param ignore_unmapped_tasks: Ignore errors about mapped tasks not yet being expanded
     :param ignore_task_deps: Ignore task-specific dependencies such as depends_on_past and
         trigger rule

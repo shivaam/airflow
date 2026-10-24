@@ -113,12 +113,8 @@ describe("getHoldLockKind", () => {
     const holds = [makeHold({ task_id: "load" })];
 
     // The states of the lock design's table, grouped by what a hold does to a task instance in them.
-    const heldStates: Array<TaskInstanceState> = [
-      "scheduled",
-      "up_for_retry",
-      "up_for_reschedule",
-      "restarting",
-    ];
+    const waitingStates: Array<TaskInstanceState> = ["restarting"];
+    const heldStates: Array<TaskInstanceState> = ["scheduled", "up_for_retry", "up_for_reschedule"];
     const carryingOnKinds = {
       awaiting_input: "awaitingInput",
       deferred: "deferred",
@@ -137,10 +133,14 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("held");
     });
 
-    it("is held while the task instance has no state, whether it is null or left out", () => {
-      expect(getHoldLockKind(holds, makeTaskInstance(null))).toBe("held");
+    it.each(waitingStates)("waits where it is while the task instance is %s", (state) => {
+      expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("waiting");
+    });
+
+    it("waits where it is while the task instance has no state, whether it is null or left out", () => {
+      expect(getHoldLockKind(holds, makeTaskInstance(null))).toBe("waiting");
       expect(getHoldLockKind(holds, { dag_id: "example_dag", dag_run_id: "run_1", task_id: "load" })).toBe(
-        "held",
+        "waiting",
       );
     });
 
@@ -153,7 +153,7 @@ describe("getHoldLockKind", () => {
     });
 
     it("decides every task instance state", () => {
-      const decided = [...heldStates, ...Object.keys(carryingOnKinds), ...finishedStates];
+      const decided = [...heldStates, ...waitingStates, ...Object.keys(carryingOnKinds), ...finishedStates];
 
       expect(decided.sort()).toEqual([...$TaskInstanceState.enum].sort());
     });
