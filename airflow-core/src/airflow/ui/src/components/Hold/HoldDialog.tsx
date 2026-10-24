@@ -18,18 +18,24 @@
  */
 import { useState } from "react";
 
-import { Box, Button, Field, Text, Textarea, VStack } from "@chakra-ui/react";
+import { Box, Button, Field, HStack, Text, Textarea, VStack } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
-import { LuHand } from "react-icons/lu";
+import { LuHand, LuInfo } from "react-icons/lu";
 
+import { useStructureServiceStructureData } from "openapi/queries";
 import type { TaskInstanceState } from "openapi/requests/types.gen";
 
-import { Modal } from "src/system-components";
+import { Modal, Tooltip } from "src/system-components";
 
 import { DateTimeInput } from "src/components/DateTimeInput";
 
 import { useCreateTaskHold } from "src/queries/useCreateTaskHold";
-import { getHoldScope, getHoldStateLineKey, validateHoldForm } from "src/utils/taskHolds";
+import {
+  getHoldScope,
+  getHoldStateLineKey,
+  getHoldTeardownNote,
+  validateHoldForm,
+} from "src/utils/taskHolds";
 
 type Props = {
   readonly dagId: string;
@@ -59,6 +65,21 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
   const scope = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
   const stateLineKey =
     scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
+  // The structure of the latest version is only needed to word the notes, so it is asked for while the
+  // dialog is open.
+  const { data: structure } = useStructureServiceStructureData({ dagId }, undefined, { enabled: open });
+  const teardownNote = getHoldTeardownNote(structure, scope, taskId);
+  const infoNotes = [
+    ...(scope === "task" ? [translate("taskHold.dialog.info.capacity")] : []),
+    ...(teardownNote === undefined
+      ? []
+      : [
+          translate(`taskHold.dialog.info.${teardownNote.key}`, {
+            setups: teardownNote.setups.join(", "),
+            teardowns: teardownNote.teardowns.join(", "),
+          }),
+        ]),
+  ];
   const errors = validateHoldForm({ expiresAt, reason });
   const isReasonInvalid = showErrors && errors.reason !== undefined;
   const isExpiresAtInvalid = showErrors && errors.expiresAt !== undefined;
@@ -118,9 +139,25 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
           )}
         </VStack>
         <Box>
-          <Text fontWeight="bold" mb={1}>
-            {translate("taskHold.dialog.scope")}
-          </Text>
+          <HStack gap={1} mb={1}>
+            <Text fontWeight="bold">{translate("taskHold.dialog.scope")}</Text>
+            {infoNotes.length === 0 ? undefined : (
+              <Tooltip
+                content={
+                  <VStack align="start" gap={2}>
+                    {infoNotes.map((note) => (
+                      <Text key={note}>{note}</Text>
+                    ))}
+                  </VStack>
+                }
+                portalled
+              >
+                <Box as="span" color="fg.muted" cursor="pointer" data-testid="hold-scope-info">
+                  <LuInfo />
+                </Box>
+              </Tooltip>
+            )}
+          </HStack>
           <Text data-testid="hold-scope">
             {translate(`taskHold.scope.${scope}`, { runId, taskId })}
             {isMapped ? ` ${translate("taskHold.dialog.mappedHint")}` : undefined}

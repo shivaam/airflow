@@ -19,13 +19,20 @@
 import { describe, expect, it } from "vitest";
 
 import { $TaskInstanceState } from "openapi/requests/schemas.gen";
-import type { GridNodeResponse, TaskHoldResponse, TaskInstanceState } from "openapi/requests/types.gen";
+import type {
+  EdgeResponse,
+  GridNodeResponse,
+  NodeResponse,
+  TaskHoldResponse,
+  TaskInstanceState,
+} from "openapi/requests/types.gen";
 
 import {
   getHoldLockKind,
   getHoldScope,
   getHoldScopeLink,
   getHoldStateLineKey,
+  getHoldTeardownNote,
   getMappedTaskIds,
   holdMatches,
   isHoldLockPending,
@@ -394,6 +401,135 @@ describe("getHoldScopeLink", () => {
     expect(getHoldScopeLink(makeHold({ run_id: "run_1", task_id: "transform" }), mappedTaskIds)).toBe(
       "/dags/example_dag/runs/run_1/tasks/transform/mapped",
     );
+  });
+});
+
+const task = (id: string, overrides: Partial<NodeResponse> = {}): NodeResponse => ({
+  id,
+  label: id,
+  type: "task",
+  ...overrides,
+});
+const teardown = (id: string) => task(id, { setup_teardown_type: "teardown" });
+const edge = (from: string, to: string, isSetupTeardown = false): EdgeResponse => ({
+  is_setup_teardown: isSetupTeardown,
+  source_id: from,
+  target_id: to,
+});
+
+describe("getHoldTeardownNote", () => {
+  describe("for a task or a task instance", () => {
+    it("names a teardown directly downstream, and its setup", () => {
+      const structure = {
+        edges: [edge("load", "cleanup"), edge("create", "cleanup", true), edge("create", "load")],
+        nodes: [task("create", { setup_teardown_type: "setup" }), task("load"), teardown("cleanup")],
+      };
+
+      expect(getHoldTeardownNote(structure, "taskInstance", "load")).toEqual({
+        key: "teardown",
+        setups: ["create"],
+        teardowns: ["cleanup"],
+      });
+      expect(getHoldTeardownNote(structure, "task", "load")?.key).toBe("teardown");
+    });
+
+    it("finds a teardown reached through a join node", () => {
+      const structure = {
+        edges: [edge("load", "join"), edge("join", "cleanup"), edge("create", "cleanup", true)],
+        nodes: [task("load"), task("join", { type: "join" }), teardown("cleanup"), task("create")],
+      };
+
+      expect(getHoldTeardownNote(structure, "task", "load")?.teardowns).toEqual(["cleanup"]);
+    });
+
+    it("finds a teardown inside a group that is reached, and one reached through several steps", () => {
+      const structure = {
+        edges: [edge("load", "group"), edge("group", "publish"), edge("publish", "final_cleanup")],
+        nodes: [
+          task("load"),
+          task("group", { children: [task("group.step"), teardown("group.cleanup")] }),
+          task("publish"),
+          teardown("final_cleanup"),
+        ],
+      };
+
+      expect(getHoldTeardownNote(structure, "taskInstance", "load")?.teardowns).toEqual([
+        "group.cleanup",
+        "final_cleanup",
+      ]);
+    });
+
+    it("lists each setup once, and only those with a setup-and-teardown edge to a teardown", () => {
+      const structure = {
+        edges: [
+          edge("load", "cleanup_a"),
+          edge("load", "cleanup_b"),
+          edge("create_a", "cleanup_a", true),
+          edge("create_a", "cleanup_b", true),
+          edge("create_b", "cleanup_b", true),
+          edge("other", "cleanup_a"),
+        ],
+        nodes: [task("load"), teardown("cleanup_a"), teardown("cleanup_b")],
+      };
+
+      expect(getHoldTeardownNote(structure, "task", "load")).toEqual({
+        key: "teardown",
+        setups: ["create_a", "create_b"],
+        teardowns: ["cleanup_a", "cleanup_b"],
+      });
+    });
+
+    it("has no note for a teardown without a setup other than the one that says so", () => {
+      const structure = { edges: [edge("load", "cleanup")], nodes: [task("load"), teardown("cleanup")] };
+
+      expect(getHoldTeardownNote(structure, "task", "load")).toEqual({
+        key: "teardownNoSetup",
+        setups: [],
+        teardowns: ["cleanup"],
+      });
+    });
+
+    it("has no note without a teardown downstream, or before the structure is known", () => {
+      const structure = {
+        edges: [edge("load", "publish"), edge("create", "cleanup", true)],
+        nodes: [task("load"), task("publish"), teardown("cleanup")],
+      };
+
+      expect(getHoldTeardownNote(structure, "task", "load")).toBeUndefined();
+      expect(getHoldTeardownNote(structure, "task", "cleanup")).toBeUndefined();
+      expect(getHoldTeardownNote(undefined, "task", "load")).toBeUndefined();
+    });
+
+    it("leaves out the held task itself when it is a teardown, but not one after it", () => {
+      const structure = {
+        edges: [edge("cleanup", "last_cleanup"), edge("cleanup", "cleanup")],
+        nodes: [teardown("cleanup"), teardown("last_cleanup")],
+      };
+
+      expect(getHoldTeardownNote(structure, "taskInstance", "cleanup")?.teardowns).toEqual(["last_cleanup"]);
+      expect(getHoldTeardownNote({ edges: [], nodes: [teardown("cleanup")] }, "task", "cleanup")).toBe(
+        undefined,
+      );
+    });
+  });
+
+  describe("for a run", () => {
+    it("names every teardown of the Dag", () => {
+      const structure = {
+        edges: [],
+        nodes: [task("load"), teardown("cleanup"), task("group", { children: [teardown("group.cleanup")] })],
+      };
+
+      expect(getHoldTeardownNote(structure, "run", undefined)).toEqual({
+        key: "teardownRun",
+        setups: [],
+        teardowns: ["cleanup", "group.cleanup"],
+      });
+    });
+
+    it("has no note when the Dag has no teardown", () => {
+      expect(getHoldTeardownNote({ edges: [], nodes: [task("load")] }, "run", undefined)).toBeUndefined();
+    });
   });
 });
 

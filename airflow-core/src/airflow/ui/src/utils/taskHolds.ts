@@ -16,7 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import type { GridNodeResponse, TaskHoldResponse, TaskInstanceState } from "openapi/requests/types.gen";
+import type {
+  GridNodeResponse,
+  NodeResponse,
+  StructureDataResponse,
+  TaskHoldResponse,
+  TaskInstanceState,
+} from "openapi/requests/types.gen";
 
 // What the scheduler records as `released_by` when it marks a hold that has expired.
 const EXPIRY_RELEASED_BY = "expiry";
@@ -202,6 +208,91 @@ export const getHoldScopeLink = (
   }
 
   return `/dags/${dagId}/runs/${runId}/tasks/${taskId}${mappedTaskIds.has(taskId) ? "/mapped" : ""}`;
+};
+
+const flattenNodes = (nodes: ReadonlyArray<NodeResponse>): Array<NodeResponse> =>
+  nodes.flatMap((node) => [node, ...flattenNodes(node.children ?? [])]);
+
+/**
+ * The teardowns downstream of a task, other than the task itself, as task ids. They are found through
+ * all edges, transitively, and through join and group nodes: a group stands for the tasks in it.
+ */
+export const getDownstreamTeardownIds = (
+  { edges, nodes }: Pick<StructureDataResponse, "edges" | "nodes">,
+  taskId: string,
+): Array<string> => {
+  const all = flattenNodes(nodes);
+  const byId = new Map(all.map((node) => [node.id, node]));
+  const reached = new Set<string>();
+  const pending = [taskId];
+
+  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+    if (!reached.has(id)) {
+      reached.add(id);
+      pending.push(
+        ...edges.filter((edge) => edge.source_id === id).map((edge) => edge.target_id),
+        ...flattenNodes(byId.get(id)?.children ?? []).map((child) => child.id),
+      );
+    }
+  }
+
+  return all
+    .filter((node) => node.setup_teardown_type === "teardown" && node.id !== taskId && reached.has(node.id))
+    .map((node) => node.id);
+};
+
+/** The setups of the given teardowns: the sources of the setup-and-teardown edges that end in them. */
+export const getSetupIds = (
+  { edges }: Pick<StructureDataResponse, "edges">,
+  teardownIds: ReadonlyArray<string>,
+): Array<string> => [
+  ...new Set(
+    edges
+      .filter((edge) => edge.is_setup_teardown === true && teardownIds.includes(edge.target_id))
+      .map((edge) => edge.source_id),
+  ),
+];
+
+/** Which `taskHold.dialog.info` note says what a hold does to teardowns, and the task ids it names. */
+export type HoldTeardownNote = {
+  readonly key: "teardown" | "teardownNoSetup" | "teardownRun";
+  readonly setups: Array<string>;
+  readonly teardowns: Array<string>;
+};
+
+/**
+ * The note on the teardowns a hold holds back, or nothing when there are none. A hold on a task, or on
+ * a task instance, holds the teardowns downstream of it. A hold on a run holds every teardown of the
+ * Dag in it. Where the Dag structure is not known yet there is no note.
+ */
+export const getHoldTeardownNote = (
+  structure: Pick<StructureDataResponse, "edges" | "nodes"> | undefined,
+  scope: HoldScope,
+  taskId: string | undefined,
+): HoldTeardownNote | undefined => {
+  if (structure === undefined) {
+    return undefined;
+  }
+
+  if (scope === "run") {
+    const runTeardowns = flattenNodes(structure.nodes)
+      .filter((node) => node.setup_teardown_type === "teardown")
+      .map((node) => node.id);
+
+    return runTeardowns.length === 0
+      ? undefined
+      : { key: "teardownRun", setups: [], teardowns: runTeardowns };
+  }
+
+  const teardowns = taskId === undefined ? [] : getDownstreamTeardownIds(structure, taskId);
+
+  if (teardowns.length === 0) {
+    return undefined;
+  }
+
+  const setups = getSetupIds(structure, teardowns);
+
+  return { key: setups.length === 0 ? "teardownNoSetup" : "teardown", setups, teardowns };
 };
 
 export type HoldStatus = "active" | "expired" | "released";
