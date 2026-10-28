@@ -21,9 +21,10 @@ import type { VirtualItem } from "@tanstack/react-virtual";
 import { useParams } from "react-router-dom";
 
 import type { GridRunsResponse, GridTISummaries } from "openapi/requests";
-import type { LightGridTaskInstanceSummary } from "openapi/requests/types.gen";
+import type { LightGridTaskInstanceSummary, TaskHoldResponse } from "openapi/requests/types.gen";
 
 import { VersionIndicatorOptions } from "src/constants/showVersionIndicatorOptions";
+import { getHeldNowLockKind } from "src/utils/taskHolds";
 
 import { GridTI } from "./GridTI";
 import { DagVersionIndicator } from "./VersionIndicator";
@@ -31,6 +32,8 @@ import { ROW_HEIGHT } from "./constants";
 import type { GridTask } from "./utils";
 
 type Props = {
+  /** The active holds of the Dag, to mark the task instances that one is stopping now. */
+  readonly holds?: ReadonlyArray<TaskHoldResponse>;
   readonly nodes: Array<GridTask>;
   readonly onCellClick?: () => void;
   readonly run: GridRunsResponse;
@@ -38,6 +41,8 @@ type Props = {
   readonly tiSummaries?: GridTISummaries;
   readonly virtualItems?: Array<VirtualItem>;
 };
+
+const NO_HOLDS: ReadonlyArray<TaskHoldResponse> = [];
 
 type CellBorderProps = Pick<BoxProps, "borderBottomWidth" | "borderColor" | "borderTopWidth">;
 
@@ -51,6 +56,7 @@ const taskInstanceCellBorderProps = (hideRowBorders: boolean, rowIndex: number):
       };
 
 export const TaskInstancesColumn = ({
+  holds = NO_HOLDS,
   nodes,
   onCellClick,
   run,
@@ -149,6 +155,16 @@ export const TaskInstancesColumn = ({
               hasNote={taskInstance.has_note ?? false}
               instance={taskInstance}
               isGroup={node.isGroup}
+              isHeld={
+                // A task group is not a task, and is left alone.
+                !node.isGroup &&
+                getHeldNowLockKind(holds, {
+                  dag_id: dagId,
+                  dag_run_id: run.run_id,
+                  state: taskInstance.state,
+                  task_id: node.id,
+                }) !== undefined
+              }
               isMapped={node.is_mapped}
               label={node.label}
               loopMaxIterations={node.loop_max_iterations}

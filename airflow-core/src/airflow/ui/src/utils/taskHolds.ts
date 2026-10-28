@@ -171,6 +171,82 @@ export const getHoldLockKind = (
   return active.some((hold) => holdMatches(hold, { dagId, runId, taskId })) ? kind : undefined;
 };
 
+/**
+ * The kind of lock to show for a subject when an active hold is stopping it now. It is the lock
+ * `getHoldLockKind` gives, left out when that lock is pending, with nothing to stop yet: a task
+ * instance that is running or has finished is not held up by it.
+ */
+export const getHeldNowLockKind = (
+  holds: ReadonlyArray<TaskHoldResponse>,
+  subject: HoldLockSubject,
+): HoldLockKind | undefined => {
+  const kind = getHoldLockKind(holds, subject);
+
+  return kind === undefined || isHoldLockPending(kind) ? undefined : kind;
+};
+
+/** The run in view, with the state of each of its task instances by task id once they have loaded. */
+export type HeldNowRun = {
+  readonly id: string;
+  readonly states: ReadonlyMap<string, TaskInstanceState | null> | undefined;
+};
+
+/**
+ * The kind of lock of each task that an active hold is stopping now, by task id. With a run, a task is
+ * judged by its task instance in that run, and one that has none yet counts as having no state; until
+ * the states have loaded nothing can be said, so no task is held. Without a run, a task is held when a
+ * hold on it in every run covers it. Which tasks to ask about is left to the caller, so that task groups
+ * and other nodes can be left out.
+ */
+export const getHeldNowLockKinds = (
+  holds: ReadonlyArray<TaskHoldResponse>,
+  {
+    dagId,
+    run,
+    taskIds,
+  }: { readonly dagId: string; readonly run?: HeldNowRun; readonly taskIds: ReadonlyArray<string> },
+): Map<string, HoldLockKind> => {
+  const kinds = new Map<string, HoldLockKind>();
+
+  if (holds.length === 0 || (run !== undefined && run.states === undefined)) {
+    return kinds;
+  }
+
+  for (const taskId of taskIds) {
+    const kind = getHeldNowLockKind(
+      holds,
+      run?.states === undefined
+        ? { dag_id: dagId, task_id: taskId }
+        : { dag_id: dagId, dag_run_id: run.id, state: run.states.get(taskId) ?? null, task_id: taskId },
+    );
+
+    if (kind !== undefined) {
+      kinds.set(taskId, kind);
+    }
+  }
+
+  return kinds;
+};
+
+export type DagHoldCount = { readonly count: number; readonly dagId: string };
+
+/** The Dags that have active holds, with how many each has: the Dag with the most first, then by Dag id. */
+export const countActiveHoldsByDag = (
+  holds: ReadonlyArray<Pick<TaskHoldResponse, "active" | "dag_id">>,
+): Array<DagHoldCount> => {
+  const counts = new Map<string, number>();
+
+  for (const hold of holds) {
+    if (hold.active) {
+      counts.set(hold.dag_id, (counts.get(hold.dag_id) ?? 0) + 1);
+    }
+  }
+
+  return [...counts]
+    .map(([dagId, count]) => ({ count, dagId }))
+    .sort((first, second) => second.count - first.count || first.dagId.localeCompare(second.dagId));
+};
+
 /** The ids of the tasks the structure marks as mapped, including those inside a mapped task group. */
 export const getMappedTaskIds = (nodes: ReadonlyArray<GridNodeResponse> | undefined): Set<string> => {
   const ids = new Set<string>();

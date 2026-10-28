@@ -52,6 +52,7 @@ vi.mock("src/utils", () => ({
   formatNumber: String,
   useAutoRefresh: () => false,
 }));
+vi.mock("./DagHolds", () => ({ DagHolds: () => null }));
 vi.mock("./DagImportErrors", () => ({ DagImportErrors: () => null }));
 vi.mock("./PluginImportErrors", () => ({ PluginImportErrors: () => null }));
 

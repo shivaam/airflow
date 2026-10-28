@@ -27,6 +27,7 @@ import { StatsCard } from "src/components/StatsCard";
 
 import { useAutoRefresh } from "src/utils";
 
+import { DagHolds } from "./DagHolds";
 import { DagImportErrors } from "./DagImportErrors";
 import { PluginImportErrors } from "./PluginImportErrors";
 
@@ -69,6 +70,8 @@ export const Stats = () => {
         <DagImportErrors />
 
         <PluginImportErrors />
+
+        <DagHolds />
 
         {queuedDagsCount > 0 ? (
           <StatsCard

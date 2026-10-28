@@ -21,6 +21,8 @@ import type { ElkExtendedEdge } from "elkjs";
 
 import type { LightGridTaskInstanceSummary, NodeResponse } from "openapi/requests/types.gen";
 
+import type { HoldLockKind } from "src/utils/taskHolds";
+
 import type { LayoutNode } from "./useGraphLayout";
 
 export type CustomNodeProps = {
@@ -28,6 +30,8 @@ export type CustomNodeProps = {
   childCount?: number;
   depth?: number;
   height?: number;
+  /** Set while an active hold is stopping this task now: a pending hold on it is not shown. */
+  holdLockKind?: HoldLockKind;
   id: string;
   isFiltered?: boolean;
   isGroup?: boolean;
@@ -130,6 +134,8 @@ export type EdgeData = {
   rest: {
     edgeType?: "data" | "scheduling";
     isFiltered?: boolean;
+    /** Set when the task the edge leaves is held now. */
+    isHeld?: boolean;
     isSelected?: boolean;
     isSetupTeardown?: boolean;
   } & ElkExtendedEdge;

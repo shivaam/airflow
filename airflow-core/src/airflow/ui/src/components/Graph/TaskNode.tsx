@@ -20,6 +20,9 @@ import { Box, Button, Flex, HStack, LinkOverlay, Text, useToken } from "@chakra-
 import type { NodeProps, Node as NodeType } from "@xyflow/react";
 import { useTranslation } from "react-i18next";
 import { AiOutlineGroup } from "react-icons/ai";
+import { LuLock } from "react-icons/lu";
+
+import { Tooltip } from "src/system-components";
 
 import { StateBadge } from "src/components/StateBadge";
 import TaskInstanceTooltip from "src/components/TaskInstanceTooltip";
@@ -44,6 +47,7 @@ export const TaskNode = ({
     childCount,
     depth,
     height = 0,
+    holdLockKind,
     isFiltered,
     isGroup,
     isLoop,
@@ -64,6 +68,7 @@ export const TaskNode = ({
   id,
 }: NodeProps<NodeType<CustomNodeProps, "task">>) => {
   const { t: translate } = useTranslation("components");
+  const { t: translateHold } = useTranslation("dags");
   const { toggleGroupId } = useGroups();
   // Resolve the fill through Chakra so any token (dotted like "blue.500" or bare like "bg") becomes a
   // valid CSS color for the group color-mix; raw hex/CSS names pass through unchanged.
@@ -166,6 +171,20 @@ export const TaskNode = ({
                   setupTeardownType={setupTeardownType}
                 />
               </LinkOverlay>
+              {/* The lock sits above the link overlay, which covers the node, so that it can be hovered. */}
+              {holdLockKind === undefined ? undefined : (
+                <Tooltip content={translateHold(`taskHold.lock.tooltip.${holdLockKind}`)} portalled>
+                  <Box
+                    as="span"
+                    color="indigo.fg"
+                    data-testid="graph-hold-lock"
+                    display="flex"
+                    position="relative"
+                  >
+                    <LuLock aria-label={translateHold("taskHold.lock.label.held")} size={14} />
+                  </Box>
+                </Tooltip>
+              )}
             </HStack>
             <Text
               color={uiFgcolor ?? readableFgColor ?? "fg.muted"}

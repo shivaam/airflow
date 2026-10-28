@@ -24,12 +24,9 @@ import { useTaskHoldServiceListTaskHolds } from "openapi/queries";
 
 import { Tooltip } from "src/system-components";
 
+import { ACTIVE_HOLDS_LIMIT } from "src/queries/useActiveTaskHolds";
 import { isStatePending, useAutoRefresh } from "src/utils";
 import { getHoldLockKind, isHoldLockPending, type HoldLockSubject } from "src/utils/taskHolds";
-
-// Holds are matched here rather than asked of the API, so the Dag's active holds are fetched
-// whole; a Dag with more than this many at once is beyond what the prototype shows.
-const ACTIVE_HOLDS_LIMIT = 100;
 
 // A hold that is stopping the task now shows as a solid badge. A pending one, with nothing to stop yet,
 // is drawn as a dashed outline with no fill, so the two are easy to tell apart.

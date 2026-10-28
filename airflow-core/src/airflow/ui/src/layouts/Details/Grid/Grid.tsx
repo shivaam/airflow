@@ -30,9 +30,11 @@ import type { DagRunState, DagRunType, GridRunsResponse } from "openapi/requests
 import type { VersionIndicatorOptions } from "src/constants/showVersionIndicatorOptions";
 import { useGroups } from "src/context/groups";
 import { NavigationModes, useNavigation } from "src/hooks/navigation";
+import { useActiveTaskHolds } from "src/queries/useActiveTaskHolds";
 import { useGridRuns } from "src/queries/useGridRuns.ts";
 import { useGridStructure } from "src/queries/useGridStructure.ts";
 import { useGridTiSummariesStream } from "src/queries/useGridTISummaries.ts";
+import { isStatePending } from "src/utils";
 
 import { Bar } from "./Bar";
 import { DurationAxis } from "./DurationAxis";
@@ -112,6 +114,13 @@ export const Grid = ({
     triggeringUser,
   });
   const gridRuns = dataGridRuns?.slice(0, limit);
+
+  // Marks the task instances that a hold is stopping now. The same array is passed to every column
+  // for as long as the holds are the same, so a refresh that changes nothing re-renders nothing.
+  const holds = useActiveTaskHolds({
+    dagId,
+    isRunPending: gridRuns?.some((dr: GridRunsResponse) => isStatePending(dr.state)) ?? false,
+  });
 
   const { handleNewerRuns, handleOlderRuns, hasNewerRuns, hasOlderRuns, latestNotVisible } =
     useGridPagination({ gridRuns: dataGridRuns, limit, offset, setOffset });
@@ -281,6 +290,7 @@ export const Grid = ({
           {!showGantt && <ScrollbarSpacer width={scrollbarSpacerWidth} />}
           {gridRuns?.map((dr: GridRunsResponse) => (
             <TaskInstancesColumn
+              holds={holds}
               key={dr.run_id}
               nodes={flatNodes}
               onCellClick={handleCellClick}

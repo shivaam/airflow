@@ -71,6 +71,8 @@
   "stats": {
     "activeDags": "Active Dags",
     "failedDags": "Failed Dags",
+    "heldDags_one": "Dag with active holds",
+    "heldDags_other": "Dags with active holds",
     "queuedDags": "Queued Dags",
     "requiredActions": "Required Actions",
     "runningDags": "Running Dags",

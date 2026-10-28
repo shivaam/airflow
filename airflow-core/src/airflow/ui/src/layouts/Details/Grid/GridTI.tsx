@@ -17,6 +17,8 @@
  * under the License.
  */
 import { Badge, Box, Flex } from "@chakra-ui/react";
+import { useTranslation } from "react-i18next";
+import { LuLock } from "react-icons/lu";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 
 import type { LightGridTaskInstanceSummary } from "openapi/requests/types.gen";
@@ -36,11 +38,39 @@ const STACK_GAP_SHADOW = "0.5px 0.5px 0 0 var(--chakra-colors-bg)";
 const buildBackCardShadow = (state: string) =>
   `${STACK_GAP_SHADOW}, ${BACK_CARD_OFFSET_PX}px ${BACK_CARD_OFFSET_PX}px 0 0 var(--chakra-colors-${state}-solid)`;
 
+// Only a held cell asks for its label, so the cells of a Dag with no holds carry no translation hook.
+const HeldMark = () => {
+  const { t: translate } = useTranslation("dags");
+
+  return (
+    <Box
+      alignItems="center"
+      as="span"
+      bg="indigo.solid"
+      borderRadius="full"
+      bottom="1px"
+      color="indigo.contrast"
+      data-testid="grid-hold-lock"
+      display="flex"
+      height="9px"
+      justifyContent="center"
+      pointerEvents="none"
+      position="absolute"
+      right={0}
+      width="9px"
+    >
+      <LuLock aria-label={translate("taskHold.lock.label.held")} size={6} />
+    </Box>
+  );
+};
+
 type Props = {
   readonly dagId: string;
   readonly hasNote?: boolean;
   readonly instance: LightGridTaskInstanceSummary;
   readonly isGroup?: boolean;
+  /** Set while an active hold is stopping this task instance now. */
+  readonly isHeld?: boolean;
   readonly isMapped?: boolean | null;
   readonly label: string;
   readonly loopMaxIterations?: number | null;
@@ -54,6 +84,7 @@ export const GridTI = ({
   hasNote = false,
   instance,
   isGroup,
+  isHeld = false,
   isMapped,
   loopMaxIterations,
   onClick,
@@ -164,6 +195,7 @@ export const GridTI = ({
           </Link>
         </Box>
       </TaskInstanceTooltip>
+      {isHeld ? <HeldMark /> : undefined}
     </Flex>
   );
 };

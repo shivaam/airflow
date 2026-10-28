@@ -29,10 +29,11 @@ import type { EdgeData } from "./reactflowUtils";
 type Props = EdgeType<EdgeData>;
 
 const CustomEdge = ({ data, source, target }: Props) => {
-  const [strokeColor, blueColor, dataEdgeColor] = useToken("colors", [
+  const [strokeColor, blueColor, dataEdgeColor, heldColor] = useToken("colors", [
     "border.inverted",
     "blue.500",
     "purple.500",
+    "indigo.500",
   ]);
 
   // Read isSelected directly from the node store so that selection changes
@@ -51,7 +52,25 @@ const CustomEdge = ({ data, source, target }: Props) => {
   // currently selected asset/Dag. See getGatePathEdgeIdsForSelection.
   const isSelected = Boolean(rest.isSelected) || nodesData.some((node) => Boolean(node.data.isSelected));
 
-  const edgeStrokeColor = isSelected ? (rest.edgeType === "data" ? dataEdgeColor : blueColor) : strokeColor;
+  // An edge out of a task that a hold is stopping now is drawn in the colour of the hold lock, even when
+  // it is selected, and a little thicker than an ordinary edge. Selection still thickens it further.
+  const isHeld = Boolean(rest.isHeld);
+
+  let edgeStrokeColor = strokeColor;
+
+  if (isHeld) {
+    edgeStrokeColor = heldColor;
+  } else if (isSelected) {
+    edgeStrokeColor = rest.edgeType === "data" ? dataEdgeColor : blueColor;
+  }
+
+  let edgeStrokeWidth = 1;
+
+  if (isSelected) {
+    edgeStrokeWidth = 3;
+  } else if (isHeld) {
+    edgeStrokeWidth = 2;
+  }
 
   return (
     <g {...opacityStyle(rest.isFiltered)}>
@@ -81,7 +100,7 @@ const CustomEdge = ({ data, source, target }: Props) => {
           key={section.id}
           stroke={edgeStrokeColor}
           strokeDasharray={rest.isSetupTeardown ? "10,5" : undefined}
-          strokeWidth={isSelected ? 3 : 1}
+          strokeWidth={edgeStrokeWidth}
           x={(point: ElkPoint) => point.x}
           y={(point: ElkPoint) => point.y}
         />

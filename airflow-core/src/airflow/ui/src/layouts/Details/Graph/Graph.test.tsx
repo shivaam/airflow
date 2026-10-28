@@ -47,6 +47,10 @@ vi.mock("openapi/queries", () => ({
   useStructureServiceStructureData: vi.fn(() => ({ data: { edges: [], nodes: [] } })),
 }));
 
+vi.mock("src/queries/useActiveTaskHolds", () => ({
+  useActiveTaskHolds: vi.fn(() => []),
+}));
+
 vi.mock("src/queries/useDependencyGraph", () => ({
   useDependencyGraph: vi.fn(() => ({ data: { edges: [], nodes: [] } })),
 }));

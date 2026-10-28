@@ -38,9 +38,12 @@ import { useColorMode } from "src/context/colorMode";
 import { useGroups } from "src/context/groups";
 import useSelectedVersion from "src/hooks/useSelectedVersion";
 import { useDefaultGraphDirection } from "src/hooks/useUserSettings";
+import { useActiveTaskHolds } from "src/queries/useActiveTaskHolds";
 import { useDependencyGraph } from "src/queries/useDependencyGraph";
 import { useGridTiSummariesStream } from "src/queries/useGridTISummaries.ts";
 import { getReactFlowThemeStyle } from "src/theme";
+import { isStatePending } from "src/utils";
+import { getHeldNowLockKinds } from "src/utils/taskHolds";
 
 import { FitViewOnLayout } from "./components/FitViewOnLayout";
 import { GraphControls } from "./components/GraphControls";
@@ -135,6 +138,27 @@ export const Graph = () => {
   });
   const gridTISummaries = runId ? summariesByRunId.get(runId) : undefined;
 
+  const holds = useActiveTaskHolds({
+    dagId,
+    isRunPending: dagRun !== undefined && isStatePending(dagRun.state),
+  });
+
+  // The tasks a hold is stopping now. A task group is not a task and is left out, and so are nodes that
+  // are not tasks of this Dag.
+  const heldLockKinds = getHeldNowLockKinds(holds, {
+    dagId,
+    run: runId
+      ? {
+          id: runId,
+          states: gridTISummaries
+            ? new Map(gridTISummaries.task_instances.map((ti) => [ti.task_id, ti.state]))
+            : undefined,
+        }
+      : undefined,
+    taskIds:
+      data?.nodes.filter((node) => node.type === "task" && !node.data.isGroup).map((node) => node.id) ?? [],
+  });
+
   const isNodeSelected = (nodeId: string) =>
     nodeId === taskId || nodeId === groupId || nodeId === `dag:${dagId}`;
 
@@ -146,6 +170,7 @@ export const Graph = () => {
       ...node,
       data: {
         ...node.data,
+        holdLockKind: heldLockKinds.get(node.id),
         isSelected: isNodeSelected(node.id),
         taskInstance,
       },
@@ -174,6 +199,16 @@ export const Graph = () => {
         )
       : filteredEdges;
 
+  // Draw what a held task would run next apart, so the graph shows where the hold is holding things up.
+  const edgesWithHolds =
+    heldLockKinds.size > 0
+      ? edges.map((edge) =>
+          heldLockKinds.has(edge.source)
+            ? { ...edge, data: { ...edge.data, rest: { ...edge.data?.rest, isHeld: true } } }
+            : edge,
+        )
+      : edges;
+
   const selectedNodeId = taskId ?? groupId;
 
   return (
@@ -196,7 +231,7 @@ export const Graph = () => {
       <ReactFlow
         colorMode={colorMode}
         defaultEdgeOptions={defaultEdgeOptions}
-        edges={edges}
+        edges={edgesWithHolds}
         edgesFocusable={false}
         edgeTypes={edgeTypes}
         maxZoom={1.5}
