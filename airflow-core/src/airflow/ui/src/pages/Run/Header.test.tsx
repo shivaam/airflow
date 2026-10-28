@@ -17,7 +17,7 @@
  * under the License.
  */
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -151,5 +151,25 @@ describe("Header hold lock", () => {
     render(<Header dagRun={baseDagRun} />, { wrapper: Wrapper });
 
     expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
+  });
+
+  // Holding a run that has finished has no effect, so the dialog is told the state of the run.
+  it("tells the hold dialog the state of the run", async () => {
+    render(<Header dagRun={{ ...baseDagRun, state: "success" }} />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /taskHold\.button/u }));
+
+    expect((await screen.findByTestId("hold-state-line")).textContent).toBe(
+      "taskHold.dialog.stateLine.runFinished",
+    );
+  });
+
+  it("has nothing to say of a run that has not finished", async () => {
+    render(<Header dagRun={{ ...baseDagRun, state: "running" }} />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /taskHold\.button/u }));
+
+    expect(await screen.findByTestId("hold-scope")).toBeInTheDocument();
+    expect(screen.queryByTestId("hold-state-line")).not.toBeInTheDocument();
   });
 });

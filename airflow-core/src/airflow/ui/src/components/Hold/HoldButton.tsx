@@ -21,45 +21,36 @@ import { useDisclosure } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
 import { LuHand } from "react-icons/lu";
 
-import type { TaskInstanceState } from "openapi/requests/types.gen";
+import type { DagRunState, TaskInstanceState } from "openapi/requests/types.gen";
 
 import { IconButton } from "src/system-components";
-
-import { getHoldScope } from "src/utils/taskHolds";
 
 import HoldDialog from "./HoldDialog";
 
 type Props = {
   readonly dagId: string;
   readonly isMapped?: boolean;
-  /** Set to hold every task in this run, or with `taskId` just that task instance. */
+  /** The run the page is about, or with `taskId` the run of that task instance. */
   readonly runId?: string;
+  /** The state of the run, for the dialog to say when holding it has no effect. */
+  readonly runState?: DagRunState;
   /** The state of the task instance, for the dialog to say what the hold does to it. */
   readonly state?: TaskInstanceState | null;
-  /** Set to hold this task in every run, or with `runId` just that task instance. */
+  /** The task the page is about, or with `runId` that task instance. */
   readonly taskId?: string;
 } & ButtonProps;
 
-const typeKeys = {
-  run: "dagRun_one",
-  task: "task_one",
-  taskInstance: "taskInstance_one",
-} as const;
-
-/** Opens the dialog that places a hold, its scope fixed by where the button sits. */
-export const HoldButton = ({ dagId, isMapped, runId, state, taskId, ...rest }: Props) => {
+/**
+ * Opens the dialog that places a hold. It is given what the page it sits on knows, which decides what
+ * the dialog offers to hold; the person chooses from that.
+ */
+export const HoldButton = ({ dagId, isMapped, runId, runState, state, taskId, ...rest }: Props) => {
   const { onClose, onOpen, open } = useDisclosure();
-  const { t: translate } = useTranslation();
-
-  const scope = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
+  const { t: translate } = useTranslation("dags");
 
   return (
     <>
-      <IconButton
-        {...rest}
-        label={translate("dags:taskHold.button", { type: translate(typeKeys[scope]) })}
-        onClick={onOpen}
-      >
+      <IconButton {...rest} label={translate("taskHold.button")} onClick={onOpen}>
         <LuHand />
       </IconButton>
       <HoldDialog
@@ -68,6 +59,7 @@ export const HoldButton = ({ dagId, isMapped, runId, state, taskId, ...rest }: P
         onClose={onClose}
         open={open}
         runId={runId}
+        runState={runState}
         state={state}
         taskId={taskId}
       />

@@ -73,7 +73,7 @@ export const Header = ({ dagRun }: { readonly dagRun: DAGRunResponse }) => {
             <NeedsReviewButtonWithModal dagId={dagId} runId={dagRunId} variant="chip" />
             <ClearRunButton bg="bg" dagRun={dagRun} isHotkeyEnabled variant="outline" />
             <MarkRunAsButton bg="bg" dagRun={dagRun} isHotkeyEnabled variant="outline" />
-            <HoldButton bg="bg" dagId={dagId} runId={dagRunId} variant="outline" />
+            <HoldButton bg="bg" dagId={dagId} runId={dagRunId} runState={dagRun.state} variant="outline" />
             <DeleteRunButton bg="bg" dagRun={dagRun} variant="outline" />
             <PluginActions
               {...pluginActions}

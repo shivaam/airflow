@@ -17,6 +17,7 @@
  * under the License.
  */
 import type {
+  DagRunState,
   GridNodeResponse,
   NodeResponse,
   StructureDataResponse,
@@ -86,6 +87,10 @@ const lockKindByState: Record<TaskInstanceState, HoldLockKind> = {
   upstream_failed: "finished",
 };
 
+/** Whether a task instance in this state has finished, the five states in which no attempt is left to run. */
+export const isTaskInstanceFinished = (state: TaskInstanceState | null | undefined): boolean =>
+  state !== null && state !== undefined && lockKindByState[state] === "finished";
+
 // A lock is pending where the hold has nothing to stop yet: the attempt carries on or has finished,
 // and the hold takes effect at its next start or resume. Everywhere else it is stopping the task now.
 const pendingByLockKind: Record<HoldLockKind, boolean> = {
@@ -103,9 +108,16 @@ const pendingByLockKind: Record<HoldLockKind, boolean> = {
 /** Whether a lock is pending, with nothing to stop yet, rather than stopping the task now. */
 export const isHoldLockPending = (kind: HoldLockKind): boolean => pendingByLockKind[kind];
 
-/** Which line of `taskHold.dialog.stateLine` says what a hold does to a task instance in its state. */
+/** Which line of `taskHold.dialog.stateLine` says what a hold does to what it holds, given its state. */
 export type HoldStateLineKey =
-  "awaitingInput" | "deferred" | "finished" | "notStarted" | "queued" | "running" | "waitingToRun";
+  | "awaitingInput"
+  | "deferred"
+  | "finished"
+  | "notStarted"
+  | "queued"
+  | "runFinished"
+  | "running"
+  | "waitingToRun";
 
 // A restarting task instance has no line. One with no state is told apart in `getHoldStateLineKey`.
 const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefined> = {
@@ -130,6 +142,59 @@ const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefine
  */
 export const getHoldStateLineKey = (state: TaskInstanceState | null): HoldStateLineKey | undefined =>
   state === null ? "notStarted" : stateLineKeyByState[state];
+
+/**
+ * The line the hold dialog shows for the scope chosen in it, or nothing. A hold on a task instance says
+ * what it does to the task instance in its state, where that is known. A hold on a run says so only for
+ * a run that has finished, where nothing starts unless its tasks are cleared. A task in every run has no
+ * state of its own.
+ */
+export const getScopeStateLineKey = (
+  scope: HoldScope,
+  { runState, state }: { readonly runState?: DagRunState; readonly state?: TaskInstanceState | null },
+): HoldStateLineKey | undefined => {
+  if (scope === "taskInstance") {
+    return state === undefined ? undefined : getHoldStateLineKey(state);
+  }
+
+  return scope === "run" && (runState === "success" || runState === "failed") ? "runFinished" : undefined;
+};
+
+/** The task and run of the page the hold dialog is opened from; a task or a run page has just the one. */
+export type HoldDialogOrigin = { readonly runId?: string; readonly taskId?: string };
+
+/**
+ * The scopes the dialog offers, in order. A task instance page can hold that task instance, the task in
+ * every run, or every task in the run. A task page or a run page offers only its own.
+ */
+export const getOfferedHoldScopes = ({ runId, taskId }: HoldDialogOrigin): Array<HoldScope> => {
+  const own = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
+
+  return own === "taskInstance" ? ["taskInstance", "task", "run"] : [own];
+};
+
+/**
+ * The scope the dialog starts on: the one of the page it is opened from. A task instance that has
+ * finished cannot be stopped in its own run, so from its page the dialog starts on the task in every run.
+ */
+export const getDefaultHoldScope = ({
+  runId,
+  state,
+  taskId,
+}: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope => {
+  const own = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
+
+  return own === "taskInstance" && isTaskInstanceFinished(state) ? "task" : own;
+};
+
+/** The `task_id` and `run_id` that place a hold at a scope, from the page the dialog is opened from. */
+export const getHoldRequestScope = (
+  scope: HoldScope,
+  { runId, taskId }: HoldDialogOrigin,
+): { run_id: string | null; task_id: string | null } => ({
+  run_id: scope === "task" ? null : (runId ?? null),
+  task_id: scope === "run" ? null : (taskId ?? null),
+});
 
 /**
  * What a lock is shown for: a task instance, or, with `task_id` or `dag_run_id` left out, a task across
@@ -384,17 +449,21 @@ export const getHoldStatus = (
       : "released";
 
 export type HoldFormErrors = {
-  readonly expiresAt?: "past";
+  readonly expiresAt?: "past" | "required";
   readonly reason?: "required";
 };
 
-/** Validates the hold dialog's fields. `expiresAt` is an ISO datetime, or empty for a hold with no expiry. */
+/**
+ * Validates the hold dialog's fields. `expiresAt` is the ISO datetime a hold ends at, empty while an
+ * expiry is wanted but not yet entered, and left out for a hold that lasts until it is released.
+ */
 export const validateHoldForm = (
-  { expiresAt, reason }: { readonly expiresAt: string; readonly reason: string },
+  { expiresAt, reason }: { readonly expiresAt?: string; readonly reason: string },
   now: Date = new Date(),
 ): HoldFormErrors => ({
   ...(reason.trim() === "" ? { reason: "required" as const } : {}),
-  ...(expiresAt !== "" && new Date(expiresAt).getTime() <= now.getTime()
+  ...(expiresAt === "" ? { expiresAt: "required" as const } : {}),
+  ...(expiresAt !== undefined && expiresAt !== "" && new Date(expiresAt).getTime() <= now.getTime()
     ? { expiresAt: "past" as const }
     : {}),
 });

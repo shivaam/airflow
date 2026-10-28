@@ -23,18 +23,21 @@ import { useTranslation } from "react-i18next";
 import { LuHand, LuInfo } from "react-icons/lu";
 
 import { useStructureServiceStructureData } from "openapi/queries";
-import type { TaskInstanceState } from "openapi/requests/types.gen";
+import type { DagRunState, TaskInstanceState } from "openapi/requests/types.gen";
 
-import { Modal, Tooltip } from "src/system-components";
+import { Modal, RadioCardItem, RadioCardLabel, RadioCardRoot, Tooltip } from "src/system-components";
 
 import { DateTimeInput } from "src/components/DateTimeInput";
 
 import { useCreateTaskHold } from "src/queries/useCreateTaskHold";
 import {
-  getHoldScope,
-  getHoldStateLineKey,
+  getDefaultHoldScope,
+  getHoldRequestScope,
   getHoldTeardownNote,
+  getOfferedHoldScopes,
+  getScopeStateLineKey,
   validateHoldForm,
+  type HoldScope,
 } from "src/utils/taskHolds";
 
 type Props = {
@@ -43,28 +46,49 @@ type Props = {
   readonly isMapped?: boolean;
   readonly onClose: () => void;
   readonly open: boolean;
-  /** Set to hold every task in this run, or with `taskId` just that task instance. */
+  /** The run of the page the dialog is opened from. With `taskId` it offers to hold just that task instance. */
   readonly runId?: string;
+  /** The state of that run, for the dialog to say when holding it has no effect. */
+  readonly runState?: DagRunState;
   /**
    * The state of the task instance, for the dialog to say what the hold does to it. Left out where it
    * is not known, and not read for a task in every run or a run as a whole.
    */
   readonly state?: TaskInstanceState | null;
-  /** Set to hold this task in every run, or with `runId` just that task instance. */
+  /** The task of the page the dialog is opened from. With `runId` it offers to hold just that task instance. */
   readonly taskId?: string;
 };
 
-const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, taskId }: Props) => {
+/** How long a hold lasts: until it is released, or until a time it ends by itself. */
+type HoldDuration = "forever" | "until";
+
+// The label of each choice of what to hold. A run is described by the same words as in the lists of
+// holds, so its secondary text reuses those.
+const scopeOptionKeys = {
+  run: { detail: "taskHold.scope.run", label: "taskHold.dialog.scope.run.label" },
+  task: { detail: "taskHold.dialog.scope.task.detail", label: "taskHold.dialog.scope.task.label" },
+  taskInstance: {
+    detail: "taskHold.dialog.scope.taskInstance.detail",
+    label: "taskHold.dialog.scope.taskInstance.label",
+  },
+} as const satisfies Record<HoldScope, { detail: string; label: string }>;
+
+const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, runState, state, taskId }: Props) => {
   const { t: translate } = useTranslation("dags");
 
   const [reason, setReason] = useState("");
+  // Left unset until a choice is made, so that what the dialog starts on follows the page it is opened from.
+  const [chosenScope, setChosenScope] = useState<HoldScope | undefined>(undefined);
+  const [duration, setDuration] = useState<HoldDuration>("forever");
   const [expiresAt, setExpiresAt] = useState("");
   // Errors stay hidden until the first attempt to place the hold, so an untouched dialog is not red.
   const [showErrors, setShowErrors] = useState(false);
 
-  const scope = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
-  const stateLineKey =
-    scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
+  const offeredScopes = getOfferedHoldScopes({ runId, taskId });
+  const scope =
+    offeredScopes.find((candidate) => candidate === chosenScope) ??
+    getDefaultHoldScope({ runId, state, taskId });
+  const stateLineKey = getScopeStateLineKey(scope, { runState, state });
   // The structure of the latest version is only needed to word the notes, so it is asked for while the
   // dialog is open.
   const { data: structure } = useStructureServiceStructureData({ dagId }, undefined, { enabled: open });
@@ -80,12 +104,16 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
           }),
         ]),
   ];
-  const errors = validateHoldForm({ expiresAt, reason });
+  const errors = validateHoldForm({ expiresAt: duration === "until" ? expiresAt : undefined, reason });
   const isReasonInvalid = showErrors && errors.reason !== undefined;
-  const isExpiresAtInvalid = showErrors && errors.expiresAt !== undefined;
+  // A time in the past is flagged as soon as it is entered. A missing one waits for the attempt to place
+  // the hold, like a missing reason.
+  const isExpiresAtInvalid = errors.expiresAt === "past" || (showErrors && errors.expiresAt !== undefined);
 
   const handleClose = () => {
     setReason("");
+    setChosenScope(undefined);
+    setDuration("forever");
     setExpiresAt("");
     setShowErrors(false);
     onClose();
@@ -103,13 +131,30 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
     mutate({
       dagId,
       requestBody: {
-        expires_at: expiresAt === "" ? null : expiresAt,
+        expires_at: duration === "until" ? expiresAt : null,
         reason: reason.trim(),
-        run_id: runId ?? null,
-        task_id: taskId ?? null,
+        ...getHoldRequestScope(scope, { runId, taskId }),
       },
     });
   };
+
+  const infoIcon =
+    infoNotes.length === 0 ? undefined : (
+      <Tooltip
+        content={
+          <VStack align="start" gap={2}>
+            {infoNotes.map((note) => (
+              <Text key={note}>{note}</Text>
+            ))}
+          </VStack>
+        }
+        portalled
+      >
+        <Box as="span" color="fg.muted" cursor="pointer" data-testid="hold-scope-info">
+          <LuInfo />
+        </Box>
+      </Tooltip>
+    );
 
   return (
     <Modal
@@ -139,29 +184,50 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
           )}
         </VStack>
         <Box>
-          <HStack gap={1} mb={1}>
-            <Text fontWeight="bold">{translate("taskHold.dialog.scope")}</Text>
-            {infoNotes.length === 0 ? undefined : (
-              <Tooltip
-                content={
-                  <VStack align="start" gap={2}>
-                    {infoNotes.map((note) => (
-                      <Text key={note}>{note}</Text>
-                    ))}
-                  </VStack>
+          {offeredScopes.length > 1 ? (
+            <RadioCardRoot
+              onValueChange={({ value }) => {
+                const next = offeredScopes.find((candidate) => candidate === value);
+
+                if (next !== undefined) {
+                  setChosenScope(next);
                 }
-                portalled
-              >
-                <Box as="span" color="fg.muted" cursor="pointer" data-testid="hold-scope-info">
-                  <LuInfo />
-                </Box>
-              </Tooltip>
-            )}
-          </HStack>
-          <Text data-testid="hold-scope">
-            {translate(`taskHold.scope.${scope}`, { runId, taskId })}
-            {isMapped ? ` ${translate("taskHold.dialog.mappedHint")}` : undefined}
-          </Text>
+              }}
+              size="sm"
+              value={scope}
+            >
+              <HStack gap={1} mb={2}>
+                <RadioCardLabel fontSize="md" fontWeight="bold">
+                  {translate("taskHold.dialog.scope.label")}
+                </RadioCardLabel>
+                {infoIcon}
+              </HStack>
+              <VStack align="stretch" gap={2}>
+                {offeredScopes.map((option) => (
+                  <RadioCardItem
+                    description={translate(scopeOptionKeys[option].detail, { runId, taskId })}
+                    indicatorPlacement="start"
+                    key={option}
+                    label={translate(scopeOptionKeys[option].label)}
+                    value={option}
+                  />
+                ))}
+              </VStack>
+            </RadioCardRoot>
+          ) : (
+            <>
+              <HStack gap={1} mb={1}>
+                <Text fontWeight="bold">{translate("taskHold.dialog.scope.label")}</Text>
+                {infoIcon}
+              </HStack>
+              <Text data-testid="hold-scope">{translate(`taskHold.scope.${scope}`, { runId, taskId })}</Text>
+            </>
+          )}
+          {isMapped && (scope === "task" || scope === "taskInstance") ? (
+            <Text color="fg.muted" data-testid="hold-mapped-hint" fontSize="sm" mt={2}>
+              {translate("taskHold.dialog.mappedHint")}
+            </Text>
+          ) : undefined}
         </Box>
         <Field.Root invalid={isReasonInvalid} required>
           <Field.Label>
@@ -175,12 +241,46 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
           />
           <Field.ErrorText>{translate("taskHold.dialog.reason.required")}</Field.ErrorText>
         </Field.Root>
-        <Field.Root invalid={isExpiresAtInvalid}>
-          <Field.Label>{translate("taskHold.dialog.expiresAt.label")}</Field.Label>
-          <DateTimeInput onChange={(event) => setExpiresAt(event.target.value)} value={expiresAt} />
-          <Field.HelperText>{translate("taskHold.dialog.expiresAt.helper")}</Field.HelperText>
-          <Field.ErrorText>{translate("taskHold.dialog.expiresAt.past")}</Field.ErrorText>
-        </Field.Root>
+        <Box>
+          <RadioCardRoot
+            onValueChange={({ value }) => {
+              if (value === "forever" || value === "until") {
+                setDuration(value);
+              }
+            }}
+            size="sm"
+            value={duration}
+          >
+            <RadioCardLabel fontSize="md" fontWeight="bold" mb={2}>
+              {translate("taskHold.dialog.expiresAt.label")}
+            </RadioCardLabel>
+            <VStack align="stretch" gap={2}>
+              <RadioCardItem
+                indicatorPlacement="start"
+                label={translate("taskHold.dialog.expiresAt.forever")}
+                value="forever"
+              />
+              <RadioCardItem
+                indicatorPlacement="start"
+                label={translate("taskHold.dialog.expiresAt.date")}
+                value="until"
+              />
+            </VStack>
+          </RadioCardRoot>
+          {duration === "until" ? (
+            <Field.Root invalid={isExpiresAtInvalid} mt={2}>
+              <DateTimeInput onChange={(event) => setExpiresAt(event.target.value)} value={expiresAt} />
+              <Field.HelperText>{translate("taskHold.dialog.expiresAt.helper")}</Field.HelperText>
+              <Field.ErrorText>
+                {translate(
+                  errors.expiresAt === "required"
+                    ? "taskHold.dialog.expiresAt.required"
+                    : "taskHold.dialog.expiresAt.past",
+                )}
+              </Field.ErrorText>
+            </Field.Root>
+          ) : undefined}
+        </Box>
       </VStack>
     </Modal>
   );

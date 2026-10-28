@@ -537,15 +537,21 @@ describe("validateHoldForm", () => {
   const now = new Date("2026-10-20T12:00:00Z");
 
   it("requires a reason", () => {
-    expect(validateHoldForm({ expiresAt: "", reason: "" }, now)).toEqual({ reason: "required" });
+    expect(validateHoldForm({ reason: "" }, now)).toEqual({ reason: "required" });
   });
 
   it("treats a whitespace-only reason as missing", () => {
-    expect(validateHoldForm({ expiresAt: "", reason: "   " }, now)).toEqual({ reason: "required" });
+    expect(validateHoldForm({ reason: "   " }, now)).toEqual({ reason: "required" });
   });
 
   it("accepts a reason without an expiry", () => {
-    expect(validateHoldForm({ expiresAt: "", reason: "Investigating" }, now)).toEqual({});
+    expect(validateHoldForm({ reason: "Investigating" }, now)).toEqual({});
+  });
+
+  it("requires the time of an expiry that is wanted but not entered", () => {
+    expect(validateHoldForm({ expiresAt: "", reason: "Investigating" }, now)).toEqual({
+      expiresAt: "required",
+    });
   });
 
   it("accepts an expiry in the future", () => {

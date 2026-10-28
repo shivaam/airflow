@@ -21,7 +21,7 @@
  * bundle and the i18n config, and that file asserts on untranslated keys.
  */
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,6 +62,15 @@ const withTeardown = () =>
     ],
   );
 
+const teardownRun =
+  "This run's teardowns (cleanup) are held too, so resources their setups created stay up until the hold ends.";
+
+// Options are picked by their label, and the choice lands a moment later.
+const choose = async (label: string) => {
+  fireEvent.click(screen.getByText(label));
+  await waitFor(() => expect(screen.getByText(label).closest("label")?.querySelector("input")).toBeChecked());
+};
+
 const capacity =
   "Each run waits here until the hold ends. Waiting runs count toward max_active_runs, and a run that hits its dagrun_timeout fails with this task skipped.";
 const teardown =
@@ -97,7 +106,7 @@ describe("HoldDialog notes", () => {
       wrapper: Wrapper,
     });
 
-    await vi.waitFor(() => expect(screen.getByTestId("hold-scope")).toBeInTheDocument());
+    await screen.findByText("This task in every run");
     await new Promise((resolve) => {
       setTimeout(resolve, 50);
     });
@@ -131,8 +140,55 @@ describe("HoldDialog notes", () => {
     withTeardown();
     render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" />, { wrapper: Wrapper });
 
-    expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([
-      "This run's teardowns (cleanup) are held too, so resources their setups created stay up until the hold ends.",
-    ]);
+    expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([teardownRun]);
   });
+});
+
+describe("HoldDialog notes follow the choice of what to hold", () => {
+  beforeEach(() => {
+    i18n.addResourceBundle("en", "dags", dagsLocale, true, true);
+  });
+
+  it.each([
+    { label: "This task in this run", notes: [teardown] },
+    { label: "This task in every run", notes: [capacity, teardown] },
+    { label: "Every task in this run", notes: [teardownRun] },
+  ])("says what is held with $label, from a task instance page", async ({ label, notes }) => {
+    withTeardown();
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+      wrapper: Wrapper,
+    });
+
+    await choose(label);
+
+    expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual(notes);
+  });
+
+  it("says each run waits, and nothing of teardowns, where the Dag has none", async () => {
+    serveStructure([task("load")], []);
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+      wrapper: Wrapper,
+    });
+
+    await choose("This task in every run");
+
+    expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([capacity]);
+  });
+
+  it.each(["This task in this run", "Every task in this run"])(
+    "shows no icon with %s where the Dag has no teardown",
+    async (label) => {
+      serveStructure([task("load")], []);
+      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+        wrapper: Wrapper,
+      });
+
+      await choose(label);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+
+      expect(screen.queryByTestId("hold-scope-info")).not.toBeInTheDocument();
+    },
+  );
 });

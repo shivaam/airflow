@@ -154,7 +154,7 @@
   "taskHold": {
     "activeCount_one": "{{count, number}} active hold",
     "activeCount_other": "{{count, number}} active holds",
-    "button": "Hold {{type}}...",
+    "button": "Hold...",
     "columns": {
       "createdAt": "Created at",
       "createdBy": "Created by",
@@ -170,9 +170,12 @@
       "descriptionRun": "A hold stops the tasks in this run from starting or resuming until it is released or expires. A running attempt carries on.",
       "error": "Failed to place hold",
       "expiresAt": {
-        "helper": "Leave empty to hold until it is released.",
-        "label": "Expires at (optional)",
-        "past": "The expiry must be in the future."
+        "date": "Until a date and time",
+        "forever": "Until I release it",
+        "helper": "The hold ends by itself at this time.",
+        "label": "How long",
+        "past": "The expiry must be in the future.",
+        "required": "Choose when the hold ends."
       },
       "info": {
         "capacity": "Each run waits here until the hold ends. Waiting runs count toward max_active_runs, and a run that hits its dagrun_timeout fails with this task skipped.",
@@ -186,13 +189,27 @@
         "placeholder": "Why is this being held?",
         "required": "A reason is required."
       },
-      "scope": "Scope",
+      "scope": {
+        "label": "What to hold",
+        "run": {
+          "label": "Every task in this run"
+        },
+        "task": {
+          "detail": "{{taskId}}, in current and future runs",
+          "label": "This task in every run"
+        },
+        "taskInstance": {
+          "detail": "{{taskId}} in run {{runId}}",
+          "label": "This task in this run"
+        }
+      },
       "stateLine": {
         "awaitingInput": "You can still answer. After the answer, the task waits instead of resuming.",
         "deferred": "Its trigger keeps waiting. When it fires, the task waits instead of resuming.",
         "finished": "It has finished. If it is cleared, the new attempt waits.",
         "notStarted": "It hasn't started, and won't until the hold ends.",
         "queued": "This attempt starts anyway. Its next start or resume waits.",
+        "runFinished": "This run has finished. Nothing starts unless its tasks are cleared; cleared tasks then wait.",
         "running": "This attempt keeps running. Its next start or resume waits: a retry, a re-run, or resuming after a trigger.",
         "waitingToRun": "It won't run until the hold ends."
       },
