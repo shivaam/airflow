@@ -118,6 +118,7 @@ describe("HoldLockBadge", () => {
   describe("on a task instance", () => {
     const stopsNow = "Won't run until the hold is released or expires.";
     const carriesOn = "This attempt carries on. Its next start or resume is held.";
+    const waitsOutDelay = "Waiting out its retry or reschedule delay as usual. When it's due, it's held.";
 
     // What a hold does to a task instance depends on its state, and so does what the badge says. It is
     // a solid "Held" where the hold is stopping the task instance now, and a dashed "Hold pending"
@@ -125,8 +126,8 @@ describe("HoldLockBadge", () => {
     it.each([
       { label: "Held", pending: false, state: null, tooltip: stopsNow },
       { label: "Held", pending: false, state: "scheduled", tooltip: stopsNow },
-      { label: "Held", pending: false, state: "up_for_retry", tooltip: stopsNow },
-      { label: "Held", pending: false, state: "up_for_reschedule", tooltip: stopsNow },
+      { label: "Hold pending", pending: true, state: "up_for_retry", tooltip: waitsOutDelay },
+      { label: "Hold pending", pending: true, state: "up_for_reschedule", tooltip: waitsOutDelay },
       { label: "Held", pending: false, state: "restarting", tooltip: stopsNow },
       { label: "Hold pending", pending: true, state: "queued", tooltip: carriesOn },
       { label: "Hold pending", pending: true, state: "running", tooltip: carriesOn },

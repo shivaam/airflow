@@ -65,6 +65,7 @@ vi.mock("src/queries/useGridStructure.ts", () => ({
       { id: "running_task", label: "running_task" },
       { id: "finished_task", label: "finished_task" },
       { id: "mapped_task", is_mapped: true, label: "mapped_task" },
+      { id: "retry_task", label: "retry_task" },
       { children: [{ id: "task_group.child", label: "child" }], id: "task_group", label: "task_group" },
     ],
   }),
@@ -72,7 +73,8 @@ vi.mock("src/queries/useGridStructure.ts", () => ({
 
 const states: Record<string, TaskInstanceState | null> = {
   finished_task: "success",
-  mapped_task: "up_for_retry",
+  mapped_task: "scheduled",
+  retry_task: "up_for_retry",
   running_task: "running",
   scheduled_task: "scheduled",
   task_group: "scheduled",
@@ -175,7 +177,7 @@ describe("Grid holds", () => {
     holdsRequests = 0;
   });
 
-  it("marks the task instances a hold is stopping now, and not a running or finished one, or a group", async () => {
+  it("marks the task instances a hold is stopping now, and not one waiting out a retry delay, a running or finished one, or a group", async () => {
     serveHolds([hold]);
     const { container } = renderGrid();
 

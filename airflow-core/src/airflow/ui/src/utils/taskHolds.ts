@@ -61,13 +61,22 @@ export const holdMatches = (
  * across its runs, and a run as a whole, have no state of their own and are simply held.
  */
 export type HoldLockKind =
-  "awaitingInput" | "deferred" | "finished" | "held" | "queued" | "run" | "running" | "task" | "waiting";
+  | "awaitingInput"
+  | "deferred"
+  | "delay"
+  | "finished"
+  | "held"
+  | "queued"
+  | "run"
+  | "running"
+  | "task"
+  | "waiting";
 
 // The scheduler checks the lock before it moves a task instance out of `none`, so one that has not
 // started waits where it is, and again before it queues a `scheduled` one. Every other task instance
 // that is about to start again waits once it is `scheduled`: a retry or a reschedule moves there as
-// usual when its time comes, and a deferred or awaiting-input task instance moves there when it
-// resumes. An attempt that is already queued or running has passed both checks and carries on, so the
+// usual when its delay runs out, so the hold is pending until then and the lock says so, and a deferred
+// or awaiting-input task instance moves there when it resumes. An attempt that is already queued or running has passed both checks and carries on, so the
 // hold stops its next start or resume: a retry, a clear, or resuming after it defers. One that has
 // finished has nothing to stop yet, but if it is cleared the new attempt waits, so it shows a pending
 // hold as well.
@@ -82,8 +91,8 @@ const lockKindByState: Record<TaskInstanceState, HoldLockKind> = {
   scheduled: "held",
   skipped: "finished",
   success: "finished",
-  up_for_reschedule: "held",
-  up_for_retry: "held",
+  up_for_reschedule: "delay",
+  up_for_retry: "delay",
   upstream_failed: "finished",
 };
 
@@ -96,6 +105,7 @@ export const isTaskInstanceFinished = (state: TaskInstanceState | null | undefin
 const pendingByLockKind: Record<HoldLockKind, boolean> = {
   awaitingInput: true,
   deferred: true,
+  delay: true,
   finished: true,
   held: false,
   queued: true,

@@ -141,9 +141,18 @@ describe("getHoldLockKind", () => {
       running: "running",
     } as const satisfies Partial<Record<TaskInstanceState, HoldLockKind>>;
 
-    it.each(heldStates)("is held while the task instance waits in %s", (state) => {
-      expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("held");
+    it("is held while the task instance waits in scheduled", () => {
+      expect(getHoldLockKind(holds, makeTaskInstance("scheduled"))).toBe("held");
     });
+
+    // The delay runs out as usual and the task instance is stopped once it is scheduled, so the hold is
+    // pending until then.
+    it.each(["up_for_retry", "up_for_reschedule"] as const)(
+      "waits out its delay while the task instance is %s",
+      (state) => {
+        expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("delay");
+      },
+    );
 
     it.each(waitingStates)("waits where it is while the task instance is %s", (state) => {
       expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("waiting");
@@ -320,6 +329,7 @@ describe("isHoldLockPending", () => {
   const pendingByKind = {
     awaitingInput: true,
     deferred: true,
+    delay: true,
     finished: true,
     held: false,
     queued: true,

@@ -240,6 +240,7 @@
       "tooltip": {
         "awaitingInput": "You can still answer. Held when it resumes.",
         "deferred": "The trigger keeps waiting. Held when it resumes.",
+        "delay": "Waiting out its retry or reschedule delay as usual. When it's due, it's held.",
         "finished": "Held if it's cleared.",
         "held": "Won't run until the hold is released or expires.",
         "queued": "This attempt carries on. Its next start or resume is held.",

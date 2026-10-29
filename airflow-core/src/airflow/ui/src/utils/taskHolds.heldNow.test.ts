@@ -59,8 +59,6 @@ describe("getHeldNowLockKind", () => {
   it.each([
     { kind: "waiting", state: null },
     { kind: "held", state: "scheduled" },
-    { kind: "held", state: "up_for_retry" },
-    { kind: "held", state: "up_for_reschedule" },
     { kind: "waiting", state: "restarting" },
   ] as const)(
     "gives the %s lock to a task instance the hold is stopping in state $state",
@@ -69,12 +67,17 @@ describe("getHeldNowLockKind", () => {
     },
   );
 
-  it.each(["queued", "running", "deferred", "awaiting_input", ...finishedStates] as const)(
-    "gives nothing to a covered task instance in state %s, where the hold is pending",
-    (state) => {
-      expect(getHeldNowLockKind(holds, makeTaskInstance(state))).toBeUndefined();
-    },
-  );
+  it.each([
+    "up_for_retry",
+    "up_for_reschedule",
+    "queued",
+    "running",
+    "deferred",
+    "awaiting_input",
+    ...finishedStates,
+  ] as const)("gives nothing to a covered task instance in state %s, where the hold is pending", (state) => {
+    expect(getHeldNowLockKind(holds, makeTaskInstance(state))).toBeUndefined();
+  });
 
   it("gives nothing to a task instance that no active hold covers", () => {
     expect(getHeldNowLockKind([makeHold({ task_id: "extract" })], makeTaskInstance("scheduled"))).toBe(
@@ -111,7 +114,6 @@ describe("getHeldNowLockKinds", () => {
     ).toEqual(
       new Map([
         ["load", "held"],
-        ["notify", "held"],
         ["report", "waiting"],
       ]),
     );
