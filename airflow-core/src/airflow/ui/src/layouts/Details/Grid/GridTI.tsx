@@ -16,6 +16,8 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import type { ComponentProps } from "react";
+
 import { Badge, Box, Flex } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
 import { LuLock } from "react-icons/lu";
@@ -52,16 +54,23 @@ const HeldMark = () => {
       color="indigo.contrast"
       data-testid="grid-hold-lock"
       display="flex"
-      height="9px"
+      height="11px"
       justifyContent="center"
       pointerEvents="none"
       position="absolute"
-      right={0}
-      width="9px"
+      right="-2px"
+      width="11px"
     >
-      <LuLock aria-label={translate("taskHold.lock.label.held")} size={6} />
+      <LuLock aria-label={translate("taskHold.lock.label.held")} size={7} />
     </Box>
   );
+};
+
+// The tooltip of a held cell leads with the hold, so it is told apart from a task that is merely waiting.
+const HeldTooltip = (props: ComponentProps<typeof TaskInstanceTooltip>) => {
+  const { t: translate } = useTranslation("dags");
+
+  return <TaskInstanceTooltip {...props} tooltip={translate("taskHold.lock.gridTooltip")} />;
 };
 
 type Props = {
@@ -126,6 +135,9 @@ export const GridTI = ({
     : undefined;
   const badgeSize = `${isStacked ? TASK_BAR_HEIGHT_PX - 1 : TASK_BAR_HEIGHT_PX}px`;
   const stackPadding = isStacked ? `${BACK_CARD_OFFSET_PX}px` : undefined;
+  const CellTooltip = isHeld ? HeldTooltip : TaskInstanceTooltip;
+  // A held cell is ringed, unless it is selected, whose outline takes the same place.
+  const outlineColor = isSelectedTaskInstance ? selectedOutlineColor : isHeld ? "indigo.solid" : undefined;
 
   return (
     <Flex
@@ -143,7 +155,7 @@ export const GridTI = ({
       transition="background-color 0.2s"
       width="18px"
     >
-      <TaskInstanceTooltip
+      <CellTooltip
         loopMaxIterations={loopMaxIterations}
         openDelay={500}
         positioning={{ placement: "bottom" }}
@@ -154,10 +166,10 @@ export const GridTI = ({
           as="span"
           borderRadius={4}
           display="flex"
-          outlineColor={isSelectedTaskInstance ? selectedOutlineColor : undefined}
+          outlineColor={outlineColor}
           outlineOffset={isStacked ? "0px" : "1px"}
-          outlineStyle={isSelectedTaskInstance ? "solid" : undefined}
-          outlineWidth={isSelectedTaskInstance ? "2px" : undefined}
+          outlineStyle={outlineColor === undefined ? undefined : "solid"}
+          outlineWidth={outlineColor === undefined ? undefined : "2px"}
           pb={stackPadding}
           pr={stackPadding}
           transition="outline-color 0.2s"
@@ -194,7 +206,7 @@ export const GridTI = ({
             </Badge>
           </Link>
         </Box>
-      </TaskInstanceTooltip>
+      </CellTooltip>
       {isHeld ? <HeldMark /> : undefined}
     </Flex>
   );

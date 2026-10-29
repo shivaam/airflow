@@ -22,11 +22,18 @@ import { LuLock } from "react-icons/lu";
 
 import { useTaskHoldServiceListTaskHolds } from "openapi/queries";
 
-import { Tooltip } from "src/system-components";
+import { Popover } from "src/system-components";
 
 import { ACTIVE_HOLDS_LIMIT } from "src/queries/useActiveTaskHolds";
 import { isStatePending, useAutoRefresh } from "src/utils";
-import { getHoldLockKind, isHoldLockPending, type HoldLockSubject } from "src/utils/taskHolds";
+import {
+  getCoveringHolds,
+  getHoldLockKind,
+  isHoldLockPending,
+  type HoldLockSubject,
+} from "src/utils/taskHolds";
+
+import { HeldByList } from "./Hold/HeldByList";
 
 // A hold that is stopping the task now shows as a solid badge. A pending one, with nothing to stop yet,
 // is drawn as a dashed outline with no fill, so the two are easy to tell apart.
@@ -44,9 +51,10 @@ type Props = {
 
 /**
  * A lock, shown while an active hold covers what is in view. The hold never changes the state of a
- * task instance, so the badge is the only sign of it, and its tooltip says what the hold does to a
+ * task instance, so the badge is the only sign of it, and what it opens says what the hold does to a
  * task instance in the state it is in. The badge is solid while the hold is stopping the task now, and
- * dashed while it is pending, with nothing to stop yet.
+ * dashed while it is pending, with nothing to stop yet. Clicking it lists the holds behind it, each
+ * with a way to release it.
  */
 export const HoldLockBadge = ({ subject }: Props) => {
   const { t: translate } = useTranslation("dags");
@@ -76,18 +84,34 @@ export const HoldLockBadge = ({ subject }: Props) => {
   }
 
   const isPending = isHoldLockPending(kind);
+  const holds = getCoveringHolds(data?.task_holds ?? [], subject);
 
   return (
-    <Tooltip content={translate(`taskHold.lock.tooltip.${kind}`)}>
-      <Badge
-        colorPalette="indigo"
-        data-hold-pending={String(isPending)}
-        data-testid="hold-lock-badge"
-        {...(isPending ? pendingLook : solidLook)}
-      >
-        <LuLock size={12} />
-        {translate(`taskHold.lock.label.${isPending ? "pending" : "held"}`)}
-      </Badge>
-    </Tooltip>
+    <Popover.Root lazyMount positioning={{ placement: "bottom-start" }} unmountOnExit>
+      <Popover.Trigger asChild>
+        <Badge
+          as="button"
+          colorPalette="indigo"
+          cursor="pointer"
+          data-hold-pending={String(isPending)}
+          data-testid="hold-lock-badge"
+          {...(isPending ? pendingLook : solidLook)}
+        >
+          <LuLock size={12} />
+          {translate(`taskHold.lock.label.${isPending ? "pending" : "held"}`)}
+          {holds.length > 1 ? ` · ${holds.length}` : undefined}
+        </Badge>
+      </Popover.Trigger>
+      <Popover.Content maxW="420px" width="max-content">
+        <Popover.Arrow />
+        <Popover.Body>
+          <HeldByList
+            dagId={subject.dag_id}
+            holds={holds}
+            note={translate(`taskHold.lock.tooltip.${kind}`)}
+          />
+        </Popover.Body>
+      </Popover.Content>
+    </Popover.Root>
   );
 };

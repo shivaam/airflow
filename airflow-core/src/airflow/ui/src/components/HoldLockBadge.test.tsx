@@ -17,7 +17,7 @@
  * under the License.
  */
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -90,22 +90,23 @@ const advanceClock = async () => {
   });
 };
 
-// The tooltip mounts when it opens, which takes a hover and the open delay.
-const getTooltipText = async (badge: HTMLElement) => {
-  vi.useFakeTimers();
+// Clicking the badge lists the holds behind it, under a line that says what they do to what is in view.
+const getHeldByText = async (badge: HTMLElement) => {
+  fireEvent.click(badge);
 
-  try {
-    await act(async () => {
-      fireEvent.focus(badge);
-      fireEvent.pointerEnter(badge);
-      await vi.advanceTimersByTimeAsync(500);
-    });
-
-    return screen.getByRole("tooltip").textContent;
-  } finally {
-    vi.useRealTimers();
-  }
+  return (await screen.findByTestId("held-by-list")).textContent;
 };
+
+// The ids of the holds the release endpoint was asked to release.
+const released: Array<string> = [];
+
+const recordRelease = ({ params }: { params: Record<string, unknown> }) => {
+  released.push(String(params.holdId));
+
+  return HttpResponse.json({ ...hold, active: false });
+};
+
+const expectReleased = (ids: Array<string>) => () => expect(released).toEqual(ids);
 
 describe("HoldLockBadge", () => {
   // Without the bundles i18n.t() echoes the keys, so the strings below would assert nothing.
@@ -151,7 +152,7 @@ describe("HoldLockBadge", () => {
 
         expect(badge.textContent).toBe(label);
         expect(badge).toHaveAttribute("data-hold-pending", String(pending));
-        expect(await getTooltipText(badge)).toBe(tooltip);
+        expect(await getHeldByText(badge)).toContain(tooltip);
       },
     );
 
@@ -166,7 +167,7 @@ describe("HoldLockBadge", () => {
 
         expect(badge.textContent).toBe("Hold pending");
         expect(badge).toHaveAttribute("data-hold-pending", "true");
-        expect(await getTooltipText(badge)).toBe("Held if it's cleared.");
+        expect(await getHeldByText(badge)).toContain("Held if it's cleared.");
       },
     );
 
@@ -220,7 +221,7 @@ describe("HoldLockBadge", () => {
 
       expect(badge.textContent).toBe("Held");
       expect(badge).toHaveAttribute("data-hold-pending", "false");
-      expect(await getTooltipText(badge)).toBe(
+      expect(await getHeldByText(badge)).toContain(
         "This task won't start or resume in any run until the hold is released or expires.",
       );
     });
@@ -245,7 +246,7 @@ describe("HoldLockBadge", () => {
 
       expect(badge.textContent).toBe("Held");
       expect(badge).toHaveAttribute("data-hold-pending", "false");
-      expect(await getTooltipText(badge)).toBe(
+      expect(await getHeldByText(badge)).toContain(
         "Tasks in this run won't start or resume until the hold is released or expires.",
       );
     });
@@ -315,5 +316,44 @@ describe("HoldLockBadge refreshing the holds", () => {
     await settle();
     await advanceClock();
     expect(holdsRequests).toBe(1);
+  });
+
+  describe("held by", () => {
+    const runHold: TaskHoldResponse = {
+      ...hold,
+      id: 2,
+      reason: "Bad input file",
+      run_id: "run_1",
+      task_id: null,
+    };
+
+    it("counts the holds and lists each of them", async () => {
+      serveHolds([hold, runHold]);
+      render(<HoldLockBadge subject={taskInstance("scheduled")} />, { wrapper: Wrapper });
+
+      const badge = await screen.findByTestId("hold-lock-badge");
+
+      expect(badge.textContent).toBe("Held · 2");
+
+      const text = await getHeldByText(badge);
+
+      expect(text).toContain("Held by 2 holds");
+      expect(text).toContain("Upstream data is wrong");
+      expect(text).toContain("Bad input file");
+      expect(text).toContain("Releasing one keeps it held by the others.");
+    });
+
+    it("releases the hold its Release button sits on", async () => {
+      released.length = 0;
+      serveHolds([hold, runHold]);
+      server.use(http.post("/api/v2/dags/example_dag/holds/:holdId/release", recordRelease));
+      render(<HoldLockBadge subject={taskInstance("scheduled")} />, { wrapper: Wrapper });
+
+      await getHeldByText(await screen.findByTestId("hold-lock-badge"));
+      const [, releaseRunHold] = screen.getAllByTestId("held-by-release");
+
+      fireEvent.click(releaseRunHold as HTMLElement);
+      await waitFor(expectReleased(["2"]));
+    });
   });
 });

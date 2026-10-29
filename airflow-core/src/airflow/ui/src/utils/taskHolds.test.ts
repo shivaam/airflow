@@ -28,6 +28,7 @@ import type {
 } from "openapi/requests/types.gen";
 
 import {
+  getCoveringHolds,
   getHoldLockKind,
   getHoldScope,
   getHoldScopeLink,
@@ -278,6 +279,39 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind([makeHold({ dag_id: "other_dag", run_id: "run_1" })], subject)).toBeUndefined();
       expect(getHoldLockKind([makeHold({ active: false, run_id: "run_1" })], subject)).toBeUndefined();
     });
+  });
+});
+
+describe("getCoveringHolds", () => {
+  const instance = { dag_id: "example_dag", dag_run_id: "run_1", state: null, task_id: "load" };
+
+  it("lists every active hold on a task instance, whatever scope it was placed at", () => {
+    const onTask = makeHold({ id: 1, task_id: "load" });
+    const onRun = makeHold({ id: 2, run_id: "run_1" });
+    const onInstance = makeHold({ id: 3, run_id: "run_1", task_id: "load" });
+
+    expect(getCoveringHolds([onTask, onRun, onInstance], instance)).toEqual([onTask, onRun, onInstance]);
+  });
+
+  it("leaves out released holds, other tasks, other runs and other Dags", () => {
+    const holds = [
+      makeHold({ active: false, id: 1, task_id: "load" }),
+      makeHold({ id: 2, task_id: "extract" }),
+      makeHold({ id: 3, run_id: "run_2" }),
+      makeHold({ dag_id: "other_dag", id: 4, task_id: "load" }),
+    ];
+
+    expect(getCoveringHolds(holds, instance)).toEqual([]);
+  });
+
+  it("lists only holds at exactly that scope for a task or a run as a whole", () => {
+    const onTask = makeHold({ id: 1, task_id: "load" });
+    const onRun = makeHold({ id: 2, run_id: "run_1" });
+    const onInstance = makeHold({ id: 3, run_id: "run_1", task_id: "load" });
+    const holds = [onTask, onRun, onInstance];
+
+    expect(getCoveringHolds(holds, { dag_id: "example_dag", task_id: "load" })).toEqual([onTask]);
+    expect(getCoveringHolds(holds, { dag_id: "example_dag", dag_run_id: "run_1" })).toEqual([onRun]);
   });
 });
 

@@ -211,29 +211,45 @@ export type HoldLockSubject = {
 };
 
 /**
- * The kind of lock to show for a subject, or nothing when no active hold covers it. A task instance is
+ * The active holds that cover a subject. A task instance is
  * covered by a hold that matches its Dag, its task and its run wherever the hold sets them, whatever its
  * map index, and a finished one is covered too: if it is cleared, the new attempt waits. A task or a run
  * as a whole is covered only by a hold set at exactly that scope, not by one on a single run of the task
  * or a single task of the run.
  */
-export const getHoldLockKind = (
+export const getCoveringHolds = (
   holds: ReadonlyArray<TaskHoldResponse>,
-  { dag_id: dagId, dag_run_id: runId, state, task_id: taskId }: HoldLockSubject,
-): HoldLockKind | undefined => {
+  { dag_id: dagId, dag_run_id: runId, task_id: taskId }: HoldLockSubject,
+): Array<TaskHoldResponse> => {
   const active = holds.filter((hold) => hold.active && hold.dag_id === dagId);
 
   if (taskId === undefined) {
-    return active.some((hold) => hold.task_id === null && hold.run_id === runId) ? "run" : undefined;
+    return active.filter((hold) => hold.task_id === null && hold.run_id === runId);
   }
 
-  if (runId === undefined) {
-    return active.some((hold) => hold.run_id === null && hold.task_id === taskId) ? "task" : undefined;
+  return runId === undefined
+    ? active.filter((hold) => hold.run_id === null && hold.task_id === taskId)
+    : active.filter((hold) => holdMatches(hold, { dagId, runId, taskId }));
+};
+
+/** The kind of lock to show for a subject, or nothing when no active hold covers it (see `getCoveringHolds`). */
+export const getHoldLockKind = (
+  holds: ReadonlyArray<TaskHoldResponse>,
+  subject: HoldLockSubject,
+): HoldLockKind | undefined => {
+  if (getCoveringHolds(holds, subject).length === 0) {
+    return undefined;
   }
 
-  const kind = state === null || state === undefined ? "waiting" : lockKindByState[state];
+  if (subject.task_id === undefined) {
+    return "run";
+  }
 
-  return active.some((hold) => holdMatches(hold, { dagId, runId, taskId })) ? kind : undefined;
+  if (subject.dag_run_id === undefined) {
+    return "task";
+  }
+
+  return subject.state === null || subject.state === undefined ? "waiting" : lockKindByState[subject.state];
 };
 
 /**

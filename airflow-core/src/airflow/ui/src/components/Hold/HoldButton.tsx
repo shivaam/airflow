@@ -19,13 +19,18 @@
 import type { ButtonProps } from "@chakra-ui/react";
 import { useDisclosure } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
-import { LuHand } from "react-icons/lu";
+import { LuHand, LuHandHelping } from "react-icons/lu";
 
 import type { DagRunState, TaskInstanceState } from "openapi/requests/types.gen";
 
-import { IconButton } from "src/system-components";
+import { IconButton, Popover } from "src/system-components";
 
+import { useActiveTaskHolds } from "src/queries/useActiveTaskHolds";
+import { getCoveringHolds } from "src/utils/taskHolds";
+
+import { HeldByList } from "./HeldByList";
 import HoldDialog from "./HoldDialog";
+import ReleaseHoldDialog from "./ReleaseHoldDialog";
 
 type Props = {
   readonly dagId: string;
@@ -42,11 +47,48 @@ type Props = {
 
 /**
  * Opens the dialog that places a hold. It is given what the page it sits on knows, which decides what
- * the dialog offers to hold; the person chooses from that.
+ * the dialog offers to hold; the person chooses from that. While a hold already covers what the page
+ * is about, it releases instead: one hold through the release dialog, several through the list of them,
+ * as releasing one leaves the others in force.
  */
 export const HoldButton = ({ dagId, isMapped, runId, runState, state, taskId, ...rest }: Props) => {
   const { onClose, onOpen, open } = useDisclosure();
   const { t: translate } = useTranslation("dags");
+  const holds = getCoveringHolds(useActiveTaskHolds({ dagId }), {
+    dag_id: dagId,
+    dag_run_id: runId,
+    task_id: taskId,
+  });
+  const [onlyHold] = holds;
+
+  if (holds.length > 1) {
+    return (
+      <Popover.Root lazyMount positioning={{ placement: "bottom-end" }} unmountOnExit>
+        <Popover.Trigger asChild>
+          <IconButton {...rest} label={translate("taskHold.release.confirm")}>
+            <LuHandHelping />
+          </IconButton>
+        </Popover.Trigger>
+        <Popover.Content maxW="420px" width="max-content">
+          <Popover.Arrow />
+          <Popover.Body>
+            <HeldByList dagId={dagId} holds={holds} />
+          </Popover.Body>
+        </Popover.Content>
+      </Popover.Root>
+    );
+  }
+
+  if (onlyHold !== undefined) {
+    return (
+      <>
+        <IconButton {...rest} label={translate("taskHold.release.confirm")} onClick={onOpen}>
+          <LuHandHelping />
+        </IconButton>
+        <ReleaseHoldDialog hold={onlyHold} onClose={onClose} open={open} />
+      </>
+    );
+  }
 
   return (
     <>

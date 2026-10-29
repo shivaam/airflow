@@ -223,7 +223,16 @@
       "active": "Active",
       "all": "All"
     },
+    "heldBy": {
+      "othersRemain": "Releasing one keeps it held by the others.",
+      "title_one": "Held by {{count, number}} hold",
+      "title_other": "Held by {{count, number}} holds",
+      "until": "until",
+      "untilReleased": "until released",
+      "viewAll": "View all holds"
+    },
     "lock": {
+      "gridTooltip": "Held. Open the task to see or release the hold.",
       "label": {
         "held": "Held",
         "pending": "Hold pending"
