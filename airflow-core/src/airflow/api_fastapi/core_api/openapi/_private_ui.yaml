@@ -1275,6 +1275,24 @@ paths:
       security:
       - OAuth2PasswordBearer: []
       - HTTPBearer: []
+  /ui/dashboard/dag_hold_counts:
+    get:
+      tags:
+      - Dashboard
+      summary: Dag Hold Counts
+      description: Return each Dag that has active task holds with the number of them,
+        the most held first.
+      operationId: dag_hold_counts
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardDagHoldCountsResponse'
+      security:
+      - OAuth2PasswordBearer: []
+      - HTTPBearer: []
   /ui/dags/{dag_id}/dagRuns/{dag_run_id}/deadlines:
     get:
       tags:
@@ -3983,6 +4001,20 @@ components:
       title: DagFolderResponse
       description: A distinct Dag folder (directory of ``relative_fileloc``) within
         a bundle.
+    DagHoldCount:
+      properties:
+        dag_id:
+          type: string
+          title: Dag Id
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - dag_id
+      - count
+      title: DagHoldCount
+      description: The number of active task holds of one Dag.
     DagRunState:
       type: string
       enum:
@@ -4134,6 +4166,22 @@ components:
       - bundle_url
       title: DagVersionResponse
       description: Dag Version serializer for responses.
+    DashboardDagHoldCountsResponse:
+      properties:
+        dags:
+          items:
+            $ref: '#/components/schemas/DagHoldCount'
+          type: array
+          title: Dags
+        total_entries:
+          type: integer
+          title: Total Entries
+      type: object
+      required:
+      - dags
+      - total_entries
+      title: DashboardDagHoldCountsResponse
+      description: The Dags that have active task holds, each with its count.
     DashboardDagStatsResponse:
       properties:
         active_dag_count:

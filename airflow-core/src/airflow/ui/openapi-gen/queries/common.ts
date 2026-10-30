@@ -1140,6 +1140,10 @@ export type DashboardServiceDagStatsDefaultResponse = Awaited<ReturnType<typeof 
 export type DashboardServiceDagStatsQueryResult<TData = DashboardServiceDagStatsDefaultResponse, TError = unknown> = UseQueryResult<TData, TError>;
 export const useDashboardServiceDagStatsKey = "DashboardServiceDagStats";
 export const UseDashboardServiceDagStatsKeyFn = (queryKey?: Array<unknown>) => [useDashboardServiceDagStatsKey, ...(queryKey ?? [])];
+export type DashboardServiceDagHoldCountsDefaultResponse = Awaited<ReturnType<typeof DashboardService.dagHoldCounts>>;
+export type DashboardServiceDagHoldCountsQueryResult<TData = DashboardServiceDagHoldCountsDefaultResponse, TError = unknown> = UseQueryResult<TData, TError>;
+export const useDashboardServiceDagHoldCountsKey = "DashboardServiceDagHoldCounts";
+export const UseDashboardServiceDagHoldCountsKeyFn = (queryKey?: Array<unknown>) => [useDashboardServiceDagHoldCountsKey, ...(queryKey ?? [])];
 export type DeadlinesServiceGetDeadlinesDefaultResponse = Awaited<ReturnType<typeof DeadlinesService.getDeadlines>>;
 export type DeadlinesServiceGetDeadlinesQueryResult<TData = DeadlinesServiceGetDeadlinesDefaultResponse, TError = unknown> = UseQueryResult<TData, TError>;
 export const useDeadlinesServiceGetDeadlinesKey = "DeadlinesServiceGetDeadlines";

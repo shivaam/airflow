@@ -64,3 +64,17 @@ class DashboardDagStatsResponse(BaseModel):
     failed_dag_count: int
     running_dag_count: int
     queued_dag_count: int
+
+
+class DagHoldCount(BaseModel):
+    """The number of active task holds of one Dag."""
+
+    dag_id: str
+    count: int
+
+
+class DashboardDagHoldCountsResponse(BaseModel):
+    """The Dags that have active task holds, each with its count."""
+
+    dags: list[DagHoldCount]
+    total_entries: int

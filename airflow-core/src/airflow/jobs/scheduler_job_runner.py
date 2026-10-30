@@ -775,6 +775,14 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         pool_num_starving_tasks: dict[str, int] = Counter()
         num_refill_queries = 0
 
+        # Without an active hold the queueing query leaves out the hold check, so a deployment that holds
+        # nothing pays for one index probe here. A hold placed after this probe is still refused by the
+        # statement that writes queued.
+        check_task_holds = (
+            session.scalar(select(TaskHold.id).where(TaskHold.active_clause(timezone.utcnow())).limit(1))
+            is not None
+        )
+
         for loop_count in itertools.count(start=1):
             num_starved_pools = len(starved_pools)
             num_starved_dag_runs = len(starved_dag_runs)
@@ -788,6 +796,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 starved_tasks_task_dagrun_concurrency,
                 max_tis,
                 excluded_ti_ids=[ti.id for ti in executable_tis],
+                check_task_holds=check_task_holds,
             )
 
             timer = stats.timer("scheduler.critical_section_query_duration")
@@ -1039,6 +1048,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         max_tis: int,
         *,
         excluded_ti_ids: Collection[UUID] = (),
+        check_task_holds: bool = True,
     ) -> Select[tuple[TI]]:
         """
         Build a query that fetches SCHEDULED TIs eligible for execution this cycle.
@@ -1080,7 +1090,8 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         # ago is seen. Like the starvation filters below it is applied before the row_num is computed, so a
         # covered task instance does not take one of the Dag run's max_active_tasks ranks from a task
         # instance that can run.
-        query = query.where(~TaskHold.covering_clause(timezone.utcnow()))
+        if check_task_holds:
+            query = query.where(~TaskHold.covering_clause(timezone.utcnow()))
 
         # Starvation filters should be applied before computing the row_num based on the
         # max_active_tasks limit. That way, starved Dag runs and tasks that shouldn't run,
@@ -2317,7 +2328,13 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         A loop with no expired hold costs a single cheap query.
         """
         expired_holds = session.scalars(
-            select(TaskHold).where(TaskHold.released_at.is_(None), TaskHold.expires_at <= timezone.utcnow())
+            select(TaskHold)
+            .where(TaskHold.released_at.is_(None), TaskHold.expires_at <= timezone.utcnow())
+            .order_by(TaskHold.expires_at)
+            # Bound the batch so a single loop cannot lock and log an unbounded backlog of expired holds
+            # before it queues anything; the rest are recorded on the following loops. The holds stopped
+            # applying when they expired, since both gates compare ``expires_at`` with the clock.
+            .limit(100)
         ).all()
         if expired_holds:
             self._expire_task_holds(expired_holds, session=session)

@@ -20,7 +20,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, and_, exists, or_, select
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    and_,
+    exists,
+    literal,
+    or_,
+    select,
+    union_all,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from airflow._shared.timezones import timezone
@@ -31,7 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.orm import Session
-    from sqlalchemy.sql import ColumnElement
+    from sqlalchemy.sql import ColumnElement, Select
 
 
 class TaskHold(Base):
@@ -70,7 +83,14 @@ class TaskHold(Base):
     release_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
-        Index("idx_task_hold_released_at_dag_id", released_at, dag_id),
+        # The scheduler's checks match every column of this index exactly (``released_at IS NULL`` for an
+        # active hold), so they cost the same however many holds a Dag has. Leading with ``released_at``
+        # keeps the holds that ended out of everything the scheduler reads.
+        Index("idx_task_hold_released_at_dag_id_run_id_task_id", released_at, dag_id, run_id, task_id),
+        # Expiry and the lists of every Dag's active holds read only the holds that have not ended.
+        Index("idx_task_hold_released_at_expires_at", released_at, expires_at),
+        # A Dag's whole hold history, and deleting the Dag, read only that Dag's holds.
+        Index("idx_task_hold_dag_id", dag_id),
         CheckConstraint("task_id IS NOT NULL OR run_id IS NOT NULL", name="task_hold_scope_check"),
     )
 
@@ -88,20 +108,36 @@ class TaskHold(Base):
     @classmethod
     def covering_clause(cls, now: datetime) -> ColumnElement[bool]:
         """
-        Return an ``EXISTS`` clause that is true for the task instances an active hold covers at ``now``.
+        Return a clause that is true for the task instances an active hold covers at ``now``.
 
         The clause is correlated with the ``task_instance`` table of the statement it is used in, so
         ``~TaskHold.covering_clause(now)`` in the ``WHERE`` of a ``SELECT`` or an ``UPDATE`` leaves out the
         covered rows, checked by the same statement that reads or writes them. It is the SQL counterpart
         of :meth:`matches`: a hold without a ``task_id`` or a ``run_id`` matches any.
+
+        Each scope a hold can cover a task instance by is looked up exactly: its task in its run, its task
+        in every run, and its run. The three lookups are one ``EXISTS`` over their ``UNION ALL``, so the
+        check is three probes of ``idx_task_hold_released_at_dag_id_run_id_task_id`` per task instance,
+        however many holds there are, how they are spread over Dags, and how many have ended. Two other
+        forms cost more: one ``EXISTS`` with ``task_id IS NULL OR task_id = ...`` compares every active
+        hold of the task instance's Dag, and an ``OR`` of three ``EXISTS`` makes PostgreSQL expect an
+        eighth of the scheduled task instances to pass, which misplans the queueing query.
         """
         from airflow.models.taskinstance import TaskInstance
 
-        return exists().where(
-            cls.dag_id == TaskInstance.dag_id,
-            or_(cls.task_id.is_(None), cls.task_id == TaskInstance.task_id),
-            or_(cls.run_id.is_(None), cls.run_id == TaskInstance.run_id),
-            cls.active_clause(now),
+        def covered_by(task_match: ColumnElement[bool], run_match: ColumnElement[bool]) -> Select[tuple[int]]:
+            return (
+                select(literal(1))
+                .where(cls.dag_id == TaskInstance.dag_id, run_match, task_match, cls.active_clause(now))
+                .correlate(TaskInstance)
+            )
+
+        return exists(
+            union_all(
+                covered_by(cls.task_id == TaskInstance.task_id, cls.run_id == TaskInstance.run_id),
+                covered_by(cls.task_id == TaskInstance.task_id, cls.run_id.is_(None)),
+                covered_by(cls.task_id.is_(None), cls.run_id == TaskInstance.run_id),
+            )
         )
 
     @classmethod

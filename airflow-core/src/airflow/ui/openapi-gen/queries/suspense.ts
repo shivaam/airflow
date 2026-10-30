@@ -2258,6 +2258,13 @@ export const useDashboardServiceHistoricalMetricsSuspense = <TData = Common.Dash
 */
 export const useDashboardServiceDagStatsSuspense = <TData = Common.DashboardServiceDagStatsDefaultResponse, TError = unknown, TQueryKey extends Array<unknown> = unknown[]>(queryKey?: TQueryKey, options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">) => useSuspenseQuery<TData, TError>({ queryKey: Common.UseDashboardServiceDagStatsKeyFn(queryKey), queryFn: () => DashboardService.dagStats() as TData, ...options });
 /**
+* Dag Hold Counts
+* Return each Dag that has active task holds with the number of them, the most held first.
+* @returns DashboardDagHoldCountsResponse Successful Response
+* @throws ApiError
+*/
+export const useDashboardServiceDagHoldCountsSuspense = <TData = Common.DashboardServiceDagHoldCountsDefaultResponse, TError = unknown, TQueryKey extends Array<unknown> = unknown[]>(queryKey?: TQueryKey, options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">) => useSuspenseQuery<TData, TError>({ queryKey: Common.UseDashboardServiceDagHoldCountsKeyFn(queryKey), queryFn: () => DashboardService.dagHoldCounts() as TData, ...options });
+/**
 * Get Deadlines
 * Get deadlines for a Dag run.
 *

@@ -22,7 +22,7 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { TaskHoldResponse } from "openapi/requests/types.gen";
+import type { DagHoldCount } from "openapi/requests/types.gen";
 
 import i18n from "src/i18n/config";
 import { server } from "src/mocks/server";
@@ -32,32 +32,14 @@ import dagsLocale from "../../../../public/i18n/locales/en/dags.json";
 import dashboardLocale from "../../../../public/i18n/locales/en/dashboard.json";
 import { DagHolds } from "./DagHolds";
 
-const hold = (overrides: Partial<TaskHoldResponse>): TaskHoldResponse => ({
-  active: true,
-  created_at: "2026-10-20T10:00:00Z",
-  created_by: "admin",
-  dag_id: "example_dag",
-  expires_at: null,
-  id: 1,
-  reason: "Upstream data is wrong",
-  release_reason: null,
-  released_at: null,
-  released_by: null,
-  run_id: null,
-  task_id: "load",
-  ...overrides,
-});
+let countRequests = 0;
 
-let holdsRequests = 0;
-let requestedUrl = "";
-
-const serveHolds = (holds: Array<TaskHoldResponse>) =>
+const serveCounts = (dags: Array<DagHoldCount>) =>
   server.use(
-    http.get("/api/v2/dags/~/holds", ({ request }) => {
-      holdsRequests += 1;
-      requestedUrl = request.url;
+    http.get("/ui/dashboard/dag_hold_counts", () => {
+      countRequests += 1;
 
-      return HttpResponse.json({ task_holds: holds, total_entries: holds.length });
+      return HttpResponse.json({ dags, total_entries: dags.length });
     }),
   );
 
@@ -73,29 +55,15 @@ const renderCard = () =>
 describe("DagHolds", () => {
   // Without the bundles i18n.t() echoes the keys, so the strings below would assert nothing.
   beforeEach(() => {
-    holdsRequests = 0;
-    requestedUrl = "";
+    countRequests = 0;
     i18n.addResourceBundle("en", "dags", dagsLocale, true, true);
     i18n.addResourceBundle("en", "dashboard", dashboardLocale, true, true);
   });
 
-  it("asks for the active holds of every Dag", async () => {
-    serveHolds([hold({})]);
-    renderCard();
-
-    await screen.findByTestId("dag-holds-card");
-    const params = new URL(requestedUrl).searchParams;
-
-    expect(params.get("active")).toBe("true");
-    expect(params.get("limit")).toBe("100");
-  });
-
-  it("counts the Dags with active holds, and lists each one with its holds, the most held first", async () => {
-    serveHolds([
-      hold({ dag_id: "etl_dag", id: 1 }),
-      hold({ dag_id: "report_dag", id: 2 }),
-      hold({ dag_id: "etl_dag", id: 3, run_id: "run_1" }),
-      hold({ dag_id: "etl_dag", id: 4, run_id: "run_2", task_id: null }),
+  it("counts the Dags with active holds, and lists each one with its holds in the order the server gives", async () => {
+    serveCounts([
+      { count: 3, dag_id: "etl_dag" },
+      { count: 1, dag_id: "report_dag" },
     ]);
     renderCard();
 
@@ -109,8 +77,20 @@ describe("DagHolds", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["etl_dag3 active holds", "report_dag1 active hold"]);
   });
 
+  it("shows a count beyond one page of holds", async () => {
+    serveCounts([{ count: 20_000, dag_id: "etl_dag" }]);
+    renderCard();
+
+    const row = await screen.findByTestId("dag-holds-row");
+
+    expect(row.textContent).toBe("etl_dag20,000 active holds");
+  });
+
   it("links each Dag to its Holds tab", async () => {
-    serveHolds([hold({ dag_id: "etl_dag", id: 1 }), hold({ dag_id: "report_dag", id: 2 })]);
+    serveCounts([
+      { count: 1, dag_id: "etl_dag" },
+      { count: 1, dag_id: "report_dag" },
+    ]);
     renderCard();
 
     const rows = await screen.findAllByTestId("dag-holds-row");
@@ -122,18 +102,18 @@ describe("DagHolds", () => {
   });
 
   it("says Dag in the singular for a single Dag", async () => {
-    serveHolds([hold({ dag_id: "etl_dag" })]);
+    serveCounts([{ count: 1, dag_id: "etl_dag" }]);
     renderCard();
 
     expect(await screen.findByText("Dag with active holds")).toBeInTheDocument();
   });
 
   it("is not there when no Dag has an active hold", async () => {
-    serveHolds([hold({ active: false })]);
+    serveCounts([]);
     const { container } = renderCard();
 
-    // Absence is only meaningful once the holds have been asked for and the answer has been rendered.
-    await waitFor(() => expect(holdsRequests).toBeGreaterThan(0));
+    // Absence is only meaningful once the counts have been asked for and the answer has been rendered.
+    await waitFor(() => expect(countRequests).toBeGreaterThan(0));
     await new Promise((resolve) => {
       setTimeout(resolve, 50);
     });

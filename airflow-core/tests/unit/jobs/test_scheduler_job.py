@@ -9969,11 +9969,77 @@ class TestSchedulerJob:
         assert hold.released_at == hold.expires_at
         assert hold.released_by == "expiry"
 
+    def test_task_hold_expiry_is_recorded_a_bounded_batch_a_loop(self, hold_dags, session):
+        session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
+        latest = timezone.utcnow() - datetime.timedelta(minutes=1)
+        session.add_all(
+            TaskHold(
+                dag_id="hold_dag",
+                task_id="t1",
+                reason="test",
+                expires_at=latest - datetime.timedelta(seconds=seconds),
+            )
+            for seconds in range(101)
+        )
+        session.commit()
+
+        def unrecorded() -> list[TaskHold]:
+            return session.scalars(select(TaskHold).where(TaskHold.released_at.is_(None))).all()
+
+        self.job_runner._maintain_task_holds(session=session)
+        session.flush()
+
+        # One loop records at most 100, oldest first, so a backlog can't hold up queueing.
+        assert [hold.expires_at for hold in unrecorded()] == [latest]
+
+        self.job_runner._maintain_task_holds(session=session)
+        session.flush()
+
+        assert unrecorded() == []
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Log)
+                .where(Log.dag_id == "hold_dag", Log.event == "hold_expired")
+            )
+            == 101
+        )
+
     def test_task_hold_step_is_one_query_when_there_are_no_holds(self, hold_dags, session):
         with assert_queries_count(1, session=session):
             self.job_runner._maintain_task_holds(session=session)
 
         assert set(_task_instance_states(session, "hold_dag").values()) == {TaskInstanceState.SCHEDULED}
+
+    @pytest.mark.parametrize(
+        ("hold", "checked"),
+        [
+            pytest.param(None, False, id="no_hold"),
+            pytest.param({"released_at": DEFAULT_DATE, "released_by": "tester"}, False, id="released"),
+            pytest.param({"expires_at": DEFAULT_DATE}, False, id="expired"),
+            pytest.param({}, True, id="active"),
+        ],
+    )
+    def test_queueing_query_checks_task_holds_only_while_one_is_active(
+        self, hold_dags, session, hold, checked
+    ):
+        if hold is not None:
+            session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test", **hold))
+            session.flush()
+
+        with mock.patch.object(
+            SchedulerJobRunner,
+            "_build_schedulable_tis_query",
+            autospec=True,
+            side_effect=SchedulerJobRunner._build_schedulable_tis_query,
+        ) as build:
+            queued = self.job_runner._select_task_instances_to_queue(
+                32, make_pool_stats(), set(), session=session
+            )
+
+        assert {call.kwargs["check_task_holds"] for call in build.call_args_list} == {checked}
+        held = {("hold_dag", "run_a", "t1"), ("hold_dag", "run_b", "t1")}
+        assert held.isdisjoint((ti.dag_id, ti.run_id, ti.task_id) for ti in queued) is checked
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     def test_task_hold_keeps_a_task_out_of_the_queue(self, dag_maker, mock_executors, session):

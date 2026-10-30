@@ -2972,6 +2972,14 @@ export type DagFolderResponse = {
 };
 
 /**
+ * The number of active task holds of one Dag.
+ */
+export type DagHoldCount = {
+    dag_id: string;
+    count: number;
+};
+
+/**
  * DAG Run statistics serializer for responses.
  */
 export type DagRunStatsResponse = {
@@ -2983,6 +2991,14 @@ export type DagRunStatsResponse = {
  */
 export type DagTimetableTypeCollectionResponse = {
     timetable_types: Array<(string)>;
+    total_entries: number;
+};
+
+/**
+ * The Dags that have active task holds, each with its count.
+ */
+export type DashboardDagHoldCountsResponse = {
+    dags: Array<DagHoldCount>;
     total_entries: number;
 };
 
@@ -5579,6 +5595,8 @@ export type HistoricalMetricsData = {
 export type HistoricalMetricsResponse = HistoricalMetricDataResponse;
 
 export type DagStatsResponse2 = DashboardDagStatsResponse;
+
+export type DagHoldCountsResponse = DashboardDagHoldCountsResponse;
 
 export type GetDeadlinesData = {
     dagId: string;
@@ -10039,6 +10057,16 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: DashboardDagStatsResponse;
+            };
+        };
+    };
+    '/ui/dashboard/dag_hold_counts': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: DashboardDagHoldCountsResponse;
             };
         };
     };

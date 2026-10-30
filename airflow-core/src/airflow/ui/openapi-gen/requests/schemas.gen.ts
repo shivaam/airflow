@@ -11431,6 +11431,23 @@ export const $DagFolderResponse = {
     description: 'A distinct Dag folder (directory of ``relative_fileloc``) within a bundle.'
 } as const;
 
+export const $DagHoldCount = {
+    properties: {
+        dag_id: {
+            type: 'string',
+            title: 'Dag Id'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['dag_id', 'count'],
+    title: 'DagHoldCount',
+    description: 'The number of active task holds of one Dag.'
+} as const;
+
 export const $DagRunStatsResponse = {
     properties: {
         duration: {
@@ -11468,6 +11485,26 @@ export const $DagTimetableTypeCollectionResponse = {
     required: ['timetable_types', 'total_entries'],
     title: 'DagTimetableTypeCollectionResponse',
     description: 'Timetable types used by Dags.'
+} as const;
+
+export const $DashboardDagHoldCountsResponse = {
+    properties: {
+        dags: {
+            items: {
+                '$ref': '#/components/schemas/DagHoldCount'
+            },
+            type: 'array',
+            title: 'Dags'
+        },
+        total_entries: {
+            type: 'integer',
+            title: 'Total Entries'
+        }
+    },
+    type: 'object',
+    required: ['dags', 'total_entries'],
+    title: 'DashboardDagHoldCountsResponse',
+    description: 'The Dags that have active task holds, each with its count.'
 } as const;
 
 export const $DashboardDagStatsResponse = {

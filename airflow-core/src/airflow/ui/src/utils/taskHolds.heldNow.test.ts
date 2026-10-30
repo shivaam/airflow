@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TaskHoldResponse, TaskInstanceState } from "openapi/requests/types.gen";
 
-import { countActiveHoldsByDag, getHeldNowLockKind, getHeldNowLockKinds } from "./taskHolds";
+import { getHeldNowLockKind, getHeldNowLockKinds } from "./taskHolds";
 
 const makeHold = (overrides: Partial<TaskHoldResponse> = {}): TaskHoldResponse => ({
   active: true,
@@ -179,37 +179,5 @@ describe("getHeldNowLockKinds", () => {
     expect(
       getHeldNowLockKinds([{ ...runHold, dag_id: "other_dag" }], { dagId: "example_dag", run, taskIds }),
     ).toEqual(new Map());
-  });
-});
-
-describe("countActiveHoldsByDag", () => {
-  it("counts the active holds of each Dag, the Dag with the most first and then by Dag id", () => {
-    expect(
-      countActiveHoldsByDag([
-        makeHold({ dag_id: "b_dag", task_id: "load" }),
-        makeHold({ dag_id: "c_dag", run_id: "run_1" }),
-        makeHold({ dag_id: "a_dag", task_id: "load" }),
-        makeHold({ dag_id: "c_dag", task_id: "load" }),
-        makeHold({ dag_id: "c_dag", run_id: "run_2", task_id: "load" }),
-      ]),
-    ).toEqual([
-      { count: 3, dagId: "c_dag" },
-      { count: 1, dagId: "a_dag" },
-      { count: 1, dagId: "b_dag" },
-    ]);
-  });
-
-  it("leaves out holds that are no longer active, and a Dag with only such holds", () => {
-    expect(
-      countActiveHoldsByDag([
-        makeHold({ active: false, dag_id: "released_dag" }),
-        makeHold({ dag_id: "held_dag" }),
-        makeHold({ active: false, dag_id: "held_dag" }),
-      ]),
-    ).toEqual([{ count: 1, dagId: "held_dag" }]);
-  });
-
-  it("is empty without holds", () => {
-    expect(countActiveHoldsByDag([])).toEqual([]);
   });
 });

@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import {
+  useDashboardServiceDagHoldCountsKey,
   useTaskHoldServiceListTaskHoldsKey,
   useTaskHoldServiceReleaseTaskHold,
   useTaskInstanceServiceGetTaskInstancesKey,
@@ -44,6 +45,7 @@ export const useReleaseTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () 
     await Promise.all(
       [
         [useTaskHoldServiceListTaskHoldsKey],
+        [useDashboardServiceDagHoldCountsKey],
         [useTaskInstanceServiceGetTaskInstancesKey],
         ...gridQueryKeys(dagId),
       ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),

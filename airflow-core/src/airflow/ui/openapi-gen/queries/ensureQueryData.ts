@@ -2258,6 +2258,13 @@ export const ensureUseDashboardServiceHistoricalMetricsData = (queryClient: Quer
 */
 export const ensureUseDashboardServiceDagStatsData = (queryClient: QueryClient) => queryClient.ensureQueryData({ queryKey: Common.UseDashboardServiceDagStatsKeyFn(), queryFn: () => DashboardService.dagStats() });
 /**
+* Dag Hold Counts
+* Return each Dag that has active task holds with the number of them, the most held first.
+* @returns DashboardDagHoldCountsResponse Successful Response
+* @throws ApiError
+*/
+export const ensureUseDashboardServiceDagHoldCountsData = (queryClient: QueryClient) => queryClient.ensureQueryData({ queryKey: Common.UseDashboardServiceDagHoldCountsKeyFn(), queryFn: () => DashboardService.dagHoldCounts() });
+/**
 * Get Deadlines
 * Get deadlines for a Dag run.
 *

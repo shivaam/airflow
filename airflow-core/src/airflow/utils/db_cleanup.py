@@ -267,6 +267,8 @@ config_list: list[_TableConfig] = [
         recency_column_name="expires_at",
         dag_id_column_name="dag_id",
     ),
+    # An active hold has no released_at, so only holds that were released or expired are purged.
+    _TableConfig(table_name="task_hold", recency_column_name="released_at", dag_id_column_name="dag_id"),
     # task_reschedule.dag_id was dropped in 3.0.0; a reschedule now reaches its Dag through its
     # task instance. ti_id is NOT NULL, so no row is unattributed.
     _TableConfig(

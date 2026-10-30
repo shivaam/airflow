@@ -19,7 +19,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { useTaskHoldServiceCreateTaskHold, useTaskHoldServiceListTaskHoldsKey } from "openapi/queries";
+import {
+  useDashboardServiceDagHoldCountsKey,
+  useTaskHoldServiceCreateTaskHold,
+  useTaskHoldServiceListTaskHoldsKey,
+} from "openapi/queries";
 
 import { toaster } from "src/system-components";
 
@@ -35,7 +39,11 @@ export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () =
 
   const onSuccess = async () => {
     // A hold changes no task instance, so only the lists that show holds change.
-    await queryClient.invalidateQueries({ queryKey: [useTaskHoldServiceListTaskHoldsKey] });
+    await Promise.all(
+      [[useTaskHoldServiceListTaskHoldsKey], [useDashboardServiceDagHoldCountsKey]].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
+    );
 
     toaster.create({
       description: translate("taskHold.dialog.success.description"),

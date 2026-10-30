@@ -22,33 +22,27 @@ import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { LuHand } from "react-icons/lu";
 import { Link as RouterLink } from "react-router-dom";
 
-import { useTaskHoldServiceListTaskHolds } from "openapi/queries";
+import { useDashboardServiceDagHoldCounts } from "openapi/queries";
 
 import { StateBadge } from "src/components/StateBadge";
 
-import { ACTIVE_HOLDS_LIMIT } from "src/queries/useActiveTaskHolds";
 import { formatNumber, useAutoRefresh } from "src/utils";
-import { countActiveHoldsByDag } from "src/utils/taskHolds";
 
 /**
  * Lists the Dags that have active task holds, each with its count and a link to its Holds tab. Like
- * the import error cards, it is not there when there is nothing to report. The holds are asked for
- * whole, so a Dashboard with more active holds than the limit lists only the Dags of the first ones.
+ * the import error cards, it is not there when there is nothing to report. The server counts the
+ * holds, so the card is right however many holds there are.
  */
 export const DagHolds = () => {
   const { i18n, t: translate } = useTranslation("dashboard");
   const refetchInterval = useAutoRefresh({});
 
-  const { data, isLoading } = useTaskHoldServiceListTaskHolds(
-    { active: true, dagId: "~", limit: ACTIVE_HOLDS_LIMIT },
-    undefined,
-    {
-      // Only poll while a hold is active, so an idle Dashboard does not tick against the holds endpoint.
-      refetchInterval: (query) => (query.state.data?.task_holds.length ?? 0) > 0 && refetchInterval,
-    },
-  );
+  const { data, isLoading } = useDashboardServiceDagHoldCounts(undefined, {
+    // Only poll while a hold is active, so an idle Dashboard does not tick against the endpoint.
+    refetchInterval: (query) => (query.state.data?.dags.length ?? 0) > 0 && refetchInterval,
+  });
 
-  const dags = countActiveHoldsByDag(data?.task_holds ?? []);
+  const dags = data?.dags ?? [];
 
   const isRTL = i18n.dir() === "rtl";
   const Chevron = isRTL ? FiChevronLeft : FiChevronRight;
@@ -73,7 +67,7 @@ export const DagHolds = () => {
         </Text>
       </HStack>
       <VStack align="stretch" as="ul" gap={1} listStyleType="none" maxH="200px" mt={2} overflowY="auto">
-        {dags.map(({ count, dagId }) => (
+        {dags.map(({ count, dag_id: dagId }) => (
           <li key={dagId}>
             <RouterLink data-testid="dag-holds-row" to={`/dags/${dagId}/holds`}>
               <HStack fontSize="sm" justifyContent="space-between">

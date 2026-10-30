@@ -23,12 +23,15 @@ from unittest import mock
 
 import pendulum
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
+from airflow._shared.timezones import timezone
+from airflow.api_fastapi.auth.managers.simple.simple_auth_manager import SimpleAuthManager
 from airflow.api_fastapi.core_api.routes.ui import dashboard
 from airflow.models.dag import DagModel
 from airflow.models.dagbag import DBDagBag
 from airflow.models.dagrun import DagRun
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.utils.state import DagRunState, TaskInstanceState
@@ -465,6 +468,65 @@ class TestDagStatsEndpoint:
 
     def test_should_response_403(self, unauthorized_test_client):
         response = unauthorized_test_client.get("/dashboard/dag_stats")
+        assert response.status_code == 403
+
+
+class TestDagHoldCountsEndpoint:
+    @pytest.fixture
+    def holds(self, dag_maker, session):
+        for dag_id in ("dag_a", "dag_b", "dag_c"):
+            with dag_maker(dag_id=dag_id, schedule=None, session=session):
+                EmptyOperator(task_id="task")
+        now = timezone.utcnow()
+        session.add_all(
+            [
+                TaskHold(dag_id="dag_a", task_id="task", reason="a"),
+                TaskHold(dag_id="dag_b", task_id="task", reason="b task"),
+                TaskHold(dag_id="dag_b", run_id="run", reason="b run"),
+                TaskHold(dag_id="dag_c", task_id="task", reason="released", released_at=now),
+                TaskHold(
+                    dag_id="dag_c", task_id="task", reason="expired", expires_at=now - timedelta(minutes=1)
+                ),
+            ]
+        )
+        session.commit()
+        yield
+        session.execute(delete(TaskHold))
+        session.commit()
+
+    @pytest.mark.usefixtures("holds")
+    def test_should_count_the_active_holds_of_each_dag_most_held_first(self, test_client):
+        # One query for the Dags the user may read, one for the counts.
+        with assert_queries_count(2):
+            response = test_client.get("/dashboard/dag_hold_counts")
+
+        assert response.status_code == 200
+        # dag_c has only a released and an expired hold, so it is not listed.
+        assert response.json() == {
+            "dags": [{"dag_id": "dag_b", "count": 2}, {"dag_id": "dag_a", "count": 1}],
+            "total_entries": 2,
+        }
+
+    @pytest.mark.usefixtures("holds")
+    def test_should_only_count_the_holds_of_readable_dags(self, test_client):
+        with mock.patch.object(SimpleAuthManager, "get_authorized_dag_ids", return_value={"dag_a"}):
+            response = test_client.get("/dashboard/dag_hold_counts")
+
+        assert response.status_code == 200
+        assert response.json() == {"dags": [{"dag_id": "dag_a", "count": 1}], "total_entries": 1}
+
+    def test_should_response_200_no_holds(self, test_client):
+        response = test_client.get("/dashboard/dag_hold_counts")
+
+        assert response.status_code == 200
+        assert response.json() == {"dags": [], "total_entries": 0}
+
+    def test_should_response_401(self, unauthenticated_test_client):
+        response = unauthenticated_test_client.get("/dashboard/dag_hold_counts")
+        assert response.status_code == 401
+
+    def test_should_response_403(self, unauthorized_test_client):
+        response = unauthorized_test_client.get("/dashboard/dag_hold_counts")
         assert response.status_code == 403
 
 

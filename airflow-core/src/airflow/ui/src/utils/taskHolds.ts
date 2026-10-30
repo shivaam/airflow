@@ -319,25 +319,6 @@ export const getHeldNowLockKinds = (
   return kinds;
 };
 
-export type DagHoldCount = { readonly count: number; readonly dagId: string };
-
-/** The Dags that have active holds, with how many each has: the Dag with the most first, then by Dag id. */
-export const countActiveHoldsByDag = (
-  holds: ReadonlyArray<Pick<TaskHoldResponse, "active" | "dag_id">>,
-): Array<DagHoldCount> => {
-  const counts = new Map<string, number>();
-
-  for (const hold of holds) {
-    if (hold.active) {
-      counts.set(hold.dag_id, (counts.get(hold.dag_id) ?? 0) + 1);
-    }
-  }
-
-  return [...counts]
-    .map(([dagId, count]) => ({ count, dagId }))
-    .sort((first, second) => second.count - first.count || first.dagId.localeCompare(second.dagId));
-};
-
 /** The ids of the tasks the structure marks as mapped, including those inside a mapped task group. */
 export const getMappedTaskIds = (nodes: ReadonlyArray<GridNodeResponse> | undefined): Set<string> => {
   const ids = new Set<string>();

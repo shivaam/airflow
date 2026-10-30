@@ -65,6 +65,7 @@ from airflow.models.deadline import Deadline
 from airflow.models.dynamic_region import DynamicRegion
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.task_state_store import TaskStateStoreModel
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskreschedule import TaskReschedule
 from airflow.models.xcom import XComModel, XComModelV2
 from airflow.providers.standard.operators.python import PythonOperator
@@ -1260,7 +1261,6 @@ class TestDBCleanup:
             "legacy_task_data_owner",  # cascade from task_instance
             "rtif_v1",  # cascade from legacy_task_data_owner
             "rtif_v2",  # cascade from task_instance
-            "task_hold",  # cascade from dag
             "task_inlet_asset_reference",  # cascade from dag
         }
 
@@ -2111,6 +2111,56 @@ class TestTaskStoreCleanup:
         assert "job_id" not in not_deleted, "expired row should be deleted"
         assert "result" in not_deleted, "NEVER_EXPIRE row (expires_at=NULL) must survive"
         assert "future_key" in not_deleted, "not-yet-expired row must survive"
+
+
+@pytest.mark.db_test
+class TestTaskHoldCleanup:
+    def setup_method(self):
+        clear_db_dags()
+        clear_db_dag_bundles()
+
+    def teardown_method(self):
+        clear_db_dags()
+        clear_db_dag_bundles()
+
+    def test_only_holds_that_ended_before_the_cutoff_are_deleted(self):
+        cfg = config_dict["task_hold"]
+        now = pendulum.now(tz="UTC")
+        long_ago = now.subtract(days=60)
+
+        with create_session() as session:
+            session.add(DagBundleModel(name="hold_test_bundle"))
+            session.flush()
+            session.add(DagModel(dag_id="hold_test_dag", bundle_name="hold_test_bundle"))
+            session.flush()
+            session.add_all(
+                TaskHold(dag_id="hold_test_dag", task_id="t1", reason=reason, created_at=long_ago, **ended)
+                for reason, ended in {
+                    "released long ago": {"released_at": long_ago},
+                    "released recently": {"released_at": now.subtract(minutes=1)},
+                    "active": {},
+                    # Expired but not yet recorded by the scheduler: released_at is still unset.
+                    "expired": {"expires_at": long_ago},
+                }.items()
+            )
+            session.commit()
+
+        with create_session() as session:
+            _cleanup_table(
+                **cfg.__dict__,
+                clean_before_timestamp=now.subtract(hours=1),
+                dry_run=False,
+                verbose=False,
+                confirm=False,
+                skip_archive=True,
+                session=session,
+            )
+
+        with create_session() as session:
+            left = set(session.scalars(select(TaskHold.reason).where(TaskHold.dag_id == "hold_test_dag")))
+
+        # A hold is purged only once it has ended, so an active one never is.
+        assert left == {"released recently", "active", "expired"}
 
 
 @pytest.mark.db_test

@@ -217,6 +217,31 @@ def test_covering_clause_covers_a_task_instance_until_every_hold_that_matches_it
     assert covered() == set()
 
 
+def test_negated_covering_clause_selects_the_task_instances_no_active_hold_covers(dag_maker, session):
+    keys = _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
+    session.add_all(
+        [
+            TaskHold(dag_id="dag", task_id="t1", reason="task"),
+            TaskHold(dag_id="dag", run_id="r2", reason="run"),
+            TaskHold(dag_id="other", task_id="t2", run_id="r1", reason="task in run"),
+            TaskHold(dag_id="dag", task_id="t2", reason="released", released_at=NOW - HOUR),
+        ]
+    )
+    session.flush()
+
+    def selected(clause) -> set[tuple[str, str, str]]:
+        return set(
+            session.execute(
+                select(TaskInstance.dag_id, TaskInstance.run_id, TaskInstance.task_id).where(clause)
+            )
+        )
+
+    covered = selected(TaskHold.covering_clause(NOW))
+    assert covered == {("dag", "r1", "t1"), ("dag", "r2", "t1"), ("dag", "r2", "t2"), ("other", "r1", "t2")}
+    # The scheduler's queueing statements use the negation.
+    assert selected(~TaskHold.covering_clause(NOW)) == keys - covered
+
+
 def test_active_for_run_loads_only_the_active_holds_that_can_cover_the_run(dag_maker, session):
     _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
     holds = {

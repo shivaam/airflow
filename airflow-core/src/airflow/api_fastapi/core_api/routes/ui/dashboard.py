@@ -29,13 +29,20 @@ from airflow.api_fastapi.common.db.common import EXACT_COUNT_LIMIT, SessionDep
 from airflow.api_fastapi.common.parameters import DateTimeQuery, OptionalDateTimeQuery
 from airflow.api_fastapi.common.router import AirflowRouter
 from airflow.api_fastapi.core_api.datamodels.ui.dashboard import (
+    DagHoldCount,
+    DashboardDagHoldCountsResponse,
     DashboardDagStatsResponse,
     HistoricalMetricDataResponse,
 )
 from airflow.api_fastapi.core_api.openapi.exceptions import create_openapi_http_exception_doc
-from airflow.api_fastapi.core_api.security import ReadableDagsFilterDep, requires_access_dag
+from airflow.api_fastapi.core_api.security import (
+    ReadableDagsFilterDep,
+    ReadableTaskHoldsFilterDep,
+    requires_access_dag,
+)
 from airflow.models.dag import DagModel
 from airflow.models.dagrun import DagRun
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance
 from airflow.utils.state import DagRunState, TaskInstanceState
 
@@ -180,3 +187,23 @@ def dag_stats(
         running_dag_count=active_counts.get(DagRunState.RUNNING, 0),
         queued_dag_count=active_counts.get(DagRunState.QUEUED, 0),
     )
+
+
+@dashboard_router.get(
+    "/dag_hold_counts",
+    dependencies=[Depends(requires_access_dag(method="GET", access_entity=DagAccessEntity.TASK_INSTANCE))],
+)
+def dag_hold_counts(
+    session: SessionDep,
+    readable_task_holds_filter: ReadableTaskHoldsFilterDep,
+) -> DashboardDagHoldCountsResponse:
+    """Return each Dag that has active task holds with the number of them, the most held first."""
+    count = func.count(TaskHold.id).label("count")
+    query = readable_task_holds_filter.to_orm(
+        select(TaskHold.dag_id, count)
+        .where(TaskHold.active_clause(timezone.utcnow()))
+        .group_by(TaskHold.dag_id)
+        .order_by(count.desc(), TaskHold.dag_id)
+    )
+    dags = [DagHoldCount(dag_id=dag_id, count=held) for dag_id, held in session.execute(query)]
+    return DashboardDagHoldCountsResponse(dags=dags, total_entries=len(dags))
