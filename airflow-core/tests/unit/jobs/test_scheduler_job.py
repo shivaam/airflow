@@ -41,7 +41,7 @@ import psutil
 import pytest
 import time_machine
 from fastapi import HTTPException
-from sqlalchemy import delete, func, inspect, select, update
+from sqlalchemy import delete, event, func, inspect, select, text, update
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import joinedload
 
@@ -174,7 +174,7 @@ from airflow.timetables.simple import (
 )
 from airflow.triggers.base import StartTriggerArgs, TriggerEvent
 from airflow.utils.session import NEW_SESSION, create_session, provide_session
-from airflow.utils.sqlalchemy import CommitProhibitorGuard, with_row_locks
+from airflow.utils.sqlalchemy import CommitProhibitorGuard, get_dialect_name, with_row_locks
 from airflow.utils.state import CallbackState, DagRunState, DagSchedulingState, State, TaskInstanceState
 from airflow.utils.types import DagRunTriggeredByType, DagRunType
 
@@ -10079,6 +10079,48 @@ class TestSchedulerJob:
         assert held_dag_ids == {("hold_dag",) if checked else ()}
         held = {("hold_dag", "run_a", "t1"), ("hold_dag", "run_b", "t1")}
         assert held.isdisjoint((ti.dag_id, ti.run_id, ti.task_id) for ti in queued) is checked
+
+    @pytest.mark.parametrize(
+        ("hold", "checked"),
+        [
+            pytest.param(None, False, id="no_hold"),
+            pytest.param({"expires_at": DEFAULT_DATE}, False, id="expired"),
+            pytest.param({}, True, id="active"),
+        ],
+    )
+    def test_queueing_turns_jit_off_on_postgres_only_while_task_holds_are_checked(
+        self, hold_dags, session, hold, checked
+    ):
+        """
+        With the hold check in the queueing query, the scheduler turns JIT off on PostgreSQL alone.
+
+        The setting lasts until the transaction ends: the next one has the server's setting again.
+        """
+        postgres = get_dialect_name(session) == "postgresql"
+        jit_before = session.scalar(text("SHOW jit")) if postgres else None
+        if hold is not None:
+            session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test", **hold))
+            session.flush()
+
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        engine = session.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            self.job_runner._select_task_instances_to_queue(32, make_pool_stats(), set(), session=session)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+        assert [s for s in statements if "jit" in s.lower()] == (
+            ["SET LOCAL jit = off"] if checked and postgres else []
+        )
+        if postgres:
+            assert session.scalar(text("SHOW jit")) == ("off" if checked else jit_before)
+            session.commit()
+            assert session.scalar(text("SHOW jit")) == jit_before
 
     def test_queueing_query_checks_the_task_instances_of_a_dag_that_has_a_hold(self, hold_dags, session):
         """The query itself keeps the task instances a hold covers out, in a Dag it was given as held."""

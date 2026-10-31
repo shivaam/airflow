@@ -789,6 +789,13 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         # hold, and leaves the check out when no Dag has one. A hold placed after this read is still refused
         # by the statement that writes queued.
         held_dag_ids = self._get_held_dag_ids(session=session)
+        if held_dag_ids != [] and get_dialect_name(session) == "postgresql":
+            # PostgreSQL decides whether to JIT-compile a query from its estimated cost, and it prices the
+            # hold check well above what it costs: it charges the lookups to every scheduled task instance,
+            # those of the Dags not listed as held too. With a large backlog the queueing query can then
+            # spend longer compiling than running. SET LOCAL ends with this transaction: it also covers the
+            # write to queued, and nothing after the critical section.
+            session.execute(text("SET LOCAL jit = off"))
 
         for loop_count in itertools.count(start=1):
             num_starved_pools = len(starved_pools)
