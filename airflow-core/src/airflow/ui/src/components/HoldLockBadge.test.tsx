@@ -344,7 +344,7 @@ describe("HoldLockBadge refreshing the holds", () => {
       expect(text).toContain("Releasing one keeps it held by the others.");
     });
 
-    it("releases the hold its Release button sits on", async () => {
+    it("releases the hold its Release button sits on, once confirmed in the popover", async () => {
       released.length = 0;
       serveHolds([hold, runHold]);
       server.use(http.post("/api/v2/dags/example_dag/holds/:holdId/release", recordRelease));
@@ -354,6 +354,13 @@ describe("HoldLockBadge refreshing the holds", () => {
       const [, releaseRunHold] = screen.getAllByTestId("held-by-release");
 
       fireEvent.click(releaseRunHold as HTMLElement);
+      // The reason box opens in the popover, which stays open; nothing is released until confirmed.
+      expect(screen.getByTestId("held-by-list")).toContainElement(
+        screen.getByTestId("held-by-release-reason"),
+      );
+      expect(released).toEqual([]);
+
+      fireEvent.click(screen.getByTestId("held-by-release-confirm"));
       await waitFor(expectReleased(["2"]));
     });
   });
