@@ -4908,6 +4908,10 @@ export class TaskHoldService {
      * Create Task Instance Hold
      * Place a task instance hold: hold one task in one Dag run.
      *
+     * The hold ends when it is released, when it expires, or when the run ends: once the run is `success`
+     * or `failed`, or has been deleted, the scheduler records it as released by `run_end`. A run that has
+     * already finished is refused with 409; a task hold holds the task in the runs to come.
+     *
      * A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
      * stops a new start. While it is active the scheduler does not schedule a task instance that has not
      * started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
@@ -4941,6 +4945,7 @@ export class TaskHoldService {
                 401: 'Unauthorized',
                 403: 'Forbidden',
                 404: 'Not Found',
+                409: 'Conflict',
                 422: 'Validation Error'
             }
         });

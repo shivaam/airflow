@@ -27,6 +27,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import i18n from "src/i18n/config";
+import { serveRunsInState } from "src/mocks/handlers/holds";
+import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import dagsLocale from "../../../public/i18n/locales/en/dags.json";
@@ -63,6 +65,11 @@ const choose = async (label: string) => {
   fireEvent.click(screen.getByText(label));
   await waitFor(() => expect(screen.getByText(label).closest("label")?.querySelector("input")).toBeChecked());
 };
+
+// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
+beforeEach(() => {
+  server.use(serveRunsInState("running"));
+});
 
 describe("HoldDialog what to hold, in English", () => {
   it("offers both kinds of hold from a task instance page, each with its secondary text", () => {

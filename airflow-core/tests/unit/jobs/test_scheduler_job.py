@@ -49,7 +49,7 @@ from airflow import settings
 from airflow._shared.module_loading import qualname
 from airflow._shared.observability.metrics.base_stats_logger import StatsLogger
 from airflow._shared.timezones import timezone
-from airflow.api.common.mark_tasks import set_dag_run_state_to_failed
+from airflow.api.common.mark_tasks import set_dag_run_state_to_failed, set_dag_run_state_to_success
 from airflow.api_fastapi.auth.tokens import JWTGenerator
 from airflow.api_fastapi.core_api.routes.public.task_holds import (
     release_task_hold as release_task_hold_endpoint,
@@ -10049,11 +10049,175 @@ class TestSchedulerJob:
             == 101
         )
 
-    def test_task_hold_step_is_one_query_when_there_are_no_holds(self, hold_dags, session):
-        with assert_queries_count(1, session=session):
+    def test_task_hold_step_is_two_queries_when_there_are_no_holds(self, hold_dags, session):
+        # One looks for expired holds, the other for task instance holds whose run has ended.
+        with assert_queries_count(2, session=session):
             self.job_runner._maintain_task_holds(session=session)
 
         assert set(_task_instance_states(session, "hold_dag").values()) == {TaskInstanceState.SCHEDULED}
+
+    @pytest.mark.usefixtures("testing_dag_bundle")
+    @pytest.mark.parametrize(
+        "how",
+        ["success", "failed", "dagrun_timeout", "marked_success", "marked_failed", "deleted"],
+    )
+    def test_task_instance_hold_ends_when_its_run_ends(self, dag_maker, mock_executors, session, how):
+        """
+        However the run ends, the next loop records its task instance holds as ended with it.
+
+        A task hold on the same task, and a task instance hold on another run that is still running, stay.
+        """
+        dag_id = f"hold_run_end_{how}"
+        session.execute(delete(Log).where(Log.dag_id == dag_id))
+        dag_args = {"dagrun_timeout": timedelta(seconds=60)} if how == "dagrun_timeout" else {}
+        with dag_maker(dag_id=dag_id, schedule=None, session=session, **dag_args) as dag:
+            BashOperator(task_id="first", bash_command="true") >> BashOperator(
+                task_id="held", bash_command="true"
+            )
+        now = timezone.utcnow()
+        ended = dag_maker.create_dagrun(
+            run_id="ended",
+            state=DagRunState.RUNNING,
+            start_date=now - timedelta(days=1) if how == "dagrun_timeout" else now,
+            session=session,
+        )
+        dag_maker.create_dagrun(
+            run_id="still_running",
+            state=DagRunState.RUNNING,
+            logical_date=DEFAULT_DATE + timedelta(days=1),
+            start_date=now,
+            session=session,
+        )
+        first = ended.get_task_instance("first", session=session)
+        held = ended.get_task_instance("held", session=session)
+        if how == "success":
+            # The hold was placed on a task that had already run, so nothing kept the run from succeeding.
+            first.state = held.state = TaskInstanceState.SUCCESS
+        elif how == "failed":
+            first.state = TaskInstanceState.FAILED
+        session.commit()
+        instance_hold_id = _commit_task_hold(session, dag_id, task_id="held", run_id="ended")
+        task_hold_id = _commit_task_hold(session, dag_id, task_id="held")
+        other_run_hold_id = _commit_task_hold(session, dag_id, task_id="held", run_id="still_running")
+
+        if how == "marked_success":
+            set_dag_run_state_to_success(dag=dag, run_id="ended", commit=True, session=session)
+        elif how == "marked_failed":
+            set_dag_run_state_to_failed(dag=dag, run_id="ended", commit=True, session=session)
+        elif how == "deleted":
+            session.delete(
+                session.scalar(select(DagRun).where(DagRun.dag_id == dag_id, DagRun.run_id == "ended"))
+            )
+        session.commit()
+        self.job_runner = SchedulerJobRunner(job=Job())
+        before_loop = timezone.utcnow()
+
+        # The loop ends the run where its tasks or its timeout decide it, then records the holds that ended.
+        # A second loop records nothing more.
+        for _ in range(2):
+            self.job_runner._do_scheduling(session)
+        after_loop = timezone.utcnow()
+
+        expected_state = {
+            "success": DagRunState.SUCCESS,
+            "failed": DagRunState.FAILED,
+            "dagrun_timeout": DagRunState.FAILED,
+            "marked_success": DagRunState.SUCCESS,
+            "marked_failed": DagRunState.FAILED,
+            "deleted": None,
+        }[how]
+        run = session.scalar(
+            select(DagRun)
+            .where(DagRun.dag_id == dag_id, DagRun.run_id == "ended")
+            .execution_options(populate_existing=True)
+        )
+        assert (run.state if run else None) == expected_state
+
+        def hold(hold_id: int) -> TaskHold:
+            return session.scalar(
+                select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+            )
+
+        ended_hold = hold(instance_hold_id)
+        assert ended_hold.released_by == "run_end"
+        assert ended_hold.release_reason is None
+        if run is None:
+            # A run that is gone has no end time: the hold ends when the scheduler finds it gone.
+            assert before_loop <= ended_hold.released_at <= after_loop
+        else:
+            assert ended_hold.released_at == max(run.end_date, ended_hold.created_at)
+        assert not ended_hold.is_active(timezone.utcnow())
+        events = session.execute(
+            select(Log.event, Log.task_id, Log.run_id, Log.owner, Log.extra).where(
+                Log.dag_id == dag_id, Log.event.like("hold_%")
+            )
+        ).all()
+        assert events == [
+            (
+                "hold_run_ended",
+                "held",
+                "ended",
+                "scheduler",
+                f"Task hold {instance_hold_id} ended with its run ({expected_state or 'deleted'})",
+            )
+        ]
+        # A task hold has no run to end with, and the other run is still running.
+        for stays in (task_hold_id, other_run_hold_id):
+            assert hold(stays).released_at is None
+
+    def test_a_run_cleared_before_the_hold_step_keeps_its_task_instance_hold(self, hold_dags, session):
+        """A run that ended and was cleared again before the step reached it is running, so its hold stays."""
+        session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
+        run = session.scalar(select(DagRun).where(DagRun.dag_id == "hold_dag", DagRun.run_id == "run_a"))
+        run.set_state(DagRunState.FAILED)
+        hold = TaskHold(dag_id="hold_dag", task_id="t1", run_id="run_a", reason="test")
+        session.add(hold)
+        session.commit()
+        stale = {hold.id: (DagRunState.FAILED, run.end_date)}
+
+        clear_task_instances(run.task_instances, session, dag_run_state=DagRunState.QUEUED)
+        session.commit()
+        assert run.state == DagRunState.QUEUED
+
+        self.job_runner._maintain_task_holds(session=session)
+        # The step that marks the holds checks the run again, for a clear that lands between its two reads.
+        self.job_runner._end_task_holds_with_their_runs(stale, session=session)
+        session.flush()
+
+        assert (hold.released_at, hold.released_by) == (None, None)
+        assert session.scalar(select(func.count()).select_from(Log).where(Log.dag_id == "hold_dag")) == 0
+
+    def test_task_instance_holds_of_ended_runs_are_recorded_a_bounded_batch_a_loop(self, hold_dags, session):
+        session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
+        run = session.scalar(select(DagRun).where(DagRun.dag_id == "hold_dag", DagRun.run_id == "run_a"))
+        run.set_state(DagRunState.SUCCESS)
+        session.add_all(
+            TaskHold(dag_id="hold_dag", task_id="t1", run_id="run_a", reason=f"hold {number}")
+            for number in range(101)
+        )
+        session.commit()
+
+        def unrecorded() -> list[str]:
+            return session.scalars(select(TaskHold.reason).where(TaskHold.released_at.is_(None))).all()
+
+        self.job_runner._maintain_task_holds(session=session)
+        session.flush()
+
+        # One loop records at most 100, oldest first, so a backlog can't hold up queueing.
+        assert unrecorded() == ["hold 100"]
+
+        self.job_runner._maintain_task_holds(session=session)
+        session.flush()
+
+        assert unrecorded() == []
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Log)
+                .where(Log.dag_id == "hold_dag", Log.event == "hold_run_ended")
+            )
+            == 101
+        )
 
     @pytest.mark.parametrize(
         ("hold", "checked"),
@@ -10687,7 +10851,12 @@ class TestSchedulerJob:
             (run_id, "b"): TaskInstanceState.UPSTREAM_FAILED,
         }
         assert session.scalar(select(DagRun.state).where(DagRun.dag_id == dag_id)) == DagRunState.FAILED
-        assert session.get(TaskHold, hold_id).is_active(timezone.utcnow())
+        # A task hold outlives the run; a task instance hold ended with it.
+        hold = session.scalar(
+            select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+        )
+        assert hold.is_active(timezone.utcnow()) is not in_one_run
+        assert hold.released_by == ("run_end" if in_one_run else None)
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     def test_task_hold_does_not_keep_a_removed_task_instance_covered(
@@ -11089,6 +11258,54 @@ class TestSchedulerJob:
         )
         assert (hold.released_by, hold.released_at) == ("expiry", hold.expires_at)
         assert session.scalars(select(Log.event).where(Log.dag_id == dag_id)).all() == ["hold_expired"]
+
+    @pytest.mark.backend("postgres", "mysql")
+    def test_two_schedulers_end_a_task_instance_hold_with_its_run_once(self, dag_maker, session):
+        dag_id = "hold_run_end_race"
+        session.execute(delete(Log).where(Log.dag_id == dag_id))
+        with dag_maker(dag_id=dag_id, schedule=None, session=session):
+            EmptyOperator(task_id="t1")
+        dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
+        dr.set_state(DagRunState.SUCCESS)
+        hold = TaskHold(dag_id=dag_id, task_id="t1", run_id=dr.run_id, reason="test")
+        session.add(hold)
+        session.commit()
+        hold_id = hold.id
+        first, second = (SchedulerJobRunner(job=Job(), executors=[self.null_exec]) for _ in range(2))
+        first_ended, second_finished = threading.Event(), threading.Event()
+        end_task_holds = SchedulerJobRunner._end_task_holds_with_their_runs
+
+        def staged_end(runner, ended_runs, *, session):
+            """Let the second scheduler try to end the hold while the first still has it locked."""
+            if runner is first:
+                end_task_holds(runner, ended_runs, session=session)
+                first_ended.set()
+                assert second_finished.wait(timeout=30)
+            else:
+                assert first_ended.wait(timeout=30)
+                end_task_holds(runner, ended_runs, session=session)
+                second_finished.set()
+
+        with (
+            mock.patch.object(
+                SchedulerJobRunner, "_end_task_holds_with_their_runs", autospec=True, side_effect=staged_end
+            ),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            futures = [
+                pool.submit(
+                    _with_own_session(lambda other, runner=runner: runner._maintain_task_holds(session=other))
+                )
+                for runner in (first, second)
+            ]
+            for future in futures:
+                future.result(timeout=60)
+
+        hold = session.scalar(
+            select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+        )
+        assert hold.released_by == "run_end"
+        assert session.scalars(select(Log.event).where(Log.dag_id == dag_id)).all() == ["hold_run_ended"]
 
     @pytest.mark.backend("postgres", "mysql")
     @pytest.mark.parametrize("expiry_first", [True, False], ids=["expiry_first", "release_first"])

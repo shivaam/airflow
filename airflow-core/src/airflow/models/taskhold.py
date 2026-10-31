@@ -46,6 +46,13 @@ if TYPE_CHECKING:
     from sqlalchemy.sql import ColumnElement, Select
 
 
+TASK_HOLD_EXPIRY = "expiry"
+"""What ``released_by`` records for a hold that the scheduler marked as expired."""
+
+TASK_HOLD_RUN_END = "run_end"
+"""What ``released_by`` records for a task instance hold that the scheduler ended with its Dag run."""
+
+
 class TaskHold(Base):
     """
     An operator-placed lock that stops matching task instances from starting.
@@ -54,7 +61,9 @@ class TaskHold(Base):
     matches task instances by coordinates, never by task instance id, so it keeps applying across retries
     and clears. It always names a task. A *task instance hold* also names a run and holds that task in
     that run only; a *task hold* has no ``run_id`` and holds the task in every current and future run.
-    Either covers every map index of the task. A hold is *active* until it is released or expires.
+    Either covers every map index of the task. A hold is *active* until it is released or expires. A
+    task instance hold also ends with its run: once the run has finished or been deleted, the scheduler
+    records the hold as released by ``run_end``.
 
     The scheduler reads the table at two gates. The ``TaskHoldDep`` dependency keeps a covered task
     instance that has not started in ``none``, and the statement that moves a ``scheduled`` task instance

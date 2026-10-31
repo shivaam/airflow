@@ -41,6 +41,7 @@ from airflow.api_fastapi.logging.decorators import action_logging
 from airflow.models.dagrun import DagRun
 from airflow.models.log import Log
 from airflow.models.taskhold import TaskHold
+from airflow.utils.state import State
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from airflow.api_fastapi.auth.managers.models.base_user import BaseUser
+    from airflow.serialization.definitions.dag import SerializedDAG
 
 task_holds_router = AirflowRouter(tags=["Task Hold"], prefix="/dags/{dag_id}")
 
@@ -59,27 +61,39 @@ def _to_response(hold: TaskHold, now: datetime) -> TaskHoldResponse:
     )
 
 
+def _check_run_has_not_finished(dag_id: str, run_id: str, session: Session) -> None:
+    """Refuse a run that does not exist, and one that has finished, for a task instance hold."""
+    run = session.execute(
+        select(DagRun.id, DagRun.state).where(DagRun.dag_id == dag_id, DagRun.run_id == run_id)
+    ).one_or_none()
+    if run is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"The Dag Run with dag_id: `{dag_id}` and run_id: `{run_id}` was not found",
+        )
+    _, run_state = run
+    # A task instance hold ends with its run, so on a run that has finished it would end at once.
+    if run_state in State.finished_dr_states:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"The Dag Run with dag_id: `{dag_id}` and run_id: `{run_id}` has already finished "
+            f"({run_state}), and a task instance hold ends with its run. "
+            "To hold the task in the runs to come, place a task hold.",
+        )
+
+
 def _place_hold(
     *,
-    dag_id: str,
+    dag: SerializedDAG,
     task_id: str,
     run_id: str | None,
     body: TaskHoldBody,
     user: BaseUser,
     session: Session,
-    dag_bag: DagBagDep,
 ) -> TaskHoldResponse:
-    """Check the task, the run when there is one, and the expiry, then store the hold."""
+    """Check the task and the expiry, then store the hold."""
     now = timezone.utcnow()
-    dag = get_latest_version_of_dag(dag_bag, dag_id, session)
-
-    if run_id is not None and (
-        session.scalar(select(DagRun.id).where(DagRun.dag_id == dag_id, DagRun.run_id == run_id)) is None
-    ):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"The Dag Run with dag_id: `{dag_id}` and run_id: `{run_id}` was not found",
-        )
+    dag_id = dag.dag_id
     if not dag.has_task(task_id):
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
@@ -152,7 +166,9 @@ def list_task_holds(
 @task_holds_router.post(
     "/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds",
     status_code=status.HTTP_201_CREATED,
-    responses=create_openapi_http_exception_doc([status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND]),
+    responses=create_openapi_http_exception_doc(
+        [status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT]
+    ),
     dependencies=[
         Depends(requires_access_dag(method="PUT", access_entity=DagAccessEntity.TASK_INSTANCE)),
         Depends(action_logging(event="hold_created")),
@@ -170,6 +186,10 @@ def create_task_instance_hold(
     """
     Place a task instance hold: hold one task in one Dag run.
 
+    The hold ends when it is released, when it expires, or when the run ends: once the run is `success`
+    or `failed`, or has been deleted, the scheduler records it as released by `run_end`. A run that has
+    already finished is refused with 409; a task hold holds the task in the runs to come.
+
     A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
     stops a new start. While it is active the scheduler does not schedule a task instance that has not
     started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
@@ -180,15 +200,9 @@ def create_task_instance_hold(
     that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
     already `scheduled` keeps the decision it has. This endpoint changes no task instance.
     """
-    return _place_hold(
-        dag_id=dag_id,
-        task_id=task_id,
-        run_id=dag_run_id,
-        body=body,
-        user=user,
-        session=session,
-        dag_bag=dag_bag,
-    )
+    dag = get_latest_version_of_dag(dag_bag, dag_id, session)
+    _check_run_has_not_finished(dag_id, dag_run_id, session)
+    return _place_hold(dag=dag, task_id=task_id, run_id=dag_run_id, body=body, user=user, session=session)
 
 
 @task_holds_router.post(
@@ -221,15 +235,8 @@ def create_task_hold(
     that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
     already `scheduled` keeps the decision it has. This endpoint changes no task instance.
     """
-    return _place_hold(
-        dag_id=dag_id,
-        task_id=task_id,
-        run_id=None,
-        body=body,
-        user=user,
-        session=session,
-        dag_bag=dag_bag,
-    )
+    dag = get_latest_version_of_dag(dag_bag, dag_id, session)
+    return _place_hold(dag=dag, task_id=task_id, run_id=None, body=body, user=user, session=session)
 
 
 @task_holds_router.post(

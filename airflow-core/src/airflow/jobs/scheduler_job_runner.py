@@ -26,7 +26,7 @@ import signal
 import sys
 import time
 from collections import Counter, defaultdict, deque
-from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, suppress
 from datetime import datetime, timedelta
 from functools import lru_cache, partial
@@ -114,7 +114,7 @@ from airflow.models.log import resolve_team_name
 from airflow.models.pool import normalize_pool_name_for_stats
 from airflow.models.serialized_dag import SerializedDagModel
 from airflow.models.task_coordinates import LOOP_GATE_OPERATOR, TaskCoordinateResolver
-from airflow.models.taskhold import TaskHold
+from airflow.models.taskhold import TASK_HOLD_EXPIRY, TASK_HOLD_RUN_END, TaskHold
 from airflow.models.taskinstance import TaskInstance
 from airflow.models.team import Team
 from airflow.models.trigger import TRIGGER_FAIL_REPR, Trigger, TriggerFailureReason, handle_event_submit
@@ -191,6 +191,13 @@ Max Dags with an active task hold that the queueing query lists, to check only t
 
 Each listed Dag is compared with every scheduled task instance, so with more Dags than this the queueing
 query checks every task instance for a hold instead.
+
+:meta private:
+"""
+
+MAX_ENDED_TASK_HOLDS_PER_LOOP = 100
+"""
+Max task holds of each kind that ended by themselves, expired or with their run, that one loop records.
 
 :meta private:
 """
@@ -2324,9 +2331,10 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             # END: schedule TIs
 
             # Upkeep for operator-placed task holds. The holds themselves are enforced where the
-            # scheduler decides (TaskHoldDep) and where it writes ``queued``; this only records the expiry
-            # of holds. Its changes are committed right away, so a busy critical section rolling back below
-            # does not undo them.
+            # scheduler decides (TaskHoldDep) and where it writes ``queued``; this only records the holds
+            # that ended by themselves: those that expired, and task instance holds whose run ended. Its
+            # changes are committed right away, so a busy critical section rolling back below does not
+            # undo them.
             self._maintain_task_holds(session=session)
             guard.commit()
 
@@ -2363,26 +2371,50 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
     def _maintain_task_holds(self, *, session: Session) -> None:
         """
-        Record the expiry of task holds.
+        Record the task holds that have ended by themselves.
 
         Runs once per scheduler loop, just before the queueing critical section. It does not enforce a
         hold: a hold is a lock that two gates read, ``TaskHoldDep`` ahead of ``scheduled`` and the
-        statement that writes ``queued``. Holds that expired since the last loop are marked as released
-        by ``expiry`` and logged as ``hold_expired``. No task instance is touched.
+        statement that writes ``queued``. No task instance is touched.
 
-        A loop with no expired hold costs a single cheap query.
+        - Holds that expired since the last loop are marked as released by ``expiry`` and logged as
+          ``hold_expired``.
+        - A task instance hold ends when its Dag run ends: once the run is ``success`` or ``failed``,
+          however it got there (its tasks, ``dagrun_timeout``, or being marked), or once it has been
+          deleted. Such holds are marked as released by ``run_end`` and logged as ``hold_run_ended``. A
+          run that was cleared before this step reached it is running again, and its holds stay. A
+          task hold has no run and ends only when it is released or expires.
+
+        Each kind is recorded at most ``MAX_ENDED_TASK_HOLDS_PER_LOOP`` at a time, so a single loop
+        cannot lock and log an unbounded backlog before it queues anything; the rest are recorded on the
+        following loops. A loop with no such hold costs two cheap queries.
         """
         expired_holds = session.scalars(
             select(TaskHold)
             .where(TaskHold.released_at.is_(None), TaskHold.expires_at <= timezone.utcnow())
             .order_by(TaskHold.expires_at)
-            # Bound the batch so a single loop cannot lock and log an unbounded backlog of expired holds
-            # before it queues anything; the rest are recorded on the following loops. The holds stopped
-            # applying when they expired, since both gates compare ``expires_at`` with the clock.
-            .limit(100)
+            # The holds stopped applying when they expired, since both gates compare ``expires_at`` with
+            # the clock, so recording them later changes nothing.
+            .limit(MAX_ENDED_TASK_HOLDS_PER_LOOP)
         ).all()
         if expired_holds:
             self._expire_task_holds(expired_holds, session=session)
+
+        # The holds of runs that have ended, or are gone, with how and when the run ended. A finished
+        # run starts nothing, so recording its holds later changes nothing either.
+        holds_of_ended_runs = session.execute(
+            select(TaskHold.id, DagRun.state, DagRun.end_date)
+            .outerjoin(DagRun, and_(DagRun.dag_id == TaskHold.dag_id, DagRun.run_id == TaskHold.run_id))
+            .where(TaskHold.released_at.is_(None), TaskHold.run_id.is_not(None))
+            .where(or_(DagRun.id.is_(None), DagRun.state.in_(State.finished_dr_states)))
+            .order_by(TaskHold.id)
+            .limit(MAX_ENDED_TASK_HOLDS_PER_LOOP)
+        ).all()
+        if holds_of_ended_runs:
+            self._end_task_holds_with_their_runs(
+                {hold_id: (state, end_date) for hold_id, state, end_date in holds_of_ended_runs},
+                session=session,
+            )
 
     def _expire_task_holds(self, holds: Collection[TaskHold], *, session: Session) -> None:
         """Mark holds that passed their expiry as released by ``expiry``, logging each as ``hold_expired``."""
@@ -2394,7 +2426,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
             with_row_locks(query, of=TaskHold, session=session, skip_locked=True)
         ).all():
             hold.released_at = hold.expires_at
-            hold.released_by = "expiry"
+            hold.released_by = TASK_HOLD_EXPIRY
             session.add(
                 Log(
                     event="hold_expired",
@@ -2407,6 +2439,56 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 )
             )
             self.log.info("Task hold %s on %s expired", hold.id, hold.dag_id)
+
+    def _end_task_holds_with_their_runs(
+        self,
+        ended_runs: Mapping[int, tuple[str | None, datetime | None]],
+        *,
+        session: Session,
+    ) -> None:
+        """
+        Mark task instance holds whose Dag run has ended as released by ``run_end``.
+
+        :param ended_runs: For each hold, the state its run ended in and when, both ``None`` for a run
+            that has been deleted. Each is logged as ``hold_run_ended``.
+        """
+        query = select(TaskHold).where(
+            TaskHold.id.in_(ended_runs),
+            TaskHold.released_at.is_(None),
+            # A run cleared since it was read is running again, and its holds stay.
+            ~exists().where(
+                DagRun.dag_id == TaskHold.dag_id,
+                DagRun.run_id == TaskHold.run_id,
+                DagRun.state.not_in(State.finished_dr_states),
+            ),
+        )
+        now = timezone.utcnow()
+        # Lock the rows so schedulers running in parallel do not log the same end twice.
+        for hold in session.scalars(
+            with_row_locks(query, of=TaskHold, session=session, skip_locked=True)
+        ).all():
+            state, end_date = ended_runs[hold.id]
+            # When the run ended, or now for a run that is gone; never before the hold was placed.
+            hold.released_at = max(end_date or now, hold.created_at)
+            hold.released_by = TASK_HOLD_RUN_END
+            session.add(
+                Log(
+                    event="hold_run_ended",
+                    dag_id=hold.dag_id,
+                    task_id=hold.task_id,
+                    run_id=hold.run_id,
+                    owner="scheduler",
+                    owner_display_name="Scheduler",
+                    extra=f"Task hold {hold.id} ended with its run ({state or 'deleted'})",
+                )
+            )
+            self.log.info(
+                "Task hold %s on %s ended with its run %s (%s)",
+                hold.id,
+                hold.dag_id,
+                hold.run_id,
+                state or "deleted",
+            )
 
     def _warn_unreachable_asset_partition(
         self,

@@ -26,11 +26,12 @@ from sqlalchemy import delete, func, select
 from airflow._shared.timezones import timezone
 from airflow.api_fastapi.auth.managers.simple.simple_auth_manager import SimpleAuthManager
 from airflow.api_fastapi.auth.managers.simple.user import SimpleAuthManagerUser
+from airflow.models.dagrun import DagRun
 from airflow.models.log import Log
 from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance
 from airflow.providers.standard.operators.empty import EmptyOperator
-from airflow.utils.state import TaskInstanceState
+from airflow.utils.state import DagRunState, TaskInstanceState
 
 from tests_common.test_utils.db import (
     clear_db_dag_bundles,
@@ -115,6 +116,12 @@ def _add_hold(
     session.add(hold)
     session.commit()
     return hold
+
+
+def _set_run_state(session, state: DagRunState) -> None:
+    run = session.scalar(select(DagRun).where(DagRun.dag_id == DAG_ID, DagRun.run_id == RUN_ID))
+    run.set_state(state)
+    session.commit()
 
 
 def _task_instance_states(session) -> dict[tuple[str, str], TaskInstanceState | None]:
@@ -272,6 +279,32 @@ class TestCreateTaskHold:
             f"The Dag Run with dag_id: `{DAG_ID}` and run_id: `{run_id}` was not found"
         )
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
+
+    @pytest.mark.parametrize("state", [DagRunState.SUCCESS, DagRunState.FAILED])
+    def test_should_respond_409_for_a_task_instance_hold_on_a_finished_run(self, test_client, session, state):
+        _set_run_state(session, state)
+
+        response = test_client.post(_task_instance_holds_url(), json={"reason": "r"})
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            f"The Dag Run with dag_id: `{DAG_ID}` and run_id: `{RUN_ID}` has already finished ({state.value}), "
+            "and a task instance hold ends with its run. To hold the task in the runs to come, place a task hold."
+        )
+        assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
+        # The task can still be held in every run.
+        assert test_client.post(_task_holds_url(), json={"reason": "r"}).status_code == 201
+
+    @pytest.mark.parametrize("state", [DagRunState.QUEUED, DagRunState.RUNNING])
+    def test_should_accept_a_task_instance_hold_on_a_run_that_has_not_finished(
+        self, test_client, session, state
+    ):
+        _set_run_state(session, state)
+
+        response = test_client.post(_task_instance_holds_url(), json={"reason": "r"})
+
+        assert response.status_code == 201
+        assert response.json()["run_id"] == RUN_ID
 
     @pytest.mark.parametrize("path", ["/dags/{dag_id}/holds", "/dags/{dag_id}/dagRuns/{run_id}/holds"])
     def test_there_is_no_endpoint_to_hold_a_dag_or_a_whole_run(self, test_client, session, path):

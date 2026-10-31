@@ -26,6 +26,7 @@ import {
   getHoldTarget,
   getOfferedHoldScopes,
   getScopeStateLineKey,
+  isRunFinished,
   isTaskInstanceFinished,
 } from "./taskHolds";
 
@@ -56,10 +57,32 @@ describe("isTaskInstanceFinished", () => {
   });
 });
 
+describe("isRunFinished", () => {
+  it.each(["success", "failed"] as const)("says a run that is %s has finished", (runState) => {
+    expect(isRunFinished(runState)).toBe(true);
+  });
+
+  it.each(["queued", "running", undefined] as const)("says a run that is %s has not", (runState) => {
+    expect(isRunFinished(runState)).toBe(false);
+  });
+});
+
 describe("getOfferedHoldScopes", () => {
   it("offers both kinds from a task instance page, the task instance first", () => {
     expect(getOfferedHoldScopes(taskInstancePage)).toEqual(["taskInstance", "task"]);
   });
+
+  it.each(["queued", "running"] as const)("offers both kinds while the run is %s", (runState) => {
+    expect(getOfferedHoldScopes({ ...taskInstancePage, runState })).toEqual(["taskInstance", "task"]);
+  });
+
+  // A task instance hold ends with its run, so on a run that has finished it would end at once.
+  it.each(["success", "failed"] as const)(
+    "offers only the task in every run once the run is %s",
+    (runState) => {
+      expect(getOfferedHoldScopes({ ...taskInstancePage, runState })).toEqual(["task"]);
+    },
+  );
 
   it("offers only the task in every run from a task page", () => {
     expect(getOfferedHoldScopes(taskPage)).toEqual(["task"]);
@@ -87,6 +110,13 @@ describe("getDefaultHoldScope", () => {
     "starts on the task in every run once the task instance is %s, which cannot be stopped in its run",
     (state) => {
       expect(getDefaultHoldScope({ ...taskInstancePage, state })).toBe("task");
+    },
+  );
+
+  it.each(["success", "failed"] as const)(
+    "starts on the task in every run once the run is %s",
+    (runState) => {
+      expect(getDefaultHoldScope({ ...taskInstancePage, runState, state: null })).toBe("task");
     },
   );
 

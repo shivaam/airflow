@@ -17,6 +17,7 @@
  * under the License.
  */
 import type {
+  DagRunState,
   GridNodeResponse,
   NodeResponse,
   StructureDataResponse,
@@ -146,25 +147,39 @@ export const getScopeStateLineKey = (
 ): HoldStateLineKey | undefined =>
   scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
 
-/** The task of the page the hold dialog is opened from, and its run on a task instance page. */
-export type HoldDialogOrigin = { readonly runId?: string; readonly taskId: string };
+/** Whether a Dag run has finished, after which it starts nothing unless it is cleared. */
+export const isRunFinished = (runState: DagRunState | undefined): boolean =>
+  runState === "success" || runState === "failed";
+
+/**
+ * The task of the page the hold dialog is opened from, and on a task instance page its run and, once
+ * known, the state of the run.
+ */
+export type HoldDialogOrigin = {
+  readonly runId?: string;
+  readonly runState?: DagRunState;
+  readonly taskId: string;
+};
 
 /**
  * The kinds of hold the dialog offers, in order. A task instance page can hold that task instance or the
- * task in every run. A task page offers only the task in every run.
+ * task in every run. A task instance hold ends with its run, so once the run has finished, and from a
+ * task page, only the task in every run is offered.
  */
-export const getOfferedHoldScopes = ({ runId }: HoldDialogOrigin): Array<HoldScope> =>
-  runId === undefined ? ["task"] : ["taskInstance", "task"];
+export const getOfferedHoldScopes = ({ runId, runState }: HoldDialogOrigin): Array<HoldScope> =>
+  runId === undefined || isRunFinished(runState) ? ["task"] : ["taskInstance", "task"];
 
 /**
  * The kind of hold the dialog starts on: the one of the page it is opened from. A task instance that has
- * finished cannot be stopped in its own run, so from its page the dialog starts on the task in every run.
+ * finished cannot be stopped in its own run, so from its page the dialog starts on the task in every run,
+ * as it does once the run has finished.
  */
 export const getDefaultHoldScope = ({
   runId,
+  runState,
   state,
 }: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope =>
-  runId !== undefined && !isTaskInstanceFinished(state) ? "taskInstance" : "task";
+  runId !== undefined && !isRunFinished(runState) && !isTaskInstanceFinished(state) ? "taskInstance" : "task";
 
 /**
  * The task, and for a task instance hold its run, that a hold of a kind is placed on, from the page the

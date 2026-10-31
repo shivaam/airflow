@@ -20,8 +20,10 @@ import type { ChangeEvent } from "react";
 
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { serveRunsInState } from "src/mocks/handlers/holds";
+import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import HoldDialog from "./HoldDialog";
@@ -68,6 +70,11 @@ const getScopeRadio = (scope: "task" | "taskInstance") =>
 
 const finishedStates = ["success", "failed", "skipped", "upstream_failed", "removed"] as const;
 
+// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
+beforeEach(() => {
+  server.use(serveRunsInState("running"));
+});
+
 describe("HoldDialog what to hold", () => {
   describe("offers", () => {
     it("both kinds of hold from a task instance page, the task instance first", () => {
@@ -98,6 +105,45 @@ describe("HoldDialog what to hold", () => {
       expect(screen.queryAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(0);
       expect(screen.getByTestId("hold-scope")).toHaveTextContent("taskHold.scope.task");
       expect(screen.getByText("taskHold.dialog.scope.label")).toBeInTheDocument();
+    });
+  });
+
+  describe("on a run that has finished", () => {
+    // A task instance hold ends with its run, so on a finished run it would end at once.
+    it.each(["success", "failed"] as const)(
+      "offers only the task in every run once the run is %s, and places that",
+      async (runState) => {
+        server.use(serveRunsInState(runState));
+        render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+          wrapper: Wrapper,
+        });
+
+        // Once the run is known to have finished, the one kind left is shown as plain text.
+        expect(await screen.findByTestId("hold-scope")).toHaveTextContent("taskHold.scope.task");
+        expect(screen.queryAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(0);
+
+        typeReason("Fix first");
+        confirm();
+
+        expect(mutate).toHaveBeenCalledWith({
+          dagId: "example_dag",
+          requestBody: { expires_at: null, reason: "Fix first" },
+          taskId: "load",
+        });
+      },
+    );
+
+    it("offers both again for a run that is still running", async () => {
+      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+        wrapper: Wrapper,
+      });
+
+      // The run is asked for when the dialog opens; once it is known to be running nothing changes.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+      expect(screen.getAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(2);
+      expect(getScopeRadio("taskInstance")).toBeChecked();
     });
   });
 

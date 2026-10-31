@@ -19,14 +19,20 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { TaskHoldResponse } from "openapi/requests/types.gen";
 
+import { serveRunsInState } from "src/mocks/handlers/holds";
 import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import { HoldButton } from "./HoldButton";
+
+// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
+beforeEach(() => {
+  server.use(serveRunsInState("running"));
+});
 
 describe("HoldButton", () => {
   // The dialog says what can be held, so the button does not need to say which page it is on.

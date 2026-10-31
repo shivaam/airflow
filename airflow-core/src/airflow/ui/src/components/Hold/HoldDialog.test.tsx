@@ -20,8 +20,10 @@ import type { ChangeEvent } from "react";
 
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { serveRunsInState } from "src/mocks/handlers/holds";
+import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import HoldDialog from "./HoldDialog";
@@ -58,6 +60,11 @@ const choose = async (label: string) => {
   fireEvent.click(screen.getByText(label));
   await waitFor(() => expect(screen.getByText(label).closest("label")?.querySelector("input")).toBeChecked());
 };
+
+// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
+beforeEach(() => {
+  server.use(serveRunsInState("running"));
+});
 
 describe("HoldDialog", () => {
   it("does not show an error before the hold is attempted", () => {
