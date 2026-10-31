@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from airflow.ti_deps.dependencies_states import SCHEDULEABLE_STATES
 from airflow.ti_deps.deps.base_ti_dep import BaseTIDep
+from airflow.utils.state import TaskInstanceState
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -64,7 +65,15 @@ class TaskHoldDep(BaseTIDep):
 
     @staticmethod
     def _is_kept_in_place(ti: TaskInstance) -> bool:
-        """Whether a covered task instance waits in the state it is in, instead of reaching ``scheduled``."""
+        """
+        Whether a covered task instance waits in the state it is in.
+
+        A ``scheduled`` one waits because the statement that writes ``queued`` refuses it. The scheduler
+        never evaluates this dependency for a ``scheduled`` task instance, so failing it there changes no
+        scheduling decision: it only names the hold among the task's blocking dependencies.
+        """
+        if ti.state == TaskInstanceState.SCHEDULED:
+            return True
         return ti.state in SCHEDULEABLE_STATES and (ti.state is None or ti.start_trigger_args is not None)
 
     def _get_dep_statuses(

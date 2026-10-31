@@ -2802,9 +2802,10 @@ class TestGetTaskDependencies(TestTaskInstanceEndpoint):
         assert response.status_code == 200, response.text
         assert response.json() == dependencies
 
-    def test_should_respond_task_hold_dependency(self, test_client, session):
-        # A hold keeps back a task instance that has not started, so that is the one it blocks.
-        self.create_task_instances(session, task_instances=[{"state": State.NONE}], update_extras=True)
+    @pytest.mark.parametrize("state", [State.NONE, State.SCHEDULED])
+    def test_should_respond_task_hold_dependency(self, test_client, session, state):
+        # A hold keeps back a task instance that has not started, and one waiting in scheduled.
+        self.create_task_instances(session, task_instances=[{"state": state}], update_extras=True)
         hold = TaskHold(
             dag_id="example_python_operator", task_id="print_the_context", reason="incident INC-42"
         )

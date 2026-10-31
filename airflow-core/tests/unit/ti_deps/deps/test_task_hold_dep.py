@@ -211,7 +211,9 @@ class TestTaskHoldDep:
         ti.state = state
         session.flush()
 
-        assert TaskHoldDep().is_met(ti, DepContext(), session=session) is (state is not None)
+        # A scheduled one waits at the queued write; failing here only names the hold in the explanation.
+        kept = state in (None, TaskInstanceState.SCHEDULED)
+        assert TaskHoldDep().is_met(ti, DepContext(), session=session) is not kept
 
     def test_a_task_instance_that_has_started_does_not_read_the_hold_table(self, task_instances, session):
         session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
@@ -236,7 +238,12 @@ class TestTaskHoldDep:
         start_from_trigger_ti.state = state
         session.flush()
 
-        kept_in_place = state in (None, TaskInstanceState.UP_FOR_RETRY, TaskInstanceState.UP_FOR_RESCHEDULE)
+        kept_in_place = state in (
+            None,
+            TaskInstanceState.SCHEDULED,
+            TaskInstanceState.UP_FOR_RETRY,
+            TaskInstanceState.UP_FOR_RESCHEDULE,
+        )
         assert TaskHoldDep().is_met(start_from_trigger_ti, DepContext(), session=session) is not kept_in_place
 
     def test_every_covering_hold_fails_the_dependency_until_the_last_one_is_over(
