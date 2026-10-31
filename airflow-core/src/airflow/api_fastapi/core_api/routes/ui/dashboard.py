@@ -198,7 +198,9 @@ def dag_hold_counts(
     readable_task_holds_filter: ReadableTaskHoldsFilterDep,
 ) -> DashboardDagHoldCountsResponse:
     """Return each Dag that has active task holds with the number of them, the most held first."""
-    count = func.count(TaskHold.id).label("count")
+    # count(*) rather than a count of ids, so the index on (released_at, expires_at, dag_id) answers it
+    # alone: the index has no id, which PostgreSQL would read from the table to count.
+    count = func.count().label("count")
     query = readable_task_holds_filter.to_orm(
         select(TaskHold.dag_id, count)
         .where(TaskHold.active_clause(timezone.utcnow()))
