@@ -33,7 +33,6 @@ describe("HoldButton", () => {
   it.each([
     { props: { runId: "run_1", taskId: "load" }, title: "a task instance page" },
     { props: { taskId: "load" }, title: "a task page" },
-    { props: { runId: "run_1" }, title: "a run page" },
   ])("has the same label on $title", ({ props }) => {
     render(<HoldButton dagId="example_dag" {...props} />, { wrapper: Wrapper });
 
@@ -45,7 +44,7 @@ describe("HoldButton", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    expect(await screen.findAllByRole("radio", { name: /taskHold\.dialog\.scope\./u })).toHaveLength(3);
+    expect(await screen.findAllByRole("radio", { name: /taskHold\.dialog\.scope\./u })).toHaveLength(2);
   });
 
   it("tells the dialog the state of the task instance", async () => {
@@ -57,16 +56,6 @@ describe("HoldButton", () => {
 
     expect((await screen.findByTestId("hold-state-line")).textContent).toBe(
       "taskHold.dialog.stateLine.running",
-    );
-  });
-
-  it("tells the dialog the state of the run", async () => {
-    render(<HoldButton dagId="example_dag" runId="run_1" runState="failed" />, { wrapper: Wrapper });
-
-    fireEvent.click(screen.getByRole("button"));
-
-    expect((await screen.findByTestId("hold-state-line")).textContent).toBe(
-      "taskHold.dialog.stateLine.runFinished",
     );
   });
 
@@ -111,7 +100,7 @@ describe("HoldButton", () => {
     });
 
     it("lists several holds to release one of", async () => {
-      serveHolds([hold, { ...hold, id: 2, task_id: null }]);
+      serveHolds([hold, { ...hold, id: 2, run_id: null }]);
       render(<HoldButton dagId="example_dag" runId="run_1" taskId="load" />, { wrapper: Wrapper });
 
       fireEvent.click(await screen.findByRole("button", { name: "taskHold.release.confirm" }));

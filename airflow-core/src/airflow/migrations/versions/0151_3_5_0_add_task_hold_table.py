@@ -46,7 +46,7 @@ def upgrade():
         "task_hold",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("dag_id", StringID(), nullable=False),
-        sa.Column("task_id", StringID(), nullable=True),
+        sa.Column("task_id", StringID(), nullable=False),
         sa.Column("run_id", StringID(), nullable=True),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("created_by", sa.String(length=512), nullable=True),
@@ -62,7 +62,6 @@ def upgrade():
             name="task_hold_dag_id_fkey",
             ondelete="CASCADE",
         ),
-        sa.CheckConstraint("task_id IS NOT NULL OR run_id IS NOT NULL", name="task_hold_scope_check"),
     )
     op.create_index(
         "idx_task_hold_released_at_dag_id_run_id_task_id",

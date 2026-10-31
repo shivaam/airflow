@@ -17,7 +17,6 @@
  * under the License.
  */
 import type {
-  DagRunState,
   GridNodeResponse,
   NodeResponse,
   StructureDataResponse,
@@ -28,8 +27,11 @@ import type {
 // What the scheduler records as `released_by` when it marks a hold that has expired.
 const EXPIRY_RELEASED_BY = "expiry";
 
-/** The scope a hold covers, from which of `task_id` and `run_id` it sets. */
-export type HoldScope = "run" | "task" | "taskInstance";
+/**
+ * The kind of hold: a task instance hold is one task in one run, and a task hold is one task in every run,
+ * told apart by whether it sets `run_id`.
+ */
+export type HoldScope = "task" | "taskInstance";
 
 /** The coordinates a hold is matched against; `map_index` is deliberately absent, a hold covers every index. */
 export type HoldTarget = {
@@ -38,39 +40,27 @@ export type HoldTarget = {
   readonly taskId: string;
 };
 
-export const getHoldScope = (hold: Pick<TaskHoldResponse, "run_id" | "task_id">): HoldScope =>
-  hold.task_id !== null && hold.run_id !== null ? "taskInstance" : hold.task_id === null ? "run" : "task";
+export const getHoldScope = (hold: Pick<TaskHoldResponse, "run_id">): HoldScope =>
+  hold.run_id === null ? "task" : "taskInstance";
 
 /**
- * Whether a hold covers a task instance: the same Dag, and the same task and run wherever the hold
- * sets them. Mirrors the backend match, so a hold on a task covers every run of it and a hold on a
- * run covers every task in it.
+ * Whether a hold covers a task instance: the same Dag and task, and the same run if the hold sets one.
+ * Mirrors the backend match, so a task hold covers its task in every run.
  */
 export const holdMatches = (
   hold: Pick<TaskHoldResponse, "dag_id" | "run_id" | "task_id">,
   { dagId, runId, taskId }: HoldTarget,
 ): boolean =>
-  hold.dag_id === dagId &&
-  (hold.task_id === null || hold.task_id === taskId) &&
-  (hold.run_id === null || hold.run_id === runId);
+  hold.dag_id === dagId && hold.task_id === taskId && (hold.run_id === null || hold.run_id === runId);
 
 /**
  * What an active hold means where it is shown. A hold only stops a start or a resume and never changes
  * the state of a task instance, so what the lock does to it depends on how far along it is. Either the hold
  * is stopping the task now, or it is pending, with nothing to stop yet (see `isHoldLockPending`). A task
- * across its runs, and a run as a whole, have no state of their own and are simply held.
+ * across its runs has no state of its own and is simply held.
  */
 export type HoldLockKind =
-  | "awaitingInput"
-  | "deferred"
-  | "delay"
-  | "finished"
-  | "held"
-  | "queued"
-  | "run"
-  | "running"
-  | "task"
-  | "waiting";
+  "awaitingInput" | "deferred" | "delay" | "finished" | "held" | "queued" | "running" | "task" | "waiting";
 
 // The scheduler checks the lock before it moves a task instance out of `none`, so one that has not
 // started waits where it is, and again before it queues a `scheduled` one. Every other task instance
@@ -109,7 +99,6 @@ const pendingByLockKind: Record<HoldLockKind, boolean> = {
   finished: true,
   held: false,
   queued: true,
-  run: false,
   running: true,
   task: false,
   waiting: false,
@@ -120,14 +109,7 @@ export const isHoldLockPending = (kind: HoldLockKind): boolean => pendingByLockK
 
 /** Which line of `taskHold.dialog.stateLine` says what a hold does to what it holds, given its state. */
 export type HoldStateLineKey =
-  | "awaitingInput"
-  | "deferred"
-  | "finished"
-  | "notStarted"
-  | "queued"
-  | "runFinished"
-  | "running"
-  | "waitingToRun";
+  "awaitingInput" | "deferred" | "finished" | "notStarted" | "queued" | "running" | "waitingToRun";
 
 // A restarting task instance has no line. One with no state is told apart in `getHoldStateLineKey`.
 const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefined> = {
@@ -154,88 +136,69 @@ export const getHoldStateLineKey = (state: TaskInstanceState | null): HoldStateL
   state === null ? "notStarted" : stateLineKeyByState[state];
 
 /**
- * The line the hold dialog shows for the scope chosen in it, or nothing. A hold on a task instance says
- * what it does to the task instance in its state, where that is known. A hold on a run says so only for
- * a run that has finished, where nothing starts unless its tasks are cleared. A task in every run has no
- * state of its own.
+ * The line the hold dialog shows for the kind of hold chosen in it, or nothing. A task instance hold says
+ * what it does to the task instance in its state, where that is known. A task in every run has no state
+ * of its own.
  */
 export const getScopeStateLineKey = (
   scope: HoldScope,
-  { runState, state }: { readonly runState?: DagRunState; readonly state?: TaskInstanceState | null },
-): HoldStateLineKey | undefined => {
-  if (scope === "taskInstance") {
-    return state === undefined ? undefined : getHoldStateLineKey(state);
-  }
+  { state }: { readonly state?: TaskInstanceState | null },
+): HoldStateLineKey | undefined =>
+  scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
 
-  return scope === "run" && (runState === "success" || runState === "failed") ? "runFinished" : undefined;
-};
-
-/** The task and run of the page the hold dialog is opened from; a task or a run page has just the one. */
-export type HoldDialogOrigin = { readonly runId?: string; readonly taskId?: string };
+/** The task of the page the hold dialog is opened from, and its run on a task instance page. */
+export type HoldDialogOrigin = { readonly runId?: string; readonly taskId: string };
 
 /**
- * The scopes the dialog offers, in order. A task instance page can hold that task instance, the task in
- * every run, or every task in the run. A task page or a run page offers only its own.
+ * The kinds of hold the dialog offers, in order. A task instance page can hold that task instance or the
+ * task in every run. A task page offers only the task in every run.
  */
-export const getOfferedHoldScopes = ({ runId, taskId }: HoldDialogOrigin): Array<HoldScope> => {
-  const own = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
-
-  return own === "taskInstance" ? ["taskInstance", "task", "run"] : [own];
-};
+export const getOfferedHoldScopes = ({ runId }: HoldDialogOrigin): Array<HoldScope> =>
+  runId === undefined ? ["task"] : ["taskInstance", "task"];
 
 /**
- * The scope the dialog starts on: the one of the page it is opened from. A task instance that has
+ * The kind of hold the dialog starts on: the one of the page it is opened from. A task instance that has
  * finished cannot be stopped in its own run, so from its page the dialog starts on the task in every run.
  */
 export const getDefaultHoldScope = ({
   runId,
   state,
-  taskId,
-}: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope => {
-  const own = getHoldScope({ run_id: runId ?? null, task_id: taskId ?? null });
+}: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope =>
+  runId !== undefined && !isTaskInstanceFinished(state) ? "taskInstance" : "task";
 
-  return own === "taskInstance" && isTaskInstanceFinished(state) ? "task" : own;
-};
-
-/** The `task_id` and `run_id` that place a hold at a scope, from the page the dialog is opened from. */
+/** The `task_id` and `run_id` that place a hold of a kind, from the page the dialog is opened from. */
 export const getHoldRequestScope = (
   scope: HoldScope,
   { runId, taskId }: HoldDialogOrigin,
-): { run_id: string | null; task_id: string | null } => ({
+): { run_id: string | null; task_id: string } => ({
   run_id: scope === "task" ? null : (runId ?? null),
-  task_id: scope === "run" ? null : (taskId ?? null),
+  task_id: taskId,
 });
 
 /**
- * What a lock is shown for: a task instance, or, with `task_id` or `dag_run_id` left out, a task across
- * all of its runs or a run as a whole. A task instance response is one.
+ * What a lock is shown for: a task instance, or, with `dag_run_id` left out, a task across all of its
+ * runs. A task instance response is one.
  */
 export type HoldLockSubject = {
   readonly dag_id: string;
   /** Left out for a task across all of its runs. */
   readonly dag_run_id?: string;
-  /** What a hold does to a task instance depends on it. Not read for a task or a run as a whole. */
+  /** What a hold does to a task instance depends on it. Not read for a task across its runs. */
   readonly state?: TaskInstanceState | null;
-  /** Left out for a run as a whole. */
-  readonly task_id?: string;
+  readonly task_id: string;
 };
 
 /**
- * The active holds that cover a subject. A task instance is
- * covered by a hold that matches its Dag, its task and its run wherever the hold sets them, whatever its
- * map index, and a finished one is covered too: if it is cleared, the new attempt waits. A task or a run
- * as a whole is covered only by a hold set at exactly that scope, not by one on a single run of the task
- * or a single task of the run.
+ * The active holds that cover a subject. A task instance is covered by a hold on its task in its run or
+ * in every run, whatever its map index, and a finished one is covered too: if it is cleared, the new
+ * attempt waits. A task across its runs is covered only by a task hold, not by a hold on a single run of
+ * it.
  */
 export const getCoveringHolds = (
   holds: ReadonlyArray<TaskHoldResponse>,
   { dag_id: dagId, dag_run_id: runId, task_id: taskId }: HoldLockSubject,
 ): Array<TaskHoldResponse> => {
   const active = holds.filter((hold) => hold.active && hold.dag_id === dagId);
-
-  if (taskId === undefined) {
-    return active.filter((hold) => hold.task_id === null && hold.run_id === runId);
-  }
 
   return runId === undefined
     ? active.filter((hold) => hold.run_id === null && hold.task_id === taskId)
@@ -249,10 +212,6 @@ export const getHoldLockKind = (
 ): HoldLockKind | undefined => {
   if (getCoveringHolds(holds, subject).length === 0) {
     return undefined;
-  }
-
-  if (subject.task_id === undefined) {
-    return "run";
   }
 
   if (subject.dag_run_id === undefined) {
@@ -337,19 +296,15 @@ export const getMappedTaskIds = (nodes: ReadonlyArray<GridNodeResponse> | undefi
 };
 
 /**
- * Where to follow the scope of a hold to. A hold on a task and a run covers every map index, so for a
- * mapped task it links to the list of its instances in that run: the page of a single task instance
- * does not exist for it.
+ * Where to follow what a hold covers to. A task instance hold covers every map index, so for a mapped
+ * task it links to the list of its instances in that run: the page of a single task instance does not
+ * exist for it.
  */
 export const getHoldScopeLink = (
   hold: Pick<TaskHoldResponse, "dag_id" | "run_id" | "task_id">,
   mappedTaskIds: ReadonlySet<string>,
 ): string => {
   const { dag_id: dagId, run_id: runId, task_id: taskId } = hold;
-
-  if (taskId === null) {
-    return `/dags/${dagId}/runs/${runId}`;
-  }
 
   if (runId === null) {
     return `/dags/${dagId}/tasks/${taskId}`;
@@ -403,36 +358,24 @@ export const getSetupIds = (
 
 /** Which `taskHold.dialog.info` note says what a hold does to teardowns, and the task ids it names. */
 export type HoldTeardownNote = {
-  readonly key: "teardown" | "teardownNoSetup" | "teardownRun";
+  readonly key: "teardown" | "teardownNoSetup";
   readonly setups: Array<string>;
   readonly teardowns: Array<string>;
 };
 
 /**
- * The note on the teardowns a hold holds back, or nothing when there are none. A hold on a task, or on
- * a task instance, holds the teardowns downstream of it. A hold on a run holds every teardown of the
- * Dag in it. Where the Dag structure is not known yet there is no note.
+ * The note on the teardowns a hold holds back, or nothing when there are none. Either kind of hold holds
+ * the teardowns downstream of its task. Where the Dag structure is not known yet there is no note.
  */
 export const getHoldTeardownNote = (
   structure: Pick<StructureDataResponse, "edges" | "nodes"> | undefined,
-  scope: HoldScope,
-  taskId: string | undefined,
+  taskId: string,
 ): HoldTeardownNote | undefined => {
   if (structure === undefined) {
     return undefined;
   }
 
-  if (scope === "run") {
-    const runTeardowns = flattenNodes(structure.nodes)
-      .filter((node) => node.setup_teardown_type === "teardown")
-      .map((node) => node.id);
-
-    return runTeardowns.length === 0
-      ? undefined
-      : { key: "teardownRun", setups: [], teardowns: runTeardowns };
-  }
-
-  const teardowns = taskId === undefined ? [] : getDownstreamTeardownIds(structure, taskId);
+  const teardowns = getDownstreamTeardownIds(structure, taskId);
 
   if (teardowns.length === 0) {
     return undefined;

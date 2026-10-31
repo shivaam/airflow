@@ -767,7 +767,7 @@ class TestDagRun:
         ti_op1.set_state(state=TaskInstanceState.SUCCESS, session=session)
         ti_op2.set_state(state=None, session=session)
         ti_op2.task.trigger_rule = "invalid"
-        session.add(TaskHold(dag_id=dr.dag_id, run_id=dr.run_id, reason="test"))
+        session.add(TaskHold(dag_id=dr.dag_id, task_id="B", run_id=dr.run_id, reason="test"))
         session.flush()
 
         dr.update_state(session=session)

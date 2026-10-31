@@ -134,25 +134,13 @@ class TestTaskHoldDep:
 
         assert covered_keys(task_instances, session) == {("dag", "r1", "t1", -1), ("dag", "r2", "t1", -1)}
 
-    def test_run_hold_covers_every_task_of_its_run(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
-        session.flush()
-
-        assert covered_keys(task_instances, session) == {
-            ("dag", "r1", "t1", -1),
-            ("dag", "r1", "t2", -1),
-            ("dag", "r1", "mapped", 0),
-            ("dag", "r1", "mapped", 1),
-            ("dag", "r1", "mapped", 2),
-        }
-
-    def test_task_in_run_hold_covers_the_one_task_instance(self, task_instances, session):
+    def test_task_instance_hold_covers_the_one_task_instance(self, task_instances, session):
         session.add(TaskHold(dag_id="dag", task_id="t2", run_id="r2", reason="test"))
         session.flush()
 
         assert covered_keys(task_instances, session) == {("dag", "r2", "t2", -1)}
 
-    @pytest.mark.parametrize("with_run_id", [False, True], ids=["task_hold", "task_in_run_hold"])
+    @pytest.mark.parametrize("with_run_id", [False, True], ids=["task_hold", "task_instance_hold"])
     def test_a_hold_covers_every_map_index_of_a_mapped_task(self, task_instances, session, with_run_id):
         session.add(
             TaskHold(dag_id="dag", task_id="mapped", run_id="r1" if with_run_id else None, reason="test")
@@ -192,10 +180,14 @@ class TestTaskHoldDep:
         assert covered_keys(task_instances, session) == set()
 
     def test_a_hold_that_has_not_expired_yet_covers(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r2", reason="test", expires_at=timezone.utcnow() + HOUR))
+        session.add(
+            TaskHold(
+                dag_id="dag", task_id="t1", run_id="r2", reason="test", expires_at=timezone.utcnow() + HOUR
+            )
+        )
         session.flush()
 
-        assert {key[:2] for key in covered_keys(task_instances, session)} == {("dag", "r2")}
+        assert covered_keys(task_instances, session) == {("dag", "r2", "t1", -1)}
 
     @pytest.mark.parametrize(
         "state",
@@ -216,7 +208,7 @@ class TestTaskHoldDep:
         assert TaskHoldDep().is_met(ti, DepContext(), session=session) is not kept
 
     def test_a_task_instance_that_has_started_does_not_read_the_hold_table(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
+        session.add(TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="test"))
         ti = task_instances[("dag", "r1", "t1", -1)]
         ti.state = TaskInstanceState.UP_FOR_RETRY
         session.flush()
@@ -251,18 +243,18 @@ class TestTaskHoldDep:
     ):
         ti = task_instances[("dag", "r1", "t1", -1)]
         task_hold = TaskHold(dag_id="dag", task_id="t1", reason="the task")
-        run_hold = TaskHold(dag_id="dag", run_id="r1", reason="the run")
+        instance_hold = TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="the task instance")
         unrelated = TaskHold(dag_id="dag", task_id="t2", reason="another task")
-        session.add_all([task_hold, run_hold, unrelated])
+        session.add_all([task_hold, instance_hold, unrelated])
         session.flush()
 
-        assert failing_hold_ids(ti, session) == [task_hold.id, run_hold.id]
+        assert failing_hold_ids(ti, session) == [task_hold.id, instance_hold.id]
 
         task_hold.released_at = timezone.utcnow()
         session.flush()
-        assert failing_hold_ids(ti, session) == [run_hold.id]
+        assert failing_hold_ids(ti, session) == [instance_hold.id]
 
-        run_hold.expires_at = timezone.utcnow() - HOUR
+        instance_hold.expires_at = timezone.utcnow() - HOUR
         session.flush()
         assert failing_hold_ids(ti, session) == []
 
@@ -279,7 +271,7 @@ class TestTaskHoldDep:
         assert status.reason == f"Task hold {hold.id} is active: incident INC-42"
 
     def test_a_context_can_ignore_task_holds(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
+        session.add(TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="test"))
         session.flush()
         ti = task_instances[("dag", "r1", "t1", -1)]
 
@@ -287,13 +279,13 @@ class TestTaskHoldDep:
         assert failing_hold_ids(ti, session, ignore_task_holds=True) == []
 
     def test_a_context_that_ignores_all_dependencies_passes(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
+        session.add(TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="test"))
         session.flush()
 
         assert failing_hold_ids(task_instances[("dag", "r1", "t1", -1)], session, ignore_all_deps=True) == []
 
     def test_an_ignoring_context_does_not_read_the_hold_table(self, task_instances, session):
-        session.add(TaskHold(dag_id="dag", run_id="r1", reason="test"))
+        session.add(TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="test"))
         session.flush()
         context = DepContext(ignore_task_holds=True)
 
@@ -305,7 +297,7 @@ class TestTaskHoldDep:
         session.add_all(
             [
                 TaskHold(dag_id="dag", task_id="t1", reason="test"),
-                TaskHold(dag_id="dag", run_id="r2", reason="test"),
+                TaskHold(dag_id="dag", task_id="t2", run_id="r2", reason="test"),
             ]
         )
         session.flush()

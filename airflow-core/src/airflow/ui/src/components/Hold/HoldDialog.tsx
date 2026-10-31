@@ -23,7 +23,7 @@ import { useTranslation } from "react-i18next";
 import { LuHand, LuInfo } from "react-icons/lu";
 
 import { useStructureServiceStructureData } from "openapi/queries";
-import type { DagRunState, TaskInstanceState } from "openapi/requests/types.gen";
+import type { TaskInstanceState } from "openapi/requests/types.gen";
 
 import { Modal, RadioCardItem, RadioCardLabel, RadioCardRoot, Tooltip } from "src/system-components";
 
@@ -46,26 +46,22 @@ type Props = {
   readonly isMapped?: boolean;
   readonly onClose: () => void;
   readonly open: boolean;
-  /** The run of the page the dialog is opened from. With `taskId` it offers to hold just that task instance. */
+  /** The run of the task instance page the dialog is opened from, which offers to hold just that task instance. */
   readonly runId?: string;
-  /** The state of that run, for the dialog to say when holding it has no effect. */
-  readonly runState?: DagRunState;
   /**
    * The state of the task instance, for the dialog to say what the hold does to it. Left out where it
-   * is not known, and not read for a task in every run or a run as a whole.
+   * is not known, and not read for a task in every run.
    */
   readonly state?: TaskInstanceState | null;
-  /** The task of the page the dialog is opened from. With `runId` it offers to hold just that task instance. */
-  readonly taskId?: string;
+  /** The task of the page the dialog is opened from. */
+  readonly taskId: string;
 };
 
 /** How long a hold lasts: until it is released, or until a time it ends by itself. */
 type HoldDuration = "forever" | "until";
 
-// The label of each choice of what to hold. A run is described by the same words as in the lists of
-// holds, so its secondary text reuses those.
+// The label of each choice of what to hold.
 const scopeOptionKeys = {
-  run: { detail: "taskHold.scope.run", label: "taskHold.dialog.scope.run.label" },
   task: { detail: "taskHold.dialog.scope.task.detail", label: "taskHold.dialog.scope.task.label" },
   taskInstance: {
     detail: "taskHold.dialog.scope.taskInstance.detail",
@@ -73,7 +69,7 @@ const scopeOptionKeys = {
   },
 } as const satisfies Record<HoldScope, { detail: string; label: string }>;
 
-const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, runState, state, taskId }: Props) => {
+const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, taskId }: Props) => {
   const { t: translate } = useTranslation("dags");
 
   const [reason, setReason] = useState("");
@@ -88,11 +84,11 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, runState, s
   const scope =
     offeredScopes.find((candidate) => candidate === chosenScope) ??
     getDefaultHoldScope({ runId, state, taskId });
-  const stateLineKey = getScopeStateLineKey(scope, { runState, state });
+  const stateLineKey = getScopeStateLineKey(scope, { state });
   // The structure of the latest version is only needed to word the notes, so it is asked for while the
   // dialog is open.
   const { data: structure } = useStructureServiceStructureData({ dagId }, undefined, { enabled: open });
-  const teardownNote = getHoldTeardownNote(structure, scope, taskId);
+  const teardownNote = getHoldTeardownNote(structure, taskId);
   const infoNotes = [
     ...(scope === "task" ? [translate("taskHold.dialog.info.capacity")] : []),
     ...(teardownNote === undefined
@@ -175,7 +171,7 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, runState, s
       <VStack align="stretch" gap={4}>
         <VStack align="stretch" gap={2}>
           <Text color="fg.muted" fontSize="sm">
-            {translate(scope === "run" ? "taskHold.dialog.descriptionRun" : "taskHold.dialog.description")}
+            {translate("taskHold.dialog.description")}
           </Text>
           {stateLineKey === undefined ? undefined : (
             <Text bg="bg.muted" borderRadius="md" data-testid="hold-state-line" fontSize="sm" px={3} py={2}>
@@ -223,7 +219,7 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, runState, s
               <Text data-testid="hold-scope">{translate(`taskHold.scope.${scope}`, { runId, taskId })}</Text>
             </>
           )}
-          {isMapped && (scope === "task" || scope === "taskInstance") ? (
+          {isMapped ? (
             <Text color="fg.muted" data-testid="hold-mapped-hint" fontSize="sm" mt={2}>
               {translate("taskHold.dialog.mappedHint")}
             </Text>

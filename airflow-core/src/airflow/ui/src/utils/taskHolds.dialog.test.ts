@@ -40,7 +40,6 @@ const unfinishedStates = $TaskInstanceState.enum.filter((state) => !finishedStat
 
 const taskInstancePage = { runId: "run_1", taskId: "load" };
 const taskPage = { taskId: "load" };
-const runPage = { runId: "run_1" };
 
 describe("isTaskInstanceFinished", () => {
   it.each(finishedStates)("says a task instance in %s has finished", (state) => {
@@ -58,16 +57,12 @@ describe("isTaskInstanceFinished", () => {
 });
 
 describe("getOfferedHoldScopes", () => {
-  it("offers all three from a task instance page, the task instance first", () => {
-    expect(getOfferedHoldScopes(taskInstancePage)).toEqual(["taskInstance", "task", "run"]);
+  it("offers both kinds from a task instance page, the task instance first", () => {
+    expect(getOfferedHoldScopes(taskInstancePage)).toEqual(["taskInstance", "task"]);
   });
 
   it("offers only the task in every run from a task page", () => {
     expect(getOfferedHoldScopes(taskPage)).toEqual(["task"]);
-  });
-
-  it("offers only every task in the run from a run page", () => {
-    expect(getOfferedHoldScopes(runPage)).toEqual(["run"]);
   });
 });
 
@@ -75,8 +70,7 @@ describe("getDefaultHoldScope", () => {
   it.each([
     { origin: taskInstancePage, scope: "taskInstance", title: "a task instance page" },
     { origin: taskPage, scope: "task", title: "a task page" },
-    { origin: runPage, scope: "run", title: "a run page" },
-  ] as const)("starts on the scope of $title", ({ origin, scope }) => {
+  ] as const)("starts on the kind of hold of $title", ({ origin, scope }) => {
     expect(getDefaultHoldScope(origin)).toBe(scope);
   });
 
@@ -96,9 +90,9 @@ describe("getDefaultHoldScope", () => {
     },
   );
 
-  it("leaves a task page and a run page on their own scope whatever the state", () => {
+  it("leaves a task page on the task in every run whatever the state", () => {
     expect(getDefaultHoldScope({ ...taskPage, state: "success" })).toBe("task");
-    expect(getDefaultHoldScope({ ...runPage, state: "success" })).toBe("run");
+    expect(getDefaultHoldScope({ ...taskPage, state: "running" })).toBe("task");
   });
 });
 
@@ -106,14 +100,12 @@ describe("getHoldRequestScope", () => {
   it.each([
     { scope: "taskInstance", sets: { run_id: "run_1", task_id: "load" } },
     { scope: "task", sets: { run_id: null, task_id: "load" } },
-    { scope: "run", sets: { run_id: "run_1", task_id: null } },
   ] as const)("sets $sets for a hold on $scope from a task instance page", ({ scope, sets }) => {
     expect(getHoldRequestScope(scope, taskInstancePage)).toEqual(sets);
   });
 
-  it("sets just the task from a task page, and just the run from a run page", () => {
+  it("sets just the task from a task page", () => {
     expect(getHoldRequestScope("task", taskPage)).toEqual({ run_id: null, task_id: "load" });
-    expect(getHoldRequestScope("run", runPage)).toEqual({ run_id: "run_1", task_id: null });
   });
 });
 
@@ -124,21 +116,8 @@ describe("getScopeStateLineKey", () => {
     expect(getScopeStateLineKey("taskInstance", {})).toBeUndefined();
   });
 
-  it.each(["success", "failed"] as const)("says a run that is %s has finished", (runState) => {
-    expect(getScopeStateLineKey("run", { runState })).toBe("runFinished");
-  });
-
-  it.each(["queued", "running"] as const)("says nothing of a run that is %s", (runState) => {
-    expect(getScopeStateLineKey("run", { runState })).toBeUndefined();
-  });
-
-  it("says nothing of a run whose state is not known", () => {
-    expect(getScopeStateLineKey("run", {})).toBeUndefined();
-  });
-
-  it("reads the state of the task instance only for a task instance, and of the run only for a run", () => {
-    expect(getScopeStateLineKey("run", { runState: "running", state: "success" })).toBeUndefined();
-    expect(getScopeStateLineKey("taskInstance", { runState: "success", state: "running" })).toBe("running");
-    expect(getScopeStateLineKey("task", { runState: "success", state: "success" })).toBeUndefined();
+  it("reads the state of the task instance only for a task instance hold", () => {
+    expect(getScopeStateLineKey("task", { state: "success" })).toBeUndefined();
+    expect(getScopeStateLineKey("task", { state: null })).toBeUndefined();
   });
 });

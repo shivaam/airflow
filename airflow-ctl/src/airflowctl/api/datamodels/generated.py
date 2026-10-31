@@ -1342,27 +1342,10 @@ class TaskDependencyResponse(BaseModel):
     reason: Annotated[str, Field(title="Reason")]
 
 
-class TaskId(RootModel[str]):
-    root: Annotated[
-        str,
-        Field(
-            description="Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.",
-            max_length=250,
-            min_length=1,
-            title="Task Id",
-        ),
-    ]
-
-
 class RunId(RootModel[str]):
     root: Annotated[
         str,
-        Field(
-            description="Hold every task in this run. Combined with ``task_id``, holds only that task in that run.",
-            max_length=250,
-            min_length=1,
-            title="Run Id",
-        ),
+        Field(description="Hold the task only in this run.", max_length=250, min_length=1, title="Run Id"),
     ]
 
 
@@ -1375,19 +1358,17 @@ class TaskHoldBody(BaseModel):
         extra="forbid",
     )
     task_id: Annotated[
-        TaskId | None,
+        str,
         Field(
-            description="Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.",
+            description="The task to hold, in every current and future run unless ``run_id`` is set.",
+            max_length=250,
+            min_length=1,
             title="Task Id",
         ),
-    ] = None
-    run_id: Annotated[
-        RunId | None,
-        Field(
-            description="Hold every task in this run. Combined with ``task_id``, holds only that task in that run.",
-            title="Run Id",
-        ),
-    ] = None
+    ]
+    run_id: Annotated[RunId | None, Field(description="Hold the task only in this run.", title="Run Id")] = (
+        None
+    )
     reason: Annotated[str, Field(min_length=1, title="Reason")]
     expires_at: Annotated[
         datetime | None,
@@ -1416,7 +1397,7 @@ class TaskHoldResponse(BaseModel):
 
     id: Annotated[int, Field(title="Id")]
     dag_id: Annotated[str, Field(title="Dag Id")]
-    task_id: Annotated[str | None, Field(title="Task Id")]
+    task_id: Annotated[str, Field(title="Task Id")]
     run_id: Annotated[str | None, Field(title="Run Id")]
     reason: Annotated[str, Field(title="Reason")]
     created_by: Annotated[str | None, Field(title="Created By")]

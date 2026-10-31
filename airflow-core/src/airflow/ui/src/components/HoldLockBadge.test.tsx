@@ -235,33 +235,6 @@ describe("HoldLockBadge", () => {
       expect(screen.queryByTestId("hold-lock-badge")).not.toBeInTheDocument();
     });
   });
-
-  describe("on a run", () => {
-    it("is locked by a hold on the run", async () => {
-      serveHolds([{ ...hold, run_id: "run_1", task_id: null }]);
-      render(<HoldLockBadge subject={{ dag_id: "example_dag", dag_run_id: "run_1" }} />, {
-        wrapper: Wrapper,
-      });
-
-      const badge = await screen.findByTestId("hold-lock-badge");
-
-      expect(badge.textContent).toBe("Held");
-      expect(badge).toHaveAttribute("data-hold-pending", "false");
-      expect(await getHeldByText(badge)).toContain(
-        "Tasks in this run won't start or resume until the hold is released or expires.",
-      );
-    });
-
-    it("is not locked by a hold on a task of the run", async () => {
-      serveHolds([{ ...hold, run_id: "run_1" }]);
-      render(<HoldLockBadge subject={{ dag_id: "example_dag", dag_run_id: "run_1" }} />, {
-        wrapper: Wrapper,
-      });
-
-      await settle();
-      expect(screen.queryByTestId("hold-lock-badge")).not.toBeInTheDocument();
-    });
-  });
 });
 
 describe("HoldLockBadge refreshing the holds", () => {
@@ -303,14 +276,14 @@ describe("HoldLockBadge refreshing the holds", () => {
     await waitFor(() => expect(holdsRequests).toBeGreaterThan(2), { timeout: 3000 });
   });
 
-  it("keeps asking while a task or a run shows a lock, which can run out on its own", async () => {
+  it("keeps asking while a task across its runs shows a lock, which can run out on its own", async () => {
     serveHolds([hold]);
     render(<HoldLockBadge subject={{ dag_id: "example_dag", task_id: "load" }} />, { wrapper: Wrapper });
 
     await waitFor(() => expect(holdsRequests).toBeGreaterThan(2), { timeout: 3000 });
   });
 
-  it("does not keep asking while a task or a run shows no lock", async () => {
+  it("does not keep asking while a task across its runs shows no lock", async () => {
     serveHolds([]);
     render(<HoldLockBadge subject={{ dag_id: "example_dag", task_id: "load" }} />, { wrapper: Wrapper });
 
@@ -320,16 +293,15 @@ describe("HoldLockBadge refreshing the holds", () => {
   });
 
   describe("held by", () => {
-    const runHold: TaskHoldResponse = {
+    const instanceHold: TaskHoldResponse = {
       ...hold,
       id: 2,
       reason: "Bad input file",
       run_id: "run_1",
-      task_id: null,
     };
 
     it("counts the holds and lists each of them", async () => {
-      serveHolds([hold, runHold]);
+      serveHolds([hold, instanceHold]);
       render(<HoldLockBadge subject={taskInstance("scheduled")} />, { wrapper: Wrapper });
 
       const badge = await screen.findByTestId("hold-lock-badge");
@@ -346,14 +318,14 @@ describe("HoldLockBadge refreshing the holds", () => {
 
     it("releases the hold its Release button sits on, once confirmed in the popover", async () => {
       released.length = 0;
-      serveHolds([hold, runHold]);
+      serveHolds([hold, instanceHold]);
       server.use(http.post("/api/v2/dags/example_dag/holds/:holdId/release", recordRelease));
       render(<HoldLockBadge subject={taskInstance("scheduled")} />, { wrapper: Wrapper });
 
       await getHeldByText(await screen.findByTestId("hold-lock-badge"));
-      const [, releaseRunHold] = screen.getAllByTestId("held-by-release");
+      const [, releaseInstanceHold] = screen.getAllByTestId("held-by-release");
 
-      fireEvent.click(releaseRunHold as HTMLElement);
+      fireEvent.click(releaseInstanceHold as HTMLElement);
       // The reason box opens in the popover, which stays open; nothing is released until confirmed.
       expect(screen.getByTestId("held-by-list")).toContainElement(
         screen.getByTestId("held-by-release-reason"),

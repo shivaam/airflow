@@ -59,7 +59,7 @@ const releasedHold = makeHold({
   released_at: "2026-10-20T11:00:00Z",
   released_by: "operator",
   run_id: "run_1",
-  task_id: null,
+  task_id: "load",
 });
 
 const requestedFilters: Array<string | null> = [];
@@ -107,7 +107,7 @@ describe("Holds", () => {
     expect(screen.getByTestId("hold-status")).toHaveTextContent("dags:taskHold.status.active");
   });
 
-  it("links a hold to the task, run or task instance it covers", async () => {
+  it("links a hold to the task or task instance it covers", async () => {
     serveHolds();
     renderHolds("/dags/example_dag/holds?active=all");
 
@@ -116,13 +116,13 @@ describe("Holds", () => {
       "href",
       "/dags/example_dag/tasks/load",
     );
-    expect(screen.getByRole("link", { name: /taskHold\.scope\.run$/u })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /taskHold\.scope\.taskInstance$/u })).toHaveAttribute(
       "href",
-      "/dags/example_dag/runs/run_1",
+      "/dags/example_dag/runs/run_1/tasks/load",
     );
   });
 
-  it("links a hold on a task and run to the task instance, or to the instances of a mapped task", async () => {
+  it("links a task instance hold to the task instance, or to the instances of a mapped task", async () => {
     server.use(
       http.get("/api/v2/dags/example_dag/holds", () =>
         HttpResponse.json({

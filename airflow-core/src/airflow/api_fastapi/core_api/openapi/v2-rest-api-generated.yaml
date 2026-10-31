@@ -7838,7 +7838,7 @@ paths:
       tags:
       - Task Hold
       summary: Create Task Hold
-      description: 'Place a hold on a task or a run.
+      description: 'Place a hold on a task, in one run or in every run.
 
 
         A hold is a lock, not a task instance state: it never changes the state of
@@ -7849,10 +7849,10 @@ paths:
 
         started, which waits in `none`, and does not queue one that is `scheduled`.
 
-        A hold on a task covers every map index of it in every current and future
-        run, a hold on a run covers
+        A hold covers every map index of its task: in that one run when `run_id` is
+        set, otherwise in every
 
-        every task in that run, and a hold on both covers that one task instance.
+        current and future run.
 
         The current attempt of a queued or running task instance continues, and later
         attempts, such as a
@@ -18033,14 +18033,12 @@ components:
     TaskHoldBody:
       properties:
         task_id:
-          anyOf:
-          - type: string
-            maxLength: 250
-            minLength: 1
-          - type: 'null'
+          type: string
+          maxLength: 250
+          minLength: 1
           title: Task Id
-          description: Hold this task in every current and future run. Combined with
-            ``run_id``, holds only that task in that run.
+          description: The task to hold, in every current and future run unless ``run_id``
+            is set.
         run_id:
           anyOf:
           - type: string
@@ -18048,8 +18046,7 @@ components:
             minLength: 1
           - type: 'null'
           title: Run Id
-          description: Hold every task in this run. Combined with ``task_id``, holds
-            only that task in that run.
+          description: Hold the task only in this run.
         reason:
           type: string
           minLength: 1
@@ -18065,6 +18062,7 @@ components:
       additionalProperties: false
       type: object
       required:
+      - task_id
       - reason
       title: TaskHoldBody
       description: Object used for create task hold request.
@@ -18104,9 +18102,7 @@ components:
           type: string
           title: Dag Id
         task_id:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: Task Id
         run_id:
           anyOf:

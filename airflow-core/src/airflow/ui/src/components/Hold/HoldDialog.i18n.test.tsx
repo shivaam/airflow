@@ -65,7 +65,7 @@ const choose = async (label: string) => {
 };
 
 describe("HoldDialog what to hold, in English", () => {
-  it("offers the three scopes from a task instance page, each with its secondary text", () => {
+  it("offers both kinds of hold from a task instance page, each with its secondary text", () => {
     render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
       wrapper: Wrapper,
     });
@@ -75,29 +75,15 @@ describe("HoldDialog what to hold, in English", () => {
     expect(options.map(getOptionText)).toEqual([
       "This task in this runload in run run_1",
       "This task in every runload, in current and future runs",
-      "Every task in this runAll tasks in run run_1",
     ]);
   });
 
-  it.each([
-    { props: { taskId: "load" }, text: "Task load in all runs", title: "a task page" },
-    { props: { runId: "run_1" }, text: "All tasks in run run_1", title: "a run page" },
-  ])("shows the one scope of $title as plain text", ({ props, text }) => {
-    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open {...props} />, { wrapper: Wrapper });
+  it("shows the one kind of hold of a task page as plain text", () => {
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open taskId="load" />, { wrapper: Wrapper });
 
     expect(screen.getByText("What to hold")).toBeInTheDocument();
-    expect(screen.getByTestId("hold-scope")).toHaveTextContent(text);
+    expect(screen.getByTestId("hold-scope")).toHaveTextContent("Task load in all runs");
     expect(screen.queryByRole("radiogroup", { name: "What to hold" })).not.toBeInTheDocument();
-  });
-
-  it("says a run that has finished has nothing to start, and that clearing makes tasks wait", () => {
-    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" runState="success" />, {
-      wrapper: Wrapper,
-    });
-
-    expect(screen.getByTestId("hold-state-line")).toHaveTextContent(
-      "This run has finished. Nothing starts unless its tasks are cleared; cleared tasks then wait.",
-    );
   });
 });
 
@@ -140,7 +126,6 @@ describe("HoldButton, in English", () => {
   it.each([
     { props: { runId: "run_1", taskId: "load" }, title: "a task instance page" },
     { props: { taskId: "load" }, title: "a task page" },
-    { props: { runId: "run_1" }, title: "a run page" },
   ])("says only Hold... on $title", ({ props }) => {
     render(<HoldButton dagId="example_dag" {...props} />, { wrapper: Wrapper });
 

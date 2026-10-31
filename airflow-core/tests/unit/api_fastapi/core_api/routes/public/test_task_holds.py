@@ -134,7 +134,6 @@ class TestCreateTaskHold:
         ("scope", "expected_task_id", "expected_run_id"),
         [
             pytest.param({"task_id": TASK_ID}, TASK_ID, None, id="task"),
-            pytest.param({"run_id": RUN_ID}, None, RUN_ID, id="run"),
             pytest.param({"task_id": TASK_ID, "run_id": RUN_ID}, TASK_ID, RUN_ID, id="task_instance"),
         ],
     )
@@ -193,7 +192,9 @@ class TestCreateTaskHold:
     def test_should_not_change_task_instance_states(self, test_client, session):
         _set_task_instance_states(session)
 
-        response = test_client.post(f"/dags/{DAG_ID}/holds", json={"run_id": RUN_ID, "reason": "pause"})
+        response = test_client.post(
+            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "run_id": RUN_ID, "reason": "pause"}
+        )
 
         assert response.status_code == 201
         assert _task_instance_states(session) == EXPECTED_STATES
@@ -201,12 +202,13 @@ class TestCreateTaskHold:
     @pytest.mark.parametrize(
         "body",
         [
-            pytest.param({"reason": "r"}, id="no_scope"),
+            pytest.param({"reason": "r"}, id="no_task"),
+            pytest.param({"run_id": RUN_ID, "reason": "r"}, id="run_without_task"),
             pytest.param({"task_id": TASK_ID}, id="no_reason"),
             pytest.param({"task_id": TASK_ID, "reason": ""}, id="empty_reason"),
             pytest.param({"task_id": TASK_ID, "reason": "   "}, id="blank_reason"),
             pytest.param({"task_id": "", "reason": "r"}, id="empty_task_id"),
-            pytest.param({"run_id": "", "reason": "r"}, id="empty_run_id"),
+            pytest.param({"task_id": TASK_ID, "run_id": "", "reason": "r"}, id="empty_run_id"),
             pytest.param(
                 {"task_id": TASK_ID, "reason": "r", "expires_at": "2030-01-01T00:00:00"},
                 id="expires_at_without_timezone",
@@ -248,7 +250,9 @@ class TestCreateTaskHold:
 
     @pytest.mark.parametrize("run_id", ["nope", OTHER_DAG_RUN_ID], ids=["unknown_run", "run_of_other_dag"])
     def test_should_respond_404_for_run_not_in_dag(self, test_client, session, run_id):
-        response = test_client.post(f"/dags/{DAG_ID}/holds", json={"run_id": run_id, "reason": "r"})
+        response = test_client.post(
+            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "run_id": run_id, "reason": "r"}
+        )
 
         assert response.status_code == 404
         assert response.json()["detail"] == (
@@ -286,7 +290,7 @@ class TestListTaskHolds:
     def holds(self, session) -> dict[str, TaskHold]:
         return {
             "task": _add_hold(session),
-            "run": _add_hold(session, task_id=None, run_id=RUN_ID, expires_at=FUTURE),
+            "task_instance": _add_hold(session, run_id=RUN_ID, expires_at=FUTURE),
             "released": _add_hold(session, task_id=OTHER_TASK_ID, released_at=PAST, released_by="alice"),
             "expired": _add_hold(session, task_id=OTHER_TASK_ID, expires_at=PAST),
             "other_dag": _add_hold(session, dag_id=OTHER_DAG_ID),
@@ -300,7 +304,7 @@ class TestListTaskHolds:
         response = test_client.get(f"/dags/{DAG_ID}/holds")
 
         assert response.status_code == 200
-        assert self._ids(response) == [holds["task"].id, holds["run"].id]
+        assert self._ids(response) == [holds["task"].id, holds["task_instance"].id]
         assert response.json()["total_entries"] == 2
         assert [hold["active"] for hold in response.json()["task_holds"]] == [True, True]
         assert response.json()["task_holds"][0] == {
@@ -324,7 +328,7 @@ class TestListTaskHolds:
         assert response.status_code == 200
         assert self._ids(response) == [
             holds["task"].id,
-            holds["run"].id,
+            holds["task_instance"].id,
             holds["released"].id,
             holds["expired"].id,
         ]
@@ -338,7 +342,7 @@ class TestListTaskHolds:
         response = test_client.get("/dags/~/holds")
 
         assert response.status_code == 200
-        assert self._ids(response) == [holds["task"].id, holds["run"].id, holds["other_dag"].id]
+        assert self._ids(response) == [holds["task"].id, holds["task_instance"].id, holds["other_dag"].id]
         assert response.json()["total_entries"] == 3
 
         response = test_client.get("/dags/~/holds", params={"active": False})
@@ -360,12 +364,12 @@ class TestListTaskHolds:
     def test_should_paginate_and_order(self, test_client, holds):
         response = test_client.get(f"/dags/{DAG_ID}/holds", params={"limit": 1, "offset": 1})
 
-        assert self._ids(response) == [holds["run"].id]
+        assert self._ids(response) == [holds["task_instance"].id]
         assert response.json()["total_entries"] == 2
 
         response = test_client.get(f"/dags/{DAG_ID}/holds", params={"order_by": "-id"})
 
-        assert self._ids(response) == [holds["run"].id, holds["task"].id]
+        assert self._ids(response) == [holds["task_instance"].id, holds["task"].id]
 
     def test_should_only_list_holds_of_readable_dags(self, test_client, holds):
         with mock.patch.object(SimpleAuthManager, "get_authorized_dag_ids", return_value={DAG_ID}):
@@ -428,15 +432,15 @@ class TestReleaseTaskHold:
         assert (log.dag_id, log.task_id, log.run_id, log.owner) == (DAG_ID, TASK_ID, None, "test")
         assert json.loads(log.extra) == {"hold_id": str(hold.id), "reason": "fix deployed"}
 
-    def test_should_log_the_run_scope_of_the_hold(self, test_client, session):
-        hold = _add_hold(session, task_id=None, run_id=RUN_ID)
+    def test_should_log_the_run_of_a_task_instance_hold(self, test_client, session):
+        hold = _add_hold(session, run_id=RUN_ID)
 
         response = test_client.post(self._url(hold))
 
         assert response.status_code == 200
         log = session.scalar(select(Log).where(Log.event == "hold_released"))
         assert log is not None
-        assert (log.dag_id, log.task_id, log.run_id) == (DAG_ID, None, RUN_ID)
+        assert (log.dag_id, log.task_id, log.run_id) == (DAG_ID, TASK_ID, RUN_ID)
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -457,7 +461,7 @@ class TestReleaseTaskHold:
         assert released.released_at is not None
 
     def test_should_not_change_task_instance_states(self, test_client, session):
-        hold = _add_hold(session, task_id=None, run_id=RUN_ID)
+        hold = _add_hold(session, run_id=RUN_ID)
         _set_task_instance_states(session)
 
         response = test_client.post(self._url(hold))

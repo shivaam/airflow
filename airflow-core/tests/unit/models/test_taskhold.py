@@ -94,13 +94,10 @@ def test_active_clause_selects_the_holds_that_are_active(dag_maker, session):
         pytest.param("t1", None, "dag", "t1", "r2", True, id="task_hold_matches_every_run"),
         pytest.param("t1", None, "dag", "t2", "r1", False, id="task_hold_ignores_other_tasks"),
         pytest.param("t1", None, "other", "t1", "r1", False, id="task_hold_ignores_other_dags"),
-        pytest.param(None, "r1", "dag", "t1", "r1", True, id="run_hold_matches_its_run"),
-        pytest.param(None, "r1", "dag", "t2", "r1", True, id="run_hold_matches_every_task"),
-        pytest.param(None, "r1", "dag", "t1", "r2", False, id="run_hold_ignores_other_runs"),
-        pytest.param(None, "r1", "other", "t1", "r1", False, id="run_hold_ignores_other_dags"),
-        pytest.param("t1", "r1", "dag", "t1", "r1", True, id="task_in_run_hold_matches_its_task_instance"),
-        pytest.param("t1", "r1", "dag", "t2", "r1", False, id="task_in_run_hold_ignores_other_tasks"),
-        pytest.param("t1", "r1", "dag", "t1", "r2", False, id="task_in_run_hold_ignores_other_runs"),
+        pytest.param("t1", "r1", "dag", "t1", "r1", True, id="task_instance_hold_matches_its_task_instance"),
+        pytest.param("t1", "r1", "dag", "t2", "r1", False, id="task_instance_hold_ignores_other_tasks"),
+        pytest.param("t1", "r1", "dag", "t1", "r2", False, id="task_instance_hold_ignores_other_runs"),
+        pytest.param("t1", "r1", "other", "t1", "r1", False, id="task_instance_hold_ignores_other_dags"),
     ],
 )
 def test_matches(hold_task_id, hold_run_id, dag_id, task_id, run_id, expected):
@@ -109,13 +106,15 @@ def test_matches(hold_task_id, hold_run_id, dag_id, task_id, run_id, expected):
     assert hold.matches(dag_id=dag_id, task_id=task_id, run_id=run_id) is expected
 
 
-def test_hold_must_name_a_task_or_a_run(dag_maker, session):
-    with dag_maker("task_hold_scope_check", schedule=None, session=session):
+@pytest.mark.parametrize("run_id", [None, "r1"], ids=["no_run", "with_run"])
+def test_hold_must_name_a_task(dag_maker, session, run_id):
+    """There is no hold on a whole run: a hold without a task is refused by the database."""
+    with dag_maker("task_hold_needs_a_task", schedule=None, session=session):
         EmptyOperator(task_id="task")
     session.flush()
-    session.add(TaskHold(dag_id="task_hold_scope_check", reason="matches nothing in particular"))
+    session.add(TaskHold(dag_id="task_hold_needs_a_task", run_id=run_id, reason="matches no task"))
 
-    # MySQL reports CHECK violations as OperationalError (3819) rather than IntegrityError.
+    # Kept broad: database drivers differ in the error class they raise for a NULL in a NOT NULL column.
     with pytest.raises((IntegrityError, OperationalError)):
         session.flush()
     session.rollback()
@@ -144,8 +143,7 @@ def _two_dags_with_two_runs_and_two_tasks(dag_maker, session) -> set[tuple[str, 
     ("hold_task_id", "hold_run_id"),
     [
         pytest.param("t1", None, id="task_hold"),
-        pytest.param(None, "r1", id="run_hold"),
-        pytest.param("t1", "r1", id="task_in_run_hold"),
+        pytest.param("t1", "r1", id="task_instance_hold"),
     ],
 )
 @pytest.mark.parametrize(
@@ -185,15 +183,16 @@ def test_covering_clause_selects_the_task_instances_matches_accepts(
         for dag_id, run_id, task_id in keys
         if active and hold.matches(dag_id=dag_id, task_id=task_id, run_id=run_id)
     }
-    # Every scope covers at least this task instance, so an empty result is not a vacuous pass.
+    # Either kind covers at least this task instance, so an empty result is not a vacuous pass.
     assert (("dag", "r1", "t1") in covered) is active
 
 
 def test_covering_clause_covers_a_task_instance_until_every_hold_that_matches_it_is_over(dag_maker, session):
     _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
     task_hold = TaskHold(dag_id="dag", task_id="t1", reason="task")
-    run_hold = TaskHold(dag_id="dag", run_id="r1", reason="run")
-    session.add_all([task_hold, run_hold])
+    instance_hold = TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="task instance")
+    second_instance_hold = TaskHold(dag_id="dag", task_id="t1", run_id="r1", reason="someone else")
+    session.add_all([task_hold, instance_hold, second_instance_hold])
     session.flush()
 
     def covered() -> set[tuple[str, str]]:
@@ -205,14 +204,19 @@ def test_covering_clause_covers_a_task_instance_until_every_hold_that_matches_it
             )
         )
 
-    assert covered() == {("r1", "t1"), ("r2", "t1"), ("r1", "t2")}
+    assert covered() == {("r1", "t1"), ("r2", "t1")}
 
     task_hold.released_at = NOW - HOUR
     session.flush()
-    # (r1, t1) is still covered by the run hold; (r2, t1) was only covered by the task hold.
-    assert covered() == {("r1", "t1"), ("r1", "t2")}
+    # (r1, t1) is still covered by the task instance holds; (r2, t1) was only covered by the task hold.
+    assert covered() == {("r1", "t1")}
 
-    run_hold.expires_at = NOW - HOUR
+    instance_hold.expires_at = NOW - HOUR
+    session.flush()
+    # Two people held the same task instance: it stays covered until the last of their holds is over.
+    assert covered() == {("r1", "t1")}
+
+    second_instance_hold.released_at = NOW - HOUR
     session.flush()
     assert covered() == set()
 
@@ -222,8 +226,8 @@ def test_negated_covering_clause_selects_the_task_instances_no_active_hold_cover
     session.add_all(
         [
             TaskHold(dag_id="dag", task_id="t1", reason="task"),
-            TaskHold(dag_id="dag", run_id="r2", reason="run"),
-            TaskHold(dag_id="other", task_id="t2", run_id="r1", reason="task in run"),
+            TaskHold(dag_id="dag", task_id="t2", run_id="r2", reason="task instance"),
+            TaskHold(dag_id="other", task_id="t2", run_id="r1", reason="task instance in another dag"),
             TaskHold(dag_id="dag", task_id="t2", reason="released", released_at=NOW - HOUR),
         ]
     )
@@ -246,9 +250,8 @@ def test_active_for_run_loads_only_the_active_holds_that_can_cover_the_run(dag_m
     _two_dags_with_two_runs_and_two_tasks(dag_maker, session)
     holds = {
         "task": TaskHold(dag_id="dag", task_id="t1", reason="task"),
-        "this_run": TaskHold(dag_id="dag", run_id="r1", reason="this run"),
         "task_in_this_run": TaskHold(dag_id="dag", task_id="t2", run_id="r1", reason="task in this run"),
-        "other_run": TaskHold(dag_id="dag", run_id="r2", reason="other run"),
+        "task_in_other_run": TaskHold(dag_id="dag", task_id="t2", run_id="r2", reason="task in other run"),
         "other_dag": TaskHold(dag_id="other", task_id="t1", reason="other dag"),
         "released": TaskHold(dag_id="dag", task_id="t1", reason="released", released_at=NOW - HOUR),
         "expired": TaskHold(dag_id="dag", task_id="t1", reason="expired", expires_at=NOW - HOUR),
@@ -258,9 +261,7 @@ def test_active_for_run_loads_only_the_active_holds_that_can_cover_the_run(dag_m
 
     loaded = TaskHold.active_for_run("dag", "r1", now=NOW, session=session)
 
-    assert [hold.id for hold in loaded] == sorted(
-        holds[name].id for name in ("task", "this_run", "task_in_this_run")
-    )
+    assert [hold.id for hold in loaded] == sorted(holds[name].id for name in ("task", "task_in_this_run"))
 
 
 def test_a_cleared_task_instance_is_covered_by_the_hold_that_covered_its_earlier_attempt(dag_maker, session):
@@ -325,7 +326,7 @@ def test_marking_a_run_failed_skips_the_unfinished_task_instances_a_hold_covers(
     }
     for ti in dr.task_instances:
         ti.state = states[ti.task_id]
-    session.add(TaskHold(dag_id=dr.dag_id, run_id=dr.run_id, reason="test"))
+    session.add(TaskHold(dag_id=dr.dag_id, task_id="held", run_id=dr.run_id, reason="test"))
     session.flush()
 
     set_dag_run_state_to_failed(dag=dag, run_id=dr.run_id, commit=True, session=session)

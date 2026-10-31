@@ -21,7 +21,7 @@ import { useDisclosure } from "@chakra-ui/react";
 import { useTranslation } from "react-i18next";
 import { LuHand, LuHandHelping } from "react-icons/lu";
 
-import type { DagRunState, TaskInstanceState } from "openapi/requests/types.gen";
+import type { TaskInstanceState } from "openapi/requests/types.gen";
 
 import { IconButton, Popover } from "src/system-components";
 
@@ -35,14 +35,12 @@ import ReleaseHoldDialog from "./ReleaseHoldDialog";
 type Props = {
   readonly dagId: string;
   readonly isMapped?: boolean;
-  /** The run the page is about, or with `taskId` the run of that task instance. */
+  /** On a task instance page, the run of that task instance. */
   readonly runId?: string;
-  /** The state of the run, for the dialog to say when holding it has no effect. */
-  readonly runState?: DagRunState;
   /** The state of the task instance, for the dialog to say what the hold does to it. */
   readonly state?: TaskInstanceState | null;
   /** The task the page is about, or with `runId` that task instance. */
-  readonly taskId?: string;
+  readonly taskId: string;
 } & ButtonProps;
 
 /**
@@ -51,7 +49,7 @@ type Props = {
  * is about, it releases instead: one hold through the release dialog, several through the list of them,
  * as releasing one leaves the others in force.
  */
-export const HoldButton = ({ dagId, isMapped, runId, runState, state, taskId, ...rest }: Props) => {
+export const HoldButton = ({ dagId, isMapped, runId, state, taskId, ...rest }: Props) => {
   const { onClose, onOpen, open } = useDisclosure();
   const { t: translate } = useTranslation("dags");
   const holds = getCoveringHolds(useActiveTaskHolds({ dagId }), {
@@ -101,7 +99,6 @@ export const HoldButton = ({ dagId, isMapped, runId, runState, state, taskId, ..
         onClose={onClose}
         open={open}
         runId={runId}
-        runState={runState}
         state={state}
         taskId={taskId}
       />

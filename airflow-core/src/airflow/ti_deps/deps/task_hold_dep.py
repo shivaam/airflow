@@ -53,8 +53,8 @@ class TaskHoldDep(BaseTIDep):
     as usual and wait there, because the statement that moves a ``scheduled`` task instance to ``queued``
     refuses a covered one. That statement is the second gate.
 
-    A hold covers every map index of the task. A hold without a ``task_id`` covers every task of its run,
-    and a hold without a ``run_id`` covers its task in every run.
+    A hold covers every map index of its task: in its run for a task instance hold, and in every run for a
+    task hold, which has no ``run_id``.
 
     A context that sets ``ignore_task_holds`` passes the dependency: the scheduler's deadlock check does,
     so a covered task instance counts as runnable later instead of as stuck.

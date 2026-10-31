@@ -4906,13 +4906,13 @@ export class TaskHoldService {
     
     /**
      * Create Task Hold
-     * Place a hold on a task or a run.
+     * Place a hold on a task, in one run or in every run.
      *
      * A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
      * stops a new start. While it is active the scheduler does not schedule a task instance that has not
      * started, which waits in `none`, and does not queue one that is `scheduled`.
-     * A hold on a task covers every map index of it in every current and future run, a hold on a run covers
-     * every task in that run, and a hold on both covers that one task instance.
+     * A hold covers every map index of its task: in that one run when `run_id` is set, otherwise in every
+     * current and future run.
      * The current attempt of a queued or running task instance continues, and later attempts, such as a
      * retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
      * answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task that

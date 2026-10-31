@@ -10661,9 +10661,9 @@ class TestSchedulerJob:
         assert_attempt(TaskInstanceState.QUEUED)
 
     @pytest.mark.usefixtures("testing_dag_bundle")
-    @pytest.mark.parametrize("whole_run", [False, True], ids=["task_hold", "run_hold"])
+    @pytest.mark.parametrize("in_one_run", [False, True], ids=["task_hold", "task_instance_hold"])
     def test_task_hold_does_not_stop_a_task_from_becoming_upstream_failed(
-        self, dag_maker, mock_executors, session, whole_run
+        self, dag_maker, mock_executors, session, in_one_run
     ):
         dag_id = "hold_upstream_failed"
         with dag_maker(dag_id=dag_id, schedule=None, session=session):
@@ -10673,7 +10673,7 @@ class TestSchedulerJob:
         for ti in dr.task_instances:
             if ti.task_id == "a":
                 ti.state = TaskInstanceState.FAILED
-        scope = {"run_id": run_id} if whole_run else {"task_id": "b"}
+        scope = {"task_id": "b", "run_id": run_id} if in_one_run else {"task_id": "b"}
         hold_id = _commit_task_hold(session, dag_id, **scope)
         self.job_runner = SchedulerJobRunner(job=Job())
 
@@ -10726,8 +10726,8 @@ class TestSchedulerJob:
         assert session.get(TaskHold, hold_id).is_active(timezone.utcnow())
 
     @pytest.mark.usefixtures("testing_dag_bundle")
-    @pytest.mark.parametrize("whole_run", [False, True], ids=["task_hold", "run_hold"])
-    def test_task_hold_applies_to_backfill_runs(self, dag_maker, mock_executors, session, whole_run):
+    @pytest.mark.parametrize("in_one_run", [False, True], ids=["task_hold", "task_instance_hold"])
+    def test_task_hold_applies_to_backfill_runs(self, dag_maker, mock_executors, session, in_one_run):
         dag_id = "hold_backfill"
         with dag_maker(
             dag_id=dag_id,
@@ -10755,9 +10755,9 @@ class TestSchedulerJob:
             )
         )
         assert len(run_ids) == 2
-        if whole_run:
-            scope = {"run_id": run_ids[0]}
-            expected_covered = {(run_ids[0], "held_task"), (run_ids[0], "other_task")}
+        if in_one_run:
+            scope = {"task_id": "held_task", "run_id": run_ids[0]}
+            expected_covered = {(run_ids[0], "held_task")}
         else:
             scope = {"task_id": "held_task"}
             expected_covered = {(run_id, "held_task") for run_id in run_ids}
@@ -10792,7 +10792,10 @@ class TestSchedulerJob:
             for number in range(3):
                 BashOperator(task_id=f"task_{number}", bash_command="true", **task_args)
         dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
-        hold_id = _commit_task_hold(session, dag_id, run_id=dr.run_id)
+        hold_ids = [
+            _commit_task_hold(session, dag_id, task_id=f"task_{number}", run_id=dr.run_id)
+            for number in range(3)
+        ]
         self.job_runner = SchedulerJobRunner(job=Job())
 
         def state_counts() -> Counter:
@@ -10806,7 +10809,8 @@ class TestSchedulerJob:
             assert (stats["running"], stats["queued"], stats["scheduled"], stats["open"]) == (0, 0, 0, 1)
 
         # Releasing all three puts them in line for the one slot.
-        _release_task_hold(session, hold_id)
+        for hold_id in hold_ids:
+            _release_task_hold(session, hold_id)
         assert self.job_runner._do_scheduling(session) == 1
         assert state_counts() == {TaskInstanceState.QUEUED: 1, TaskInstanceState.SCHEDULED: 2}
         assert self.job_runner._do_scheduling(session) == 0
@@ -10905,11 +10909,12 @@ class TestSchedulerJob:
             )
         dr = dag_maker.create_dagrun(state=DagRunState.RUNNING, session=session)
         run_id = dr.run_id
-        hold_id = _commit_task_hold(session, dag_id, run_id=run_id)
+        # Holding the root of a run is how a whole run is stopped.
+        hold_id = _commit_task_hold(session, dag_id, task_id="first", run_id=run_id)
         self.job_runner = SchedulerJobRunner(job=Job())
 
-        # Every task instance is covered and nothing is runnable, which is not a deadlock: the work only
-        # waits for the release.
+        # The root is covered and its downstream waits for it, so nothing is runnable, which is not a
+        # deadlock: the work only waits for the release.
         for _ in range(3):
             assert self.job_runner._do_scheduling(session) == 0
             assert _task_instance_states(session, dag_id) == {
@@ -11532,9 +11537,8 @@ class TestSchedulerJob:
     @pytest.mark.parametrize(
         ("scope", "covered"),
         [
-            pytest.param({"task_id": "t1"}, {("run_a", "t1"), ("run_b", "t1")}, id="task_only"),
-            pytest.param({"run_id": "run_a"}, {("run_a", "t1"), ("run_a", "t2")}, id="run_only"),
-            pytest.param({"task_id": "t1", "run_id": "run_a"}, {("run_a", "t1")}, id="task_and_run"),
+            pytest.param({"task_id": "t1"}, {("run_a", "t1"), ("run_b", "t1")}, id="task_hold"),
+            pytest.param({"task_id": "t1", "run_id": "run_a"}, {("run_a", "t1")}, id="task_instance_hold"),
         ],
     )
     def test_task_hold_placed_late_keeps_out_of_the_queue_only_what_it_covers(

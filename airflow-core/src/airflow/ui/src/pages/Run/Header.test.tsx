@@ -17,7 +17,7 @@
  * under the License.
  */
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -117,8 +117,8 @@ describe("Header", () => {
   });
 });
 
-describe("Header hold lock", () => {
-  const runHold: TaskHoldResponse = {
+describe("Header holds", () => {
+  const instanceHold: TaskHoldResponse = {
     active: true,
     created_at: "2026-10-20T10:00:00Z",
     created_by: "admin",
@@ -130,46 +130,29 @@ describe("Header hold lock", () => {
     released_at: null,
     released_by: null,
     run_id: "run_1",
-    task_id: null,
+    task_id: "load",
   };
-
-  const serveHolds = (holds: Array<TaskHoldResponse>) =>
-    server.use(
-      http.get("/api/v2/dags/test_dag/holds", () =>
-        HttpResponse.json({ task_holds: holds, total_entries: holds.length }),
-      ),
-    );
 
   beforeEach(() => {
     vi.mocked(useDeadlinesServiceGetDagDeadlineAlerts).mockReturnValue({
       data: undefined,
     } as ReturnType<typeof useDeadlinesServiceGetDagDeadlineAlerts>);
-  });
-
-  it("locks a run an active hold covers whole", async () => {
-    serveHolds([runHold]);
-    render(<Header dagRun={baseDagRun} />, { wrapper: Wrapper });
-
-    expect(await screen.findByTestId("hold-lock-badge")).toBeInTheDocument();
-  });
-
-  // Holding a run that has finished has no effect, so the dialog is told the state of the run.
-  it("tells the hold dialog the state of the run", async () => {
-    render(<Header dagRun={{ ...baseDagRun, state: "success" }} />, { wrapper: Wrapper });
-
-    fireEvent.click(screen.getByRole("button", { name: /taskHold\.button/u }));
-
-    expect((await screen.findByTestId("hold-state-line")).textContent).toBe(
-      "taskHold.dialog.stateLine.runFinished",
+    server.use(
+      http.get("/api/v2/dags/test_dag/holds", () =>
+        HttpResponse.json({ task_holds: [instanceHold], total_entries: 1 }),
+      ),
     );
   });
 
-  it("has nothing to say of a run that has not finished", async () => {
-    render(<Header dagRun={{ ...baseDagRun, state: "running" }} />, { wrapper: Wrapper });
+  // A hold is on a task, in one run or in every run. To stop a run, its root tasks are held from their
+  // own pages, so the run page offers no hold and shows no lock of its own.
+  it("offers no way to hold the whole run, and shows no lock for it", async () => {
+    render(<Header dagRun={baseDagRun} />, { wrapper: Wrapper });
 
-    fireEvent.click(screen.getByRole("button", { name: /taskHold\.button/u }));
-
-    expect(await screen.findByTestId("hold-scope")).toBeInTheDocument();
-    expect(screen.queryByTestId("hold-state-line")).not.toBeInTheDocument();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    expect(screen.queryByRole("button", { name: /taskHold\.button/u })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("hold-lock-badge")).not.toBeInTheDocument();
   });
 });

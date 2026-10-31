@@ -120,13 +120,13 @@ def create_task_hold(
     dag_bag: DagBagDep,
 ) -> TaskHoldResponse:
     """
-    Place a hold on a task or a run.
+    Place a hold on a task, in one run or in every run.
 
     A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
     stops a new start. While it is active the scheduler does not schedule a task instance that has not
     started, which waits in `none`, and does not queue one that is `scheduled`.
-    A hold on a task covers every map index of it in every current and future run, a hold on a run covers
-    every task in that run, and a hold on both covers that one task instance.
+    A hold covers every map index of its task: in that one run when `run_id` is set, otherwise in every
+    current and future run.
     The current attempt of a queued or running task instance continues, and later attempts, such as a
     retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
     answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task that
@@ -143,7 +143,7 @@ def create_task_hold(
             status.HTTP_404_NOT_FOUND,
             f"The Dag Run with dag_id: `{dag_id}` and run_id: `{body.run_id}` was not found",
         )
-    if body.task_id is not None and not dag.has_task(body.task_id):
+    if not dag.has_task(body.task_id):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Task with ID: `{body.task_id}` not found in the latest version of Dag: `{dag_id}`",
@@ -200,8 +200,8 @@ def release_task_hold(
     hold.released_by = user.get_name()
     hold.released_at = now
     hold.release_reason = body.reason if body else None
-    # Logged here rather than by ``action_logging``: the hold's scope is not in the request, and the row
-    # must carry it like the ``hold_expired`` row the scheduler writes.
+    # Logged here rather than by ``action_logging``: the hold's task and run are not in the request, and
+    # the row must carry them like the ``hold_expired`` row the scheduler writes.
     session.add(
         Log(
             event="hold_released",

@@ -46,12 +46,11 @@ const hold: TaskHoldResponse = {
   task_id: "load",
 };
 
-const runHold: TaskHoldResponse = {
+const instanceHold: TaskHoldResponse = {
   ...hold,
   id: 2,
   reason: "Bad input file",
   run_id: "run_1",
-  task_id: null,
 };
 
 // What the release endpoint was asked: the hold and the request body.
@@ -145,13 +144,13 @@ describe("HeldByList", () => {
   });
 
   it("opens the box under the hold whose Release was clicked, and releases that hold", async () => {
-    renderList([hold, runHold]);
+    renderList([hold, instanceHold]);
 
     openRelease(1);
 
-    const [taskHoldItem, runHoldItem] = screen.getAllByTestId("held-by-hold");
+    const [taskHoldItem, instanceHoldItem] = screen.getAllByTestId("held-by-hold");
 
-    expect(within(runHoldItem as HTMLElement).getByTestId("held-by-release-form")).toBeInTheDocument();
+    expect(within(instanceHoldItem as HTMLElement).getByTestId("held-by-release-form")).toBeInTheDocument();
     expect(within(taskHoldItem as HTMLElement).queryByTestId("held-by-release-form")).not.toBeInTheDocument();
     expect(within(taskHoldItem as HTMLElement).getByTestId("held-by-release")).toBeInTheDocument();
 
@@ -161,9 +160,9 @@ describe("HeldByList", () => {
   });
 
   it("moves the box to another hold without carrying the reason over", () => {
-    renderList([hold, runHold]);
+    renderList([hold, instanceHold]);
 
-    fireEvent.change(openRelease(1), { target: { value: "For the run" } });
+    fireEvent.change(openRelease(1), { target: { value: "For this run" } });
     const reason = openRelease(0);
 
     expect(screen.getAllByTestId("held-by-release-form")).toHaveLength(1);

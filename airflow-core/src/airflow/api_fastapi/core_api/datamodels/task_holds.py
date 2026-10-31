@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import AwareDatetime, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from airflow.api_fastapi.core_api.base import BaseModel, StrictBaseModel
 from airflow.models.base import ID_LEN
@@ -28,27 +28,18 @@ from airflow.models.base import ID_LEN
 class TaskHoldBody(StrictBaseModel):
     """Object used for create task hold request."""
 
-    task_id: Annotated[str, StringConstraints(min_length=1, max_length=ID_LEN)] | None = Field(
-        default=None,
-        description="Hold this task in every current and future run. "
-        "Combined with ``run_id``, holds only that task in that run.",
+    task_id: Annotated[str, StringConstraints(min_length=1, max_length=ID_LEN)] = Field(
+        description="The task to hold, in every current and future run unless ``run_id`` is set.",
     )
     run_id: Annotated[str, StringConstraints(min_length=1, max_length=ID_LEN)] | None = Field(
         default=None,
-        description="Hold every task in this run. "
-        "Combined with ``task_id``, holds only that task in that run.",
+        description="Hold the task only in this run.",
     )
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     expires_at: AwareDatetime | None = Field(
         default=None,
         description="When the hold stops applying. The hold lasts until it is released if not set.",
     )
-
-    @model_validator(mode="after")
-    def validate_scope(self):
-        if self.task_id is None and self.run_id is None:
-            raise ValueError("At least one of task_id or run_id must be set")
-        return self
 
 
 class TaskHoldReleaseBody(StrictBaseModel):
@@ -62,7 +53,7 @@ class TaskHoldResponse(BaseModel):
 
     id: int
     dag_id: str
-    task_id: str | None
+    task_id: str
     run_id: str | None
     reason: str
     created_by: str | None

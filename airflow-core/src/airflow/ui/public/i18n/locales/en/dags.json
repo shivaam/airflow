@@ -167,7 +167,6 @@
     "dialog": {
       "confirm": "Place hold",
       "description": "A hold stops the task from starting or resuming until it is released or expires. A running attempt carries on.",
-      "descriptionRun": "A hold stops the tasks in this run from starting or resuming until it is released or expires. A running attempt carries on.",
       "error": "Failed to place hold",
       "expiresAt": {
         "date": "Until a date and time",
@@ -180,8 +179,7 @@
       "info": {
         "capacity": "Each run waits here until the hold ends. Waiting runs count toward max_active_runs, and a run that hits its dagrun_timeout fails with this task skipped.",
         "teardown": "{{teardowns}} won't run until the hold ends, so resources from {{setups}} stay up. Hold {{setups}} instead to stop new ones from being created.",
-        "teardownNoSetup": "{{teardowns}} won't run until the hold ends, so the resources they clean up stay up.",
-        "teardownRun": "This run's teardowns ({{teardowns}}) are held too, so resources their setups created stay up until the hold ends."
+        "teardownNoSetup": "{{teardowns}} won't run until the hold ends, so the resources they clean up stay up."
       },
       "mappedHint": "The hold covers every map index.",
       "reason": {
@@ -191,9 +189,6 @@
       },
       "scope": {
         "label": "What to hold",
-        "run": {
-          "label": "Every task in this run"
-        },
         "task": {
           "detail": "{{taskId}}, in current and future runs",
           "label": "This task in every run"
@@ -209,7 +204,6 @@
         "finished": "It has finished. If it is cleared, the new attempt waits.",
         "notStarted": "It hasn't started, and won't until the hold ends.",
         "queued": "This attempt starts anyway. Its next start or resume waits.",
-        "runFinished": "This run has finished. Nothing starts unless its tasks are cleared; cleared tasks then wait.",
         "running": "This attempt keeps running. Its next start or resume waits: a retry, a re-run, or resuming after a trigger.",
         "waitingToRun": "It won't run until the hold ends."
       },
@@ -244,7 +238,6 @@
         "finished": "Held if it's cleared.",
         "held": "Won't run until the hold is released or expires.",
         "queued": "This attempt carries on. Its next start or resume is held.",
-        "run": "Tasks in this run won't start or resume until the hold is released or expires.",
         "running": "This attempt carries on. Its next start or resume is held.",
         "task": "This task won't start or resume in any run until the hold is released or expires.",
         "waiting": "Won't run until the hold is released or expires."
@@ -266,7 +259,6 @@
       "title": "Release hold"
     },
     "scope": {
-      "run": "All tasks in run {{runId}}",
       "task": "Task {{taskId}} in all runs",
       "taskInstance": "Task {{taskId}} in run {{runId}}"
     },

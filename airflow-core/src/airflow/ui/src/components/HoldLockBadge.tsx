@@ -59,7 +59,7 @@ type Props = {
 export const HoldLockBadge = ({ subject }: Props) => {
   const { t: translate } = useTranslation("dags");
   const refetchInterval = useAutoRefresh({});
-  const isTaskInstance = subject.dag_run_id !== undefined && subject.task_id !== undefined;
+  const isTaskInstance = subject.dag_run_id !== undefined;
 
   const { data } = useTaskHoldServiceListTaskHolds(
     { active: true, dagId: subject.dag_id, limit: ACTIVE_HOLDS_LIMIT },
@@ -67,8 +67,8 @@ export const HoldLockBadge = ({ subject }: Props) => {
     {
       enabled: subject.dag_id !== "",
       // The task instance view polls while it can still change, and the holds follow it, so a hold
-      // placed or released elsewhere turns up. A task or a run has no state to follow, so it polls
-      // only while it shows a lock, which can run out on its own. A finished task instance does the
+      // placed or released elsewhere turns up. A task across its runs has no state to follow, so it
+      // polls only while it shows a lock, which can run out on its own. A finished task instance does the
       // same: its state is settled, but the pending hold on it can be released or expire elsewhere.
       refetchInterval: (query) =>
         ((isTaskInstance && isStatePending(subject.state)) ||

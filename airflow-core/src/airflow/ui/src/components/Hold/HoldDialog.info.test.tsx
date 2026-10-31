@@ -62,9 +62,6 @@ const withTeardown = () =>
     ],
   );
 
-const teardownRun =
-  "This run's teardowns (cleanup) are held too, so resources their setups created stay up until the hold ends.";
-
 // Options are picked by their label, and the choice lands a moment later.
 const choose = async (label: string) => {
   fireEvent.click(screen.getByText(label));
@@ -135,13 +132,6 @@ describe("HoldDialog notes", () => {
 
     expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([capacity, teardown]);
   });
-
-  it("says the teardowns of the run are held too, for a run", async () => {
-    withTeardown();
-    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" />, { wrapper: Wrapper });
-
-    expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([teardownRun]);
-  });
 });
 
 describe("HoldDialog notes follow the choice of what to hold", () => {
@@ -152,7 +142,6 @@ describe("HoldDialog notes follow the choice of what to hold", () => {
   it.each([
     { label: "This task in this run", notes: [teardown] },
     { label: "This task in every run", notes: [capacity, teardown] },
-    { label: "Every task in this run", notes: [teardownRun] },
   ])("says what is held with $label, from a task instance page", async ({ label, notes }) => {
     withTeardown();
     render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
@@ -175,20 +164,17 @@ describe("HoldDialog notes follow the choice of what to hold", () => {
     expect(await getNotes(await screen.findByTestId("hold-scope-info"))).toEqual([capacity]);
   });
 
-  it.each(["This task in this run", "Every task in this run"])(
-    "shows no icon with %s where the Dag has no teardown",
-    async (label) => {
-      serveStructure([task("load")], []);
-      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
-        wrapper: Wrapper,
-      });
+  it("shows no icon with This task in this run where the Dag has no teardown", async () => {
+    serveStructure([task("load")], []);
+    render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
+      wrapper: Wrapper,
+    });
 
-      await choose(label);
-      await new Promise((resolve) => {
-        setTimeout(resolve, 50);
-      });
+    await choose("This task in this run");
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
 
-      expect(screen.queryByTestId("hold-scope-info")).not.toBeInTheDocument();
-    },
-  );
+    expect(screen.queryByTestId("hold-scope-info")).not.toBeInTheDocument();
+  });
 });

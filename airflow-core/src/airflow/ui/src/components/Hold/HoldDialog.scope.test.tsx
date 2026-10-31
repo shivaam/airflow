@@ -63,14 +63,14 @@ const SCOPE_LABEL = /taskHold\.dialog\.scope\.\w+\.label/u;
 
 const getOptionText = (radio: HTMLElement) => radio.closest("label")?.textContent;
 
-const getScopeRadio = (scope: "run" | "task" | "taskInstance") =>
+const getScopeRadio = (scope: "task" | "taskInstance") =>
   screen.getByRole("radio", { name: new RegExp(`taskHold\\.dialog\\.scope\\.${scope}\\.label`, "u") });
 
 const finishedStates = ["success", "failed", "skipped", "upstream_failed", "removed"] as const;
 
 describe("HoldDialog what to hold", () => {
   describe("offers", () => {
-    it("all three scopes from a task instance page, the task instance first", () => {
+    it("both kinds of hold from a task instance page, the task instance first", () => {
       render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
         wrapper: Wrapper,
       });
@@ -78,7 +78,6 @@ describe("HoldDialog what to hold", () => {
       expect(screen.getAllByRole("radio", { name: SCOPE_LABEL }).map(getOptionText)).toEqual([
         expect.stringContaining("taskHold.dialog.scope.taskInstance.label"),
         expect.stringContaining("taskHold.dialog.scope.task.label"),
-        expect.stringContaining("taskHold.dialog.scope.run.label"),
       ]);
     });
 
@@ -91,18 +90,13 @@ describe("HoldDialog what to hold", () => {
         "taskHold.dialog.scope.taskInstance.detail",
       );
       expect(getScopeRadio("task").closest("label")).toHaveTextContent("taskHold.dialog.scope.task.detail");
-      // A run is described by the words the lists of holds use for it.
-      expect(getScopeRadio("run").closest("label")).toHaveTextContent("taskHold.scope.run");
     });
 
-    it.each([
-      { props: { taskId: "load" }, scope: "task", title: "a task page" },
-      { props: { runId: "run_1" }, scope: "run", title: "a run page" },
-    ] as const)("only its own scope from $title, as plain text rather than a choice", ({ props, scope }) => {
-      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open {...props} />, { wrapper: Wrapper });
+    it("only the task in every run from a task page, as plain text rather than a choice", () => {
+      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open taskId="load" />, { wrapper: Wrapper });
 
       expect(screen.queryAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(0);
-      expect(screen.getByTestId("hold-scope")).toHaveTextContent(`taskHold.scope.${scope}`);
+      expect(screen.getByTestId("hold-scope")).toHaveTextContent("taskHold.scope.task");
       expect(screen.getByText("taskHold.dialog.scope.label")).toBeInTheDocument();
     });
   });
@@ -157,7 +151,6 @@ describe("HoldDialog what to hold", () => {
     it.each([
       { scope: "taskInstance", sets: { run_id: "run_1", task_id: "load" } },
       { scope: "task", sets: { run_id: null, task_id: "load" } },
-      { scope: "run", sets: { run_id: "run_1", task_id: null } },
     ] as const)("for $scope, from a task instance page", async ({ scope, sets }) => {
       render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
         wrapper: Wrapper,
@@ -194,7 +187,7 @@ describe("HoldDialog what to hold", () => {
       wrapper: Wrapper,
     });
 
-    await choose("taskHold.dialog.scope.run.label");
+    await choose("taskHold.dialog.scope.task.label");
 
     // Closing the dialog resets what was chosen in it; the test's `open` stays true.
     fireEvent.click(screen.getByRole("button", { name: /modal\.cancel/u }));

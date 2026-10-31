@@ -54,7 +54,7 @@ const makeHold = (overrides: Partial<TaskHoldResponse> = {}): TaskHoldResponse =
   released_at: null,
   released_by: null,
   run_id: null,
-  task_id: null,
+  task_id: "load",
   ...overrides,
 });
 
@@ -80,15 +80,11 @@ const makeTaskInstance = (state: TaskInstanceState | null, mapIndex = -1) => ({
 });
 
 describe("getHoldScope", () => {
-  it("is task when only task_id is set", () => {
+  it("is task when no run is set", () => {
     expect(getHoldScope(makeHold({ task_id: "load" }))).toBe("task");
   });
 
-  it("is run when only run_id is set", () => {
-    expect(getHoldScope(makeHold({ run_id: "run_1" }))).toBe("run");
-  });
-
-  it("is taskInstance when both are set", () => {
+  it("is taskInstance when a run is set", () => {
     expect(getHoldScope(makeHold({ run_id: "run_1", task_id: "load" }))).toBe("taskInstance");
   });
 });
@@ -105,18 +101,11 @@ describe("holdMatches", () => {
     expect(holdMatches(makeHold({ task_id: "extract" }), target)).toBe(false);
   });
 
-  it("matches a run hold for every task in that run", () => {
-    const hold = makeHold({ run_id: "run_1" });
-
-    expect(holdMatches(hold, target)).toBe(true);
-    expect(holdMatches(hold, { ...target, taskId: "extract" })).toBe(true);
-  });
-
-  it("does not match a run hold on another run", () => {
+  it("does not match a task instance hold on another run", () => {
     expect(holdMatches(makeHold({ run_id: "run_2" }), target)).toBe(false);
   });
 
-  it("matches a task and run hold only for that task instance", () => {
+  it("matches a task instance hold only for that task instance", () => {
     const hold = makeHold({ run_id: "run_1", task_id: "load" });
 
     expect(holdMatches(hold, target)).toBe(true);
@@ -192,18 +181,6 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind(holds, { ...makeTaskInstance("scheduled"), dag_run_id: "run_2" })).toBe("held");
     });
 
-    it("is covered by a hold on its run, for every task in it", () => {
-      const runHolds = [makeHold({ run_id: "run_1" })];
-
-      expect(getHoldLockKind(runHolds, makeTaskInstance("scheduled"))).toBe("held");
-      expect(getHoldLockKind(runHolds, { ...makeTaskInstance("scheduled"), task_id: "extract" })).toBe(
-        "held",
-      );
-      expect(
-        getHoldLockKind(runHolds, { ...makeTaskInstance("scheduled"), dag_run_id: "run_2" }),
-      ).toBeUndefined();
-    });
-
     it("is covered by a hold on its task and run only in that run", () => {
       const pairHolds = [makeHold({ run_id: "run_1", task_id: "load" })];
 
@@ -259,9 +236,8 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind([makeHold({ task_id: "load" })], subject)).toBe("task");
     });
 
-    it("is not covered by a hold on a single run of the task, or on a run", () => {
+    it("is not covered by a hold on a single run of the task", () => {
       expect(getHoldLockKind([makeHold({ run_id: "run_1", task_id: "load" })], subject)).toBeUndefined();
-      expect(getHoldLockKind([makeHold({ run_id: "run_1" })], subject)).toBeUndefined();
     });
 
     it("is not covered by a hold on another task, another Dag, or one that is no longer active", () => {
@@ -270,36 +246,17 @@ describe("getHoldLockKind", () => {
       expect(getHoldLockKind([makeHold({ active: false, task_id: "load" })], subject)).toBeUndefined();
     });
   });
-
-  describe("for a run as a whole", () => {
-    const subject = { dag_id: "example_dag", dag_run_id: "run_1" };
-
-    it("is covered by a hold on the run", () => {
-      expect(getHoldLockKind([makeHold({ run_id: "run_1" })], subject)).toBe("run");
-    });
-
-    it("is not covered by a hold on a task of the run, or on a task in every run", () => {
-      expect(getHoldLockKind([makeHold({ run_id: "run_1", task_id: "load" })], subject)).toBeUndefined();
-      expect(getHoldLockKind([makeHold({ task_id: "load" })], subject)).toBeUndefined();
-    });
-
-    it("is not covered by a hold on another run, another Dag, or one that is no longer active", () => {
-      expect(getHoldLockKind([makeHold({ run_id: "run_2" })], subject)).toBeUndefined();
-      expect(getHoldLockKind([makeHold({ dag_id: "other_dag", run_id: "run_1" })], subject)).toBeUndefined();
-      expect(getHoldLockKind([makeHold({ active: false, run_id: "run_1" })], subject)).toBeUndefined();
-    });
-  });
 });
 
 describe("getCoveringHolds", () => {
   const instance = { dag_id: "example_dag", dag_run_id: "run_1", state: null, task_id: "load" };
 
-  it("lists every active hold on a task instance, whatever scope it was placed at", () => {
+  it("lists every active hold on a task instance, of either kind", () => {
     const onTask = makeHold({ id: 1, task_id: "load" });
-    const onRun = makeHold({ id: 2, run_id: "run_1" });
-    const onInstance = makeHold({ id: 3, run_id: "run_1", task_id: "load" });
+    const onInstance = makeHold({ id: 2, run_id: "run_1", task_id: "load" });
+    const another = makeHold({ id: 3, reason: "Second opinion", run_id: "run_1", task_id: "load" });
 
-    expect(getCoveringHolds([onTask, onRun, onInstance], instance)).toEqual([onTask, onRun, onInstance]);
+    expect(getCoveringHolds([onTask, onInstance, another], instance)).toEqual([onTask, onInstance, another]);
   });
 
   it("leaves out released holds, other tasks, other runs and other Dags", () => {
@@ -313,14 +270,13 @@ describe("getCoveringHolds", () => {
     expect(getCoveringHolds(holds, instance)).toEqual([]);
   });
 
-  it("lists only holds at exactly that scope for a task or a run as a whole", () => {
+  it("lists only task holds for a task across its runs", () => {
     const onTask = makeHold({ id: 1, task_id: "load" });
-    const onRun = makeHold({ id: 2, run_id: "run_1" });
-    const onInstance = makeHold({ id: 3, run_id: "run_1", task_id: "load" });
-    const holds = [onTask, onRun, onInstance];
+    const onInstance = makeHold({ id: 2, run_id: "run_1", task_id: "load" });
 
-    expect(getCoveringHolds(holds, { dag_id: "example_dag", task_id: "load" })).toEqual([onTask]);
-    expect(getCoveringHolds(holds, { dag_id: "example_dag", dag_run_id: "run_1" })).toEqual([onRun]);
+    expect(getCoveringHolds([onTask, onInstance], { dag_id: "example_dag", task_id: "load" })).toEqual([
+      onTask,
+    ]);
   });
 });
 
@@ -333,7 +289,6 @@ describe("isHoldLockPending", () => {
     finished: true,
     held: false,
     queued: true,
-    run: false,
     running: true,
     task: false,
     waiting: false,
@@ -420,12 +375,6 @@ describe("getMappedTaskIds", () => {
 describe("getHoldScopeLink", () => {
   const mappedTaskIds = new Set(["transform"]);
 
-  it("links a hold on a run to the run", () => {
-    expect(getHoldScopeLink(makeHold({ run_id: "run_1" }), mappedTaskIds)).toBe(
-      "/dags/example_dag/runs/run_1",
-    );
-  });
-
   it("links a hold on a task in every run to the task, mapped or not", () => {
     expect(getHoldScopeLink(makeHold({ task_id: "load" }), mappedTaskIds)).toBe(
       "/dags/example_dag/tasks/load",
@@ -435,13 +384,13 @@ describe("getHoldScopeLink", () => {
     );
   });
 
-  it("links a hold on a task and run to the task instance", () => {
+  it("links a task instance hold to the task instance", () => {
     expect(getHoldScopeLink(makeHold({ run_id: "run_1", task_id: "load" }), mappedTaskIds)).toBe(
       "/dags/example_dag/runs/run_1/tasks/load",
     );
   });
 
-  it("links a hold on a mapped task and run to the list of its instances, as it has no single one", () => {
+  it("links a task instance hold on a mapped task to the list of its instances, as it has no single one", () => {
     expect(getHoldScopeLink(makeHold({ run_id: "run_1", task_id: "transform" }), mappedTaskIds)).toBe(
       "/dags/example_dag/runs/run_1/tasks/transform/mapped",
     );
@@ -462,19 +411,18 @@ const edge = (from: string, to: string, isSetupTeardown = false): EdgeResponse =
 });
 
 describe("getHoldTeardownNote", () => {
-  describe("for a task or a task instance", () => {
+  describe("for either kind of hold", () => {
     it("names a teardown directly downstream, and its setup", () => {
       const structure = {
         edges: [edge("load", "cleanup"), edge("create", "cleanup", true), edge("create", "load")],
         nodes: [task("create", { setup_teardown_type: "setup" }), task("load"), teardown("cleanup")],
       };
 
-      expect(getHoldTeardownNote(structure, "taskInstance", "load")).toEqual({
+      expect(getHoldTeardownNote(structure, "load")).toEqual({
         key: "teardown",
         setups: ["create"],
         teardowns: ["cleanup"],
       });
-      expect(getHoldTeardownNote(structure, "task", "load")?.key).toBe("teardown");
     });
 
     it("finds a teardown reached through a join node", () => {
@@ -483,7 +431,7 @@ describe("getHoldTeardownNote", () => {
         nodes: [task("load"), task("join", { type: "join" }), teardown("cleanup"), task("create")],
       };
 
-      expect(getHoldTeardownNote(structure, "task", "load")?.teardowns).toEqual(["cleanup"]);
+      expect(getHoldTeardownNote(structure, "load")?.teardowns).toEqual(["cleanup"]);
     });
 
     it("finds a teardown inside a group that is reached, and one reached through several steps", () => {
@@ -497,10 +445,7 @@ describe("getHoldTeardownNote", () => {
         ],
       };
 
-      expect(getHoldTeardownNote(structure, "taskInstance", "load")?.teardowns).toEqual([
-        "group.cleanup",
-        "final_cleanup",
-      ]);
+      expect(getHoldTeardownNote(structure, "load")?.teardowns).toEqual(["group.cleanup", "final_cleanup"]);
     });
 
     it("lists each setup once, and only those with a setup-and-teardown edge to a teardown", () => {
@@ -516,7 +461,7 @@ describe("getHoldTeardownNote", () => {
         nodes: [task("load"), teardown("cleanup_a"), teardown("cleanup_b")],
       };
 
-      expect(getHoldTeardownNote(structure, "task", "load")).toEqual({
+      expect(getHoldTeardownNote(structure, "load")).toEqual({
         key: "teardown",
         setups: ["create_a", "create_b"],
         teardowns: ["cleanup_a", "cleanup_b"],
@@ -526,7 +471,7 @@ describe("getHoldTeardownNote", () => {
     it("has no note for a teardown without a setup other than the one that says so", () => {
       const structure = { edges: [edge("load", "cleanup")], nodes: [task("load"), teardown("cleanup")] };
 
-      expect(getHoldTeardownNote(structure, "task", "load")).toEqual({
+      expect(getHoldTeardownNote(structure, "load")).toEqual({
         key: "teardownNoSetup",
         setups: [],
         teardowns: ["cleanup"],
@@ -539,9 +484,9 @@ describe("getHoldTeardownNote", () => {
         nodes: [task("load"), task("publish"), teardown("cleanup")],
       };
 
-      expect(getHoldTeardownNote(structure, "task", "load")).toBeUndefined();
-      expect(getHoldTeardownNote(structure, "task", "cleanup")).toBeUndefined();
-      expect(getHoldTeardownNote(undefined, "task", "load")).toBeUndefined();
+      expect(getHoldTeardownNote(structure, "load")).toBeUndefined();
+      expect(getHoldTeardownNote(structure, "cleanup")).toBeUndefined();
+      expect(getHoldTeardownNote(undefined, "load")).toBeUndefined();
     });
 
     it("leaves out the held task itself when it is a teardown, but not one after it", () => {
@@ -550,29 +495,8 @@ describe("getHoldTeardownNote", () => {
         nodes: [teardown("cleanup"), teardown("last_cleanup")],
       };
 
-      expect(getHoldTeardownNote(structure, "taskInstance", "cleanup")?.teardowns).toEqual(["last_cleanup"]);
-      expect(getHoldTeardownNote({ edges: [], nodes: [teardown("cleanup")] }, "task", "cleanup")).toBe(
-        undefined,
-      );
-    });
-  });
-
-  describe("for a run", () => {
-    it("names every teardown of the Dag", () => {
-      const structure = {
-        edges: [],
-        nodes: [task("load"), teardown("cleanup"), task("group", { children: [teardown("group.cleanup")] })],
-      };
-
-      expect(getHoldTeardownNote(structure, "run", undefined)).toEqual({
-        key: "teardownRun",
-        setups: [],
-        teardowns: ["cleanup", "group.cleanup"],
-      });
-    });
-
-    it("has no note when the Dag has no teardown", () => {
-      expect(getHoldTeardownNote({ edges: [], nodes: [task("load")] }, "run", undefined)).toBeUndefined();
+      expect(getHoldTeardownNote(structure, "cleanup")?.teardowns).toEqual(["last_cleanup"]);
+      expect(getHoldTeardownNote({ edges: [], nodes: [teardown("cleanup")] }, "cleanup")).toBe(undefined);
     });
   });
 });

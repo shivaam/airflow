@@ -21,7 +21,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    CheckConstraint,
     ForeignKey,
     Index,
     Integer,
@@ -53,9 +52,9 @@ class TaskHold(Base):
 
     A hold is a lock, not a task state: it never changes the state of a task instance it covers. A hold
     matches task instances by coordinates, never by task instance id, so it keeps applying across retries
-    and clears. ``task_id`` set and ``run_id`` unset holds that task in every current and future run;
-    ``run_id`` set and ``task_id`` unset holds the whole run; both set hold one task instance (all map
-    indexes). A hold is *active* until it is released or expires.
+    and clears. It always names a task. A *task instance hold* also names a run and holds that task in
+    that run only; a *task hold* has no ``run_id`` and holds the task in every current and future run.
+    Either covers every map index of the task. A hold is *active* until it is released or expires.
 
     The scheduler reads the table at two gates. The ``TaskHoldDep`` dependency keeps a covered task
     instance that has not started in ``none``, and the statement that moves a ``scheduled`` task instance
@@ -72,7 +71,7 @@ class TaskHold(Base):
     dag_id: Mapped[str] = mapped_column(
         StringID(), ForeignKey("dag.dag_id", ondelete="CASCADE"), nullable=False
     )
-    task_id: Mapped[str | None] = mapped_column(StringID(), nullable=True)
+    task_id: Mapped[str] = mapped_column(StringID(), nullable=False)
     run_id: Mapped[str | None] = mapped_column(StringID(), nullable=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -94,7 +93,6 @@ class TaskHold(Base):
         # A Dag's whole hold history, and deleting the Dag, read only that Dag's holds. MySQL also needs
         # an index that starts with ``dag_id`` for the foreign key.
         Index("idx_task_hold_dag_id", dag_id),
-        CheckConstraint("task_id IS NOT NULL OR run_id IS NOT NULL", name="task_hold_scope_check"),
     )
 
     def __repr__(self) -> str:
@@ -116,30 +114,33 @@ class TaskHold(Base):
         The clause is correlated with the ``task_instance`` table of the statement it is used in, so
         ``~TaskHold.covering_clause(now)`` in the ``WHERE`` of a ``SELECT`` or an ``UPDATE`` leaves out the
         covered rows, checked by the same statement that reads or writes them. It is the SQL counterpart
-        of :meth:`matches`: a hold without a ``task_id`` or a ``run_id`` matches any.
+        of :meth:`matches`: a hold without a ``run_id`` matches its task in every run.
 
-        Each scope a hold can cover a task instance by is looked up exactly: its task in its run, its task
-        in every run, and its run. The three lookups are one ``EXISTS`` over their ``UNION ALL``, so the
-        check is three probes of ``idx_task_hold_released_at_dag_id_run_id_task_id`` per task instance,
-        however many holds there are, how they are spread over Dags, and how many have ended. Two other
-        forms cost more: one ``EXISTS`` with ``task_id IS NULL OR task_id = ...`` compares every active
-        hold of the task instance's Dag, and an ``OR`` of three ``EXISTS`` makes PostgreSQL expect an
-        eighth of the scheduled task instances to pass, which misplans the queueing query.
+        Each kind of hold is looked up exactly: a task instance hold by its task in its run, and a task
+        hold by its task with no run. The two lookups are one ``EXISTS`` over their ``UNION ALL``, so the
+        check is two probes of ``idx_task_hold_released_at_dag_id_run_id_task_id`` per task instance,
+        however many holds there are, how they are spread over Dags, and how many have ended. One
+        ``EXISTS`` with ``run_id IS NULL OR run_id = ...`` would instead compare every active hold of the
+        task.
         """
         from airflow.models.taskinstance import TaskInstance
 
-        def covered_by(task_match: ColumnElement[bool], run_match: ColumnElement[bool]) -> Select[tuple[int]]:
+        def covered_by(run_match: ColumnElement[bool]) -> Select[tuple[int]]:
             return (
                 select(literal(1))
-                .where(cls.dag_id == TaskInstance.dag_id, run_match, task_match, cls.active_clause(now))
+                .where(
+                    cls.dag_id == TaskInstance.dag_id,
+                    run_match,
+                    cls.task_id == TaskInstance.task_id,
+                    cls.active_clause(now),
+                )
                 .correlate(TaskInstance)
             )
 
         return exists(
             union_all(
-                covered_by(cls.task_id == TaskInstance.task_id, cls.run_id == TaskInstance.run_id),
-                covered_by(cls.task_id == TaskInstance.task_id, cls.run_id.is_(None)),
-                covered_by(cls.task_id.is_(None), cls.run_id == TaskInstance.run_id),
+                covered_by(cls.run_id == TaskInstance.run_id),
+                covered_by(cls.run_id.is_(None)),
             )
         )
 
@@ -163,6 +164,6 @@ class TaskHold(Base):
         """Whether this hold covers the task instance with the given coordinates."""
         return (
             self.dag_id == dag_id
-            and (self.task_id is None or self.task_id == task_id)
+            and self.task_id == task_id
             and (self.run_id is None or self.run_id == run_id)
         )

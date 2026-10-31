@@ -126,8 +126,12 @@ const hold: TaskHoldResponse = {
   released_at: null,
   released_by: null,
   run_id: "run_1",
-  task_id: null,
+  task_id: "scheduled_task",
 };
+
+// A task instance hold on every task of run_1, the task group's id included, which the grid still leaves
+// unmarked.
+const runHolds = Object.keys(states).map((taskId, index) => ({ ...hold, id: index + 1, task_id: taskId }));
 
 let holdsRequests = 0;
 
@@ -178,14 +182,14 @@ describe("Grid holds", () => {
   });
 
   it("marks the task instances a hold is stopping now, and not one waiting out a retry delay, a running or finished one, or a group", async () => {
-    serveHolds([hold]);
+    serveHolds(runHolds);
     const { container } = renderGrid();
 
     await waitFor(() => expect(heldCells(container, "run_1")).toEqual(["scheduled_task", "mapped_task"]));
   });
 
   it("marks only the run the hold covers", async () => {
-    serveHolds([hold]);
+    serveHolds(runHolds);
     const { container } = renderGrid();
 
     await waitFor(() => expect(heldCells(container, "run_1")).not.toEqual([]));
@@ -193,7 +197,7 @@ describe("Grid holds", () => {
   });
 
   it("marks nothing without an active hold", async () => {
-    serveHolds([{ ...hold, active: false }]);
+    serveHolds(runHolds.map((inactive) => ({ ...inactive, active: false })));
     const { container } = renderGrid();
 
     // Absence is only meaningful once the holds have been asked for and the answer has been rendered.

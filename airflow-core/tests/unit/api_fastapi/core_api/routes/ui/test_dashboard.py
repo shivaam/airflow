@@ -482,7 +482,7 @@ class TestDagHoldCountsEndpoint:
             [
                 TaskHold(dag_id="dag_a", task_id="task", reason="a"),
                 TaskHold(dag_id="dag_b", task_id="task", reason="b task"),
-                TaskHold(dag_id="dag_b", run_id="run", reason="b run"),
+                TaskHold(dag_id="dag_b", task_id="task", run_id="run", reason="b task instance"),
                 TaskHold(dag_id="dag_c", task_id="task", reason="released", released_at=now),
                 TaskHold(
                     dag_id="dag_c", task_id="task", reason="expired", expires_at=now - timedelta(minutes=1)

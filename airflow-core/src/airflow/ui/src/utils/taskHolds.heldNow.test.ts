@@ -34,7 +34,7 @@ const makeHold = (overrides: Partial<TaskHoldResponse> = {}): TaskHoldResponse =
   released_at: null,
   released_by: null,
   run_id: null,
-  task_id: null,
+  task_id: "load",
   ...overrides,
 });
 
@@ -88,11 +88,8 @@ describe("getHeldNowLockKind", () => {
     ).toBe(undefined);
   });
 
-  it("gives the task and run locks to a task across its runs and a run as a whole", () => {
+  it("gives the task lock to a task across its runs", () => {
     expect(getHeldNowLockKind(holds, { dag_id: "example_dag", task_id: "load" })).toBe("task");
-    expect(
-      getHeldNowLockKind([makeHold({ run_id: "run_1" })], { dag_id: "example_dag", dag_run_id: "run_1" }),
-    ).toBe("run");
   });
 });
 
@@ -106,11 +103,14 @@ describe("getHeldNowLockKinds", () => {
     ["report", null],
     ["wait", "queued"],
   ]);
-  const runHold = makeHold({ run_id: "run_1" });
+  // A task instance hold on every task of the run.
+  const runHolds = taskIds.map((taskId, index) =>
+    makeHold({ id: index + 1, run_id: "run_1", task_id: taskId }),
+  );
 
   it("holds the tasks whose task instance the hold is stopping now, and not those it leaves pending", () => {
     expect(
-      getHeldNowLockKinds([runHold], { dagId: "example_dag", run: { id: "run_1", states }, taskIds }),
+      getHeldNowLockKinds(runHolds, { dagId: "example_dag", run: { id: "run_1", states }, taskIds }),
     ).toEqual(
       new Map([
         ["load", "held"],
@@ -121,7 +121,7 @@ describe("getHeldNowLockKinds", () => {
 
   it("counts a task with no task instance in the run yet as having no state", () => {
     expect(
-      getHeldNowLockKinds([runHold], {
+      getHeldNowLockKinds(runHolds, {
         dagId: "example_dag",
         run: { id: "run_1", states: new Map() },
         taskIds: ["load"],
@@ -131,7 +131,7 @@ describe("getHeldNowLockKinds", () => {
 
   it("holds nothing until the states of the run have loaded", () => {
     expect(
-      getHeldNowLockKinds([runHold], {
+      getHeldNowLockKinds(runHolds, {
         dagId: "example_dag",
         run: { id: "run_1", states: undefined },
         taskIds,
@@ -160,9 +160,9 @@ describe("getHeldNowLockKinds", () => {
     );
   });
 
-  it("does not hold a task for a hold on a run or on a task instance, when no run is in view", () => {
+  it("does not hold a task for a task instance hold, when no run is in view", () => {
     expect(
-      getHeldNowLockKinds([runHold, makeHold({ run_id: "run_1", task_id: "load" })], {
+      getHeldNowLockKinds(runHolds, {
         dagId: "example_dag",
         taskIds,
       }),
@@ -174,10 +174,16 @@ describe("getHeldNowLockKinds", () => {
 
     expect(getHeldNowLockKinds([], { dagId: "example_dag", run, taskIds })).toEqual(new Map());
     expect(
-      getHeldNowLockKinds([{ ...runHold, active: false }], { dagId: "example_dag", run, taskIds }),
+      getHeldNowLockKinds(
+        runHolds.map((hold) => ({ ...hold, active: false })),
+        { dagId: "example_dag", run, taskIds },
+      ),
     ).toEqual(new Map());
     expect(
-      getHeldNowLockKinds([{ ...runHold, dag_id: "other_dag" }], { dagId: "example_dag", run, taskIds }),
+      getHeldNowLockKinds(
+        runHolds.map((hold) => ({ ...hold, dag_id: "other_dag" })),
+        { dagId: "example_dag", run, taskIds },
+      ),
     ).toEqual(new Map());
   });
 });

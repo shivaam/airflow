@@ -143,8 +143,17 @@ const hold: TaskHoldResponse = {
   released_at: null,
   released_by: null,
   run_id: null,
-  task_id: null,
+  task_id: "scheduled_task",
 };
+
+// A task instance hold on every task of run_1, the task group's id included, which the graph still
+// leaves unmarked.
+const runHolds = Object.keys(states).map((taskId, index) => ({
+  ...hold,
+  id: index + 1,
+  run_id: "run_1",
+  task_id: taskId,
+}));
 
 let holdsRequests = 0;
 
@@ -194,14 +203,14 @@ describe("Graph holds", () => {
   });
 
   it("marks the tasks a hold is stopping now, and not a running or finished one, or a group", async () => {
-    serveHolds([{ ...hold, run_id: "run_1" }]);
+    serveHolds(runHolds);
     render(<Graph />, { wrapper: Wrapper });
 
     await waitFor(() => expect(heldNodes()).toEqual({ scheduled_task: "held" }));
   });
 
   it("draws the edges out of a held task as held, and no others", async () => {
-    serveHolds([{ ...hold, run_id: "run_1" }]);
+    serveHolds(runHolds);
     render(<Graph />, { wrapper: Wrapper });
 
     await waitFor(() => expect(heldEdges()).toEqual(["scheduled_task-running_task"]));
@@ -209,7 +218,7 @@ describe("Graph holds", () => {
 
   it("marks a task with no task instance in the run yet, which the hold keeps from starting", async () => {
     mockSummaries = { dag_id: "test_dag", run_id: "run_1", task_instances: [] };
-    serveHolds([{ ...hold, run_id: "run_1" }]);
+    serveHolds(runHolds);
     render(<Graph />, { wrapper: Wrapper });
 
     await waitFor(() =>
@@ -223,7 +232,7 @@ describe("Graph holds", () => {
 
   it("marks nothing while the task instances of the run are loading", async () => {
     mockSummaries = undefined;
-    serveHolds([{ ...hold, run_id: "run_1" }]);
+    serveHolds(runHolds);
     render(<Graph />, { wrapper: Wrapper });
 
     await settle();
@@ -243,7 +252,7 @@ describe("Graph holds", () => {
   it("marks nothing when no active hold covers the tasks", async () => {
     serveHolds([
       { ...hold, task_id: "another_task" },
-      { ...hold, active: false, run_id: "run_1" },
+      ...runHolds.map((inactive) => ({ ...inactive, active: false })),
     ]);
     render(<Graph />, { wrapper: Wrapper });
 

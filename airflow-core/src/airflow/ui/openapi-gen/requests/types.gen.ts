@@ -2150,11 +2150,11 @@ export type TaskDependencyResponse = {
  */
 export type TaskHoldBody = {
     /**
-     * Hold this task in every current and future run. Combined with ``run_id``, holds only that task in that run.
+     * The task to hold, in every current and future run unless ``run_id`` is set.
      */
-    task_id?: string | null;
+    task_id: string;
     /**
-     * Hold every task in this run. Combined with ``task_id``, holds only that task in that run.
+     * Hold the task only in this run.
      */
     run_id?: string | null;
     reason: string;
@@ -2185,7 +2185,7 @@ export type TaskHoldReleaseBody = {
 export type TaskHoldResponse = {
     id: number;
     dag_id: string;
-    task_id: string | null;
+    task_id: string;
     run_id: string | null;
     reason: string;
     created_by: string | null;
