@@ -65,15 +65,16 @@ def upgrade():
         sa.CheckConstraint("task_id IS NOT NULL OR run_id IS NOT NULL", name="task_hold_scope_check"),
     )
     op.create_index(
-        "idx_task_hold_dag_id_released_at_run_id_task_id",
+        "idx_task_hold_released_at_dag_id_run_id_task_id",
         "task_hold",
-        ["dag_id", "released_at", "run_id", "task_id"],
+        ["released_at", "dag_id", "run_id", "task_id"],
     )
     op.create_index(
         "idx_task_hold_released_at_expires_at_dag_id",
         "task_hold",
         ["released_at", "expires_at", "dag_id"],
     )
+    op.create_index("idx_task_hold_dag_id", "task_hold", ["dag_id"])
 
 
 def downgrade():

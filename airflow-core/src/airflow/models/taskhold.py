@@ -84,14 +84,16 @@ class TaskHold(Base):
 
     __table_args__ = (
         # The scheduler's checks match every column of this index exactly (``released_at IS NULL`` for an
-        # active hold), so they cost the same however many holds a Dag has, and the holds that ended are
-        # skipped within each Dag. Leading with ``dag_id``, it also serves a Dag's holds, deleting the Dag,
-        # and the foreign key, for which MySQL needs an index that starts with ``dag_id``.
-        Index("idx_task_hold_dag_id_released_at_run_id_task_id", dag_id, released_at, run_id, task_id),
+        # active hold), so they cost the same however many holds a Dag has. Leading with ``released_at``
+        # keeps the holds that ended out of everything the scheduler reads.
+        Index("idx_task_hold_released_at_dag_id_run_id_task_id", released_at, dag_id, run_id, task_id),
         # The holds that have not ended, across Dags: expiry, the scheduler's per-loop list of the Dags
         # that have a hold and the Dashboard's counts per Dag, which read ``dag_id`` from the index alone.
         # ``airflow db clean`` finds the holds that ended before a date by its first column.
         Index("idx_task_hold_released_at_expires_at_dag_id", released_at, expires_at, dag_id),
+        # A Dag's whole hold history, and deleting the Dag, read only that Dag's holds. MySQL also needs
+        # an index that starts with ``dag_id`` for the foreign key.
+        Index("idx_task_hold_dag_id", dag_id),
         CheckConstraint("task_id IS NOT NULL OR run_id IS NOT NULL", name="task_hold_scope_check"),
     )
 
@@ -118,7 +120,7 @@ class TaskHold(Base):
 
         Each scope a hold can cover a task instance by is looked up exactly: its task in its run, its task
         in every run, and its run. The three lookups are one ``EXISTS`` over their ``UNION ALL``, so the
-        check is three probes of ``idx_task_hold_dag_id_released_at_run_id_task_id`` per task instance,
+        check is three probes of ``idx_task_hold_released_at_dag_id_run_id_task_id`` per task instance,
         however many holds there are, how they are spread over Dags, and how many have ended. Two other
         forms cost more: one ``EXISTS`` with ``task_id IS NULL OR task_id = ...`` compares every active
         hold of the task instance's Dag, and an ``OR`` of three ``EXISTS`` makes PostgreSQL expect an
