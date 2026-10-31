@@ -75,6 +75,7 @@ from airflow.executors.workloads import WorkloadType
 from airflow.executors.workloads.types import TaskInstanceUuid
 from airflow.jobs.job import Job, run_job
 from airflow.jobs.scheduler_job_runner import (
+    MAX_HELD_DAGS_LISTED_PER_LOOP,
     MAX_TI_REFILL_QUERIES_PER_LOOP,
     TASK_STUCK_IN_QUEUED_RESCHEDULE_EVENT,
     SchedulerJobRunner,
@@ -522,6 +523,49 @@ _WRITE_LANDS_AT = pytest.mark.parametrize(
     ["before", "after", "queueing"],
     ids=["before_hold_step", "after_hold_step", "at_queueing_step"],
 )
+
+
+@contextmanager
+def _recorded_held_dag_ids() -> Iterator[set[tuple[str, ...] | None]]:
+    """
+    Record which Dags each queueing query is built to check for task holds.
+
+    Each entry is the sorted ids of the Dags a query was given as held, or ``None`` for a query that checks
+    every task instance.
+    """
+    recorded: set[tuple[str, ...] | None] = set()
+    build = SchedulerJobRunner._build_schedulable_tis_query
+
+    def record(runner, *args, **kwargs):
+        held_dag_ids = kwargs.get("held_dag_ids")
+        recorded.add(None if held_dag_ids is None else tuple(sorted(held_dag_ids)))
+        return build(runner, *args, **kwargs)
+
+    with mock.patch.object(
+        SchedulerJobRunner, "_build_schedulable_tis_query", autospec=True, side_effect=record
+    ):
+        yield recorded
+
+
+@contextmanager
+def _selected_for_queueing() -> Iterator[set[tuple[str, str, str]]]:
+    """
+    Record the ``(dag_id, run_id, task_id)`` of each task instance the queueing query selects.
+
+    The write that marks the selection ``queued`` can still refuse one, so this tells which of the two
+    statements kept a task instance a hold covers out of the queue.
+    """
+    selected: set[tuple[str, str, str]] = set()
+    mark_queued = SchedulerJobRunner._mark_task_instances_queued
+
+    def record(runner, executable_tis, *, session):
+        selected.update((ti.dag_id, ti.run_id, ti.task_id) for ti in executable_tis)
+        return mark_queued(runner, executable_tis, session=session)
+
+    with mock.patch.object(
+        SchedulerJobRunner, "_mark_task_instances_queued", autospec=True, side_effect=record
+    ):
+        yield selected
 
 
 class StartsFromTrigger(BaseOperator):
@@ -10027,19 +10071,136 @@ class TestSchedulerJob:
             session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test", **hold))
             session.flush()
 
-        with mock.patch.object(
-            SchedulerJobRunner,
-            "_build_schedulable_tis_query",
-            autospec=True,
-            side_effect=SchedulerJobRunner._build_schedulable_tis_query,
-        ) as build:
+        with _recorded_held_dag_ids() as held_dag_ids:
             queued = self.job_runner._select_task_instances_to_queue(
                 32, make_pool_stats(), set(), session=session
             )
 
-        assert {call.kwargs["check_task_holds"] for call in build.call_args_list} == {checked}
+        assert held_dag_ids == {("hold_dag",) if checked else ()}
         held = {("hold_dag", "run_a", "t1"), ("hold_dag", "run_b", "t1")}
         assert held.isdisjoint((ti.dag_id, ti.run_id, ti.task_id) for ti in queued) is checked
+
+    def test_queueing_query_checks_the_task_instances_of_a_dag_that_has_a_hold(self, hold_dags, session):
+        """The query itself keeps the task instances a hold covers out, in a Dag it was given as held."""
+        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
+        session.flush()
+
+        with _recorded_held_dag_ids() as held_dag_ids, _selected_for_queueing() as selected:
+            self.job_runner._select_task_instances_to_queue(32, make_pool_stats(), set(), session=session)
+
+        assert held_dag_ids == {("hold_dag",)}
+        covered = {("hold_dag", "run_a", "t1"), ("hold_dag", "run_b", "t1")}
+        assert covered.isdisjoint(selected), "the queueing query selected task instances a hold covers"
+        assert _task_instance_states(session, "hold_dag") == {
+            ("run_a", "t1"): TaskInstanceState.SCHEDULED,
+            ("run_a", "t2"): TaskInstanceState.QUEUED,
+            ("run_b", "t1"): TaskInstanceState.SCHEDULED,
+            ("run_b", "t2"): TaskInstanceState.QUEUED,
+        }
+
+    def test_queueing_query_queues_the_task_instances_of_a_dag_without_a_hold(self, hold_dags, session):
+        """A hold in one Dag keeps nothing of another Dag out, nor any task of its own Dag it does not cover."""
+        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
+        session.flush()
+
+        with _recorded_held_dag_ids() as held_dag_ids:
+            queued = self.job_runner._select_task_instances_to_queue(
+                32, make_pool_stats(), set(), session=session
+            )
+
+        assert held_dag_ids == {("hold_dag",)}
+        assert {(ti.dag_id, ti.run_id, ti.task_id) for ti in queued} == {
+            ("other_dag", "run_a", "t1"),
+            ("other_dag", "run_a", "t2"),
+            ("other_dag", "run_b", "t1"),
+            ("other_dag", "run_b", "t2"),
+            ("hold_dag", "run_a", "t2"),
+            ("hold_dag", "run_b", "t2"),
+        }
+        assert set(_task_instance_states(session, "other_dag").values()) == {TaskInstanceState.QUEUED}
+
+    @pytest.mark.parametrize(
+        ("held_dags", "listed"),
+        [
+            pytest.param(MAX_HELD_DAGS_LISTED_PER_LOOP, True, id="as_many_as_can_be_listed"),
+            pytest.param(MAX_HELD_DAGS_LISTED_PER_LOOP + 1, False, id="one_too_many"),
+        ],
+    )
+    def test_queueing_query_checks_every_dag_when_too_many_have_a_hold(
+        self, hold_dags, session, held_dags, listed
+    ):
+        """
+        With more Dags with a hold than it can list, the query checks every task instance for a hold.
+
+        ``hold_dag`` is one of the Dags that have a hold; each of the others holds a task it does not have.
+        """
+        others = [f"hold_many_{i}" for i in range(held_dags - 1)]
+        bundle_name = session.scalar(select(DagModel.bundle_name).where(DagModel.dag_id == "hold_dag"))
+        session.add_all(
+            DagModel(dag_id=dag_id, bundle_name=bundle_name, is_paused=False) for dag_id in others
+        )
+        session.flush()
+        session.add_all(TaskHold(dag_id=dag_id, task_id="missing", reason="test") for dag_id in others)
+        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
+        session.flush()
+
+        dag_ids = self.job_runner._get_held_dag_ids(session=session)
+        assert (sorted(dag_ids) if dag_ids is not None else None) == (
+            sorted(["hold_dag", *others]) if listed else None
+        )
+
+        with _recorded_held_dag_ids() as held_dag_ids, _selected_for_queueing() as selected:
+            queued = self.job_runner._select_task_instances_to_queue(
+                32, make_pool_stats(), set(), session=session
+            )
+
+        assert held_dag_ids == ({tuple(sorted(["hold_dag", *others]))} if listed else {None})
+        covered = {("hold_dag", "run_a", "t1"), ("hold_dag", "run_b", "t1")}
+        assert covered.isdisjoint(selected), "the queueing query selected task instances a hold covers"
+        assert {(ti.dag_id, ti.task_id) for ti in queued} == {
+            ("other_dag", "t1"),
+            ("other_dag", "t2"),
+            ("hold_dag", "t2"),
+        }
+
+    def test_task_hold_placed_after_the_held_dags_are_listed_is_refused_by_the_queued_write(
+        self, hold_dags, session
+    ):
+        """
+        A hold on a Dag that was not listed as held is checked by the write to ``queued``, not by the query.
+
+        ``hold_dag`` has a hold when the loop lists the Dags that have one, so the queueing query checks
+        only its task instances. An operator then places a hold on ``other_dag``, committed before the
+        queueing statement runs. The statement selects the task instances that hold covers, and the write
+        that marks the selection ``queued`` refuses them.
+        """
+        session.add(TaskHold(dag_id="hold_dag", task_id="t1", reason="test"))
+        session.commit()
+
+        def operator_places_a_hold(operator_session):
+            operator_session.add(TaskHold(dag_id="other_dag", task_id="t1", reason="test"))
+
+        with (
+            _selected_for_queueing() as selected,
+            _staged_in_scheduling_loop(
+                lambda: _in_another_session(session, operator_places_a_hold), when="statement"
+            ),
+        ):
+            queued = self.job_runner._select_task_instances_to_queue(
+                32, make_pool_stats(), set(), session=session
+            )
+
+        covered_late = {("other_dag", "run_a", "t1"), ("other_dag", "run_b", "t1")}
+        assert covered_late <= selected, "the queueing query checked a Dag it was not given as held"
+        assert covered_late.isdisjoint((ti.dag_id, ti.run_id, ti.task_id) for ti in queued), (
+            "the write queued task instances a hold covers"
+        )
+        assert _task_instance_states(session, "other_dag") == {
+            ("run_a", "t1"): TaskInstanceState.SCHEDULED,
+            ("run_a", "t2"): TaskInstanceState.QUEUED,
+            ("run_b", "t1"): TaskInstanceState.SCHEDULED,
+            ("run_b", "t2"): TaskInstanceState.QUEUED,
+        }
 
     @pytest.mark.usefixtures("testing_dag_bundle")
     def test_task_hold_keeps_a_task_out_of_the_queue(self, dag_maker, mock_executors, session):

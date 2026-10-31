@@ -185,6 +185,16 @@ still selects at least one runnable task instance queued behind blocked ones.
 :meta private:
 """
 
+MAX_HELD_DAGS_LISTED_PER_LOOP = 100
+"""
+Max Dags with an active task hold that the queueing query lists, to check only their task instances.
+
+Each listed Dag is compared with every scheduled task instance, so with more Dags than this the queueing
+query checks every task instance for a hold instead.
+
+:meta private:
+"""
+
 
 def _eager_load_dag_run_for_validation() -> tuple[LoaderOption, LoaderOption]:
     """
@@ -775,13 +785,10 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         pool_num_starving_tasks: dict[str, int] = Counter()
         num_refill_queries = 0
 
-        # Without an active hold the queueing query leaves out the hold check, so a deployment that holds
-        # nothing pays for one index probe here. A hold placed after this probe is still refused by the
-        # statement that writes queued.
-        check_task_holds = (
-            session.scalar(select(TaskHold.id).where(TaskHold.active_clause(timezone.utcnow())).limit(1))
-            is not None
-        )
+        # The queueing query checks task holds only for the task instances of the Dags that have an active
+        # hold, and leaves the check out when no Dag has one. A hold placed after this read is still refused
+        # by the statement that writes queued.
+        held_dag_ids = self._get_held_dag_ids(session=session)
 
         for loop_count in itertools.count(start=1):
             num_starved_pools = len(starved_pools)
@@ -796,7 +803,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
                 starved_tasks_task_dagrun_concurrency,
                 max_tis,
                 excluded_ti_ids=[ti.id for ti in executable_tis],
-                check_task_holds=check_task_holds,
+                held_dag_ids=held_dag_ids,
             )
 
             timer = stats.timer("scheduler.critical_section_query_duration")
@@ -1039,6 +1046,26 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
 
         return self._mark_task_instances_queued(executable_tis, session=session)
 
+    def _get_held_dag_ids(self, *, session: Session) -> list[str] | None:
+        """
+        Return the Dags that have an active task hold, or ``None`` if there are too many to list.
+
+        The queueing query checks task holds only for the task instances of these Dags, and with
+        more than ``MAX_HELD_DAGS_LISTED_PER_LOOP`` of them it checks every task instance. A deployment
+        that holds nothing pays for this one read, which ``idx_task_hold_released_at_expires_at_dag_id``
+        answers alone.
+        """
+        dag_ids = session.scalars(
+            select(TaskHold.dag_id)
+            .where(TaskHold.active_clause(timezone.utcnow()))
+            .distinct()
+            # One more than can be listed tells a complete list from one that was cut short.
+            .limit(MAX_HELD_DAGS_LISTED_PER_LOOP + 1)
+        ).all()
+        if len(dag_ids) > MAX_HELD_DAGS_LISTED_PER_LOOP:
+            return None
+        return list(dag_ids)
+
     def _build_schedulable_tis_query(
         self,
         starved_pools: set[str],
@@ -1048,7 +1075,7 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         max_tis: int,
         *,
         excluded_ti_ids: Collection[UUID] = (),
-        check_task_holds: bool = True,
+        held_dag_ids: Collection[str] | None = None,
     ) -> Select[tuple[TI]]:
         """
         Build a query that fetches SCHEDULED TIs eligible for execution this cycle.
@@ -1062,6 +1089,10 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         ``_get_current_dr_task_concurrency``, with the difference that the subquery
         object is built here and executed as part of the main query, so any state
         changes between construction and execution are naturally ignored.
+
+        :param held_dag_ids: The Dags that have an active task hold, from ``_get_held_dag_ids``. Only
+            their task instances are checked for a hold, and none is when it is empty. ``None``, the
+            default, checks every task instance.
         """
         dr_task_concurrency_subquery = _get_current_dr_task_concurrency(states=EXECUTION_STATES)
 
@@ -1090,8 +1121,15 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         # ago is seen. Like the starvation filters below it is applied before the row_num is computed, so a
         # covered task instance does not take one of the Dag run's max_active_tasks ranks from a task
         # instance that can run.
-        if check_task_holds:
+        if held_dag_ids is None:
             query = query.where(~TaskHold.covering_clause(timezone.utcnow()))
+        elif held_dag_ids:
+            # The task instances of the other Dags skip the check, as no active hold covered them when the
+            # Dags were listed. A hold placed on one of them since then is refused by the statement that
+            # writes queued.
+            query = query.where(
+                or_(TI.dag_id.not_in(held_dag_ids), ~TaskHold.covering_clause(timezone.utcnow()))
+            )
 
         # Starvation filters should be applied before computing the row_num based on the
         # max_active_tasks limit. That way, starved Dag runs and tasks that shouldn't run,
