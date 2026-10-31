@@ -129,22 +129,31 @@ def _set_task_instance_states(session) -> None:
     session.commit()
 
 
+def _task_instance_holds_url(task_id=TASK_ID, run_id=RUN_ID, dag_id=DAG_ID) -> str:
+    return f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances/{task_id}/holds"
+
+
+def _task_holds_url(task_id=TASK_ID, dag_id=DAG_ID) -> str:
+    return f"/dags/{dag_id}/tasks/{task_id}/holds"
+
+
+# The two endpoints that place a hold, and the run each one stores.
+PLACE_HOLD = [
+    pytest.param(_task_instance_holds_url, RUN_ID, id="task_instance_hold"),
+    pytest.param(_task_holds_url, None, id="task_hold"),
+]
+
+
 class TestCreateTaskHold:
-    @pytest.mark.parametrize(
-        ("scope", "expected_task_id", "expected_run_id"),
-        [
-            pytest.param({"task_id": TASK_ID}, TASK_ID, None, id="task"),
-            pytest.param({"task_id": TASK_ID, "run_id": RUN_ID}, TASK_ID, RUN_ID, id="task_instance"),
-        ],
-    )
-    def test_should_respond_201(self, test_client, session, scope, expected_task_id, expected_run_id):
-        response = test_client.post(f"/dags/{DAG_ID}/holds", json={**scope, "reason": "Snowflake outage"})
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_201(self, test_client, session, url, expected_run_id):
+        response = test_client.post(url(), json={"reason": "Snowflake outage"})
 
         assert response.status_code == 201
         assert response.json() == {
             "id": mock.ANY,
             "dag_id": DAG_ID,
-            "task_id": expected_task_id,
+            "task_id": TASK_ID,
             "run_id": expected_run_id,
             "reason": "Snowflake outage",
             "created_by": "test",
@@ -159,7 +168,7 @@ class TestCreateTaskHold:
         assert hold is not None
         assert (hold.dag_id, hold.task_id, hold.run_id, hold.reason, hold.created_by) == (
             DAG_ID,
-            expected_task_id,
+            TASK_ID,
             expected_run_id,
             "Snowflake outage",
             "test",
@@ -170,16 +179,16 @@ class TestCreateTaskHold:
         assert log is not None
         assert (log.dag_id, log.task_id, log.run_id, log.owner) == (
             DAG_ID,
-            expected_task_id,
+            TASK_ID,
             expected_run_id,
             "test",
         )
         assert json.loads(log.extra)["reason"] == "Snowflake outage"
 
-    def test_should_store_expires_at(self, test_client, session):
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_store_expires_at(self, test_client, session, url, expected_run_id):
         response = test_client.post(
-            f"/dags/{DAG_ID}/holds",
-            json={"task_id": TASK_ID, "reason": "Snowflake outage", "expires_at": "2030-01-01T00:00:00Z"},
+            url(), json={"reason": "Snowflake outage", "expires_at": "2030-01-01T00:00:00Z"}
         )
 
         assert response.status_code == 201
@@ -187,62 +196,68 @@ class TestCreateTaskHold:
         assert response.json()["active"] is True
         hold = session.get(TaskHold, response.json()["id"])
         assert hold is not None
-        assert hold.expires_at == FUTURE
+        assert (hold.run_id, hold.expires_at) == (expected_run_id, FUTURE)
 
-    def test_should_not_change_task_instance_states(self, test_client, session):
+    def test_should_allow_several_holds_on_one_task_instance(self, test_client, session):
+        first = test_client.post(_task_instance_holds_url(), json={"reason": "first"})
+        second = test_client.post(_task_instance_holds_url(), json={"reason": "second"})
+
+        assert (first.status_code, second.status_code) == (201, 201)
+        assert first.json()["id"] != second.json()["id"]
+        assert session.scalar(select(func.count()).select_from(TaskHold)) == 2
+
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_not_change_task_instance_states(self, test_client, session, url, expected_run_id):
         _set_task_instance_states(session)
 
-        response = test_client.post(
-            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "run_id": RUN_ID, "reason": "pause"}
-        )
+        response = test_client.post(url(), json={"reason": "pause"})
 
         assert response.status_code == 201
         assert _task_instance_states(session) == EXPECTED_STATES
 
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
     @pytest.mark.parametrize(
         "body",
         [
-            pytest.param({"reason": "r"}, id="no_task"),
-            pytest.param({"run_id": RUN_ID, "reason": "r"}, id="run_without_task"),
-            pytest.param({"task_id": TASK_ID}, id="no_reason"),
-            pytest.param({"task_id": TASK_ID, "reason": ""}, id="empty_reason"),
-            pytest.param({"task_id": TASK_ID, "reason": "   "}, id="blank_reason"),
-            pytest.param({"task_id": "", "reason": "r"}, id="empty_task_id"),
-            pytest.param({"task_id": TASK_ID, "run_id": "", "reason": "r"}, id="empty_run_id"),
+            pytest.param({}, id="no_reason"),
+            pytest.param({"reason": ""}, id="empty_reason"),
+            pytest.param({"reason": "   "}, id="blank_reason"),
             pytest.param(
-                {"task_id": TASK_ID, "reason": "r", "expires_at": "2030-01-01T00:00:00"},
-                id="expires_at_without_timezone",
+                {"reason": "r", "expires_at": "2030-01-01T00:00:00"}, id="expires_at_without_timezone"
             ),
-            pytest.param({"task_id": TASK_ID, "reason": "r", "unknown": 1}, id="unknown_field"),
+            pytest.param({"reason": "r", "unknown": 1}, id="unknown_field"),
+            # The task and the run are named by the path; the body cannot name others.
+            pytest.param({"reason": "r", "task_id": OTHER_TASK_ID}, id="task_id_in_body"),
+            pytest.param({"reason": "r", "run_id": RUN_ID}, id="run_id_in_body"),
         ],
     )
-    def test_should_respond_422(self, test_client, session, body):
-        response = test_client.post(f"/dags/{DAG_ID}/holds", json=body)
+    def test_should_respond_422(self, test_client, session, url, expected_run_id, body):
+        response = test_client.post(url(), json=body)
 
         assert response.status_code == 422
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
 
-    def test_should_respond_400_for_unknown_task(self, test_client, session):
-        response = test_client.post(f"/dags/{DAG_ID}/holds", json={"task_id": "nope", "reason": "r"})
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_404_for_unknown_task(self, test_client, session, url, expected_run_id):
+        response = test_client.post(url(task_id="nope"), json={"reason": "r"})
 
-        assert response.status_code == 400
+        assert response.status_code == 404
         assert response.json()["detail"] == (
             f"Task with ID: `nope` not found in the latest version of Dag: `{DAG_ID}`"
         )
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
 
-    def test_should_respond_400_for_expires_at_in_the_past(self, test_client, session):
-        response = test_client.post(
-            f"/dags/{DAG_ID}/holds",
-            json={"task_id": TASK_ID, "reason": "r", "expires_at": "2000-01-01T00:00:00Z"},
-        )
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_400_for_expires_at_in_the_past(self, test_client, session, url, expected_run_id):
+        response = test_client.post(url(), json={"reason": "r", "expires_at": "2000-01-01T00:00:00Z"})
 
         assert response.status_code == 400
         assert response.json()["detail"] == "expires_at must be in the future"
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
 
-    def test_should_respond_404_for_unknown_dag(self, test_client, session):
-        response = test_client.post("/dags/nope/holds", json={"task_id": TASK_ID, "reason": "r"})
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_404_for_unknown_dag(self, test_client, session, url, expected_run_id):
+        response = test_client.post(url(dag_id="nope"), json={"reason": "r"})
 
         assert response.status_code == 404
         assert response.json()["detail"] == "The Dag with ID: `nope` was not found"
@@ -250,9 +265,7 @@ class TestCreateTaskHold:
 
     @pytest.mark.parametrize("run_id", ["nope", OTHER_DAG_RUN_ID], ids=["unknown_run", "run_of_other_dag"])
     def test_should_respond_404_for_run_not_in_dag(self, test_client, session, run_id):
-        response = test_client.post(
-            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "run_id": run_id, "reason": "r"}
-        )
+        response = test_client.post(_task_instance_holds_url(run_id=run_id), json={"reason": "r"})
 
         assert response.status_code == 404
         assert response.json()["detail"] == (
@@ -260,26 +273,32 @@ class TestCreateTaskHold:
         )
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
 
-    def test_should_respond_401(self, unauthenticated_test_client):
-        response = unauthenticated_test_client.post(
-            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "reason": "r"}
+    @pytest.mark.parametrize("path", ["/dags/{dag_id}/holds", "/dags/{dag_id}/dagRuns/{run_id}/holds"])
+    def test_there_is_no_endpoint_to_hold_a_dag_or_a_whole_run(self, test_client, session, path):
+        response = test_client.post(
+            path.format(dag_id=DAG_ID, run_id=RUN_ID), json={"task_id": TASK_ID, "reason": "r"}
         )
+
+        assert response.status_code in (404, 405)
+        assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
+
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_401(self, unauthenticated_test_client, url, expected_run_id):
+        response = unauthenticated_test_client.post(url(), json={"reason": "r"})
         assert response.status_code == 401
 
-    def test_should_respond_403(self, unauthorized_test_client, session):
-        response = unauthorized_test_client.post(
-            f"/dags/{DAG_ID}/holds", json={"task_id": TASK_ID, "reason": "r"}
-        )
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_403(self, unauthorized_test_client, session, url, expected_run_id):
+        response = unauthorized_test_client.post(url(), json={"reason": "r"})
 
         assert response.status_code == 403
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0
 
-    def test_should_respond_403_for_reader(self, test_client, dag_reader_headers, session):
-        response = test_client.post(
-            f"/dags/{DAG_ID}/holds",
-            json={"task_id": TASK_ID, "reason": "r"},
-            headers=dag_reader_headers,
-        )
+    @pytest.mark.parametrize(("url", "expected_run_id"), PLACE_HOLD)
+    def test_should_respond_403_for_reader(
+        self, test_client, dag_reader_headers, session, url, expected_run_id
+    ):
+        response = test_client.post(url(), json={"reason": "r"}, headers=dag_reader_headers)
 
         assert response.status_code == 403
         assert session.scalar(select(func.count()).select_from(TaskHold)) == 0

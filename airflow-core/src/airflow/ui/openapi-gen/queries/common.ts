@@ -1328,6 +1328,7 @@ export type TaskInstanceServiceGetTaskInstancesBatchMutationResult = Awaited<Ret
 export type TaskInstanceServicePostClearTaskInstancesMutationResult = Awaited<ReturnType<typeof TaskInstanceService.postClearTaskInstances>>;
 export type PoolServicePostPoolMutationResult = Awaited<ReturnType<typeof PoolService.postPool>>;
 export type XcomServiceCreateXcomEntryMutationResult = Awaited<ReturnType<typeof XcomService.createXcomEntry>>;
+export type TaskHoldServiceCreateTaskInstanceHoldMutationResult = Awaited<ReturnType<typeof TaskHoldService.createTaskInstanceHold>>;
 export type TaskHoldServiceCreateTaskHoldMutationResult = Awaited<ReturnType<typeof TaskHoldService.createTaskHold>>;
 export type TaskHoldServiceReleaseTaskHoldMutationResult = Awaited<ReturnType<typeof TaskHoldService.releaseTaskHold>>;
 export type VariableServicePostVariableMutationResult = Awaited<ReturnType<typeof VariableService.postVariable>>;

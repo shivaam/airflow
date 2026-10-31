@@ -374,6 +374,10 @@ source code so it stays up to date as endpoints are added or changed.
      - ``/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/externalLogUrl/{try_number}``
      - ``DAG.TASK_LOGS``
      - ``GET``
+   * - ``POST``
+     - ``/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds``
+     - ``DAG.TASK_INSTANCE``
+     - ``PUT``
    * - ``GET``
      - ``/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/links``
      - ``DAG.TASK_INSTANCE``
@@ -511,10 +515,6 @@ source code so it stays up to date as endpoints are added or changed.
      - ``DAG.TASK_INSTANCE``
      - ``GET``
    * - ``POST``
-     - ``/api/v2/dags/{dag_id}/holds``
-     - ``DAG.TASK_INSTANCE``
-     - ``PUT``
-   * - ``POST``
      - ``/api/v2/dags/{dag_id}/holds/{hold_id}/release``
      - ``DAG.TASK_INSTANCE``
      - ``PUT``
@@ -526,6 +526,10 @@ source code so it stays up to date as endpoints are added or changed.
      - ``/api/v2/dags/{dag_id}/tasks/{task_id}``
      - ``DAG.TASK``
      - ``GET``
+   * - ``POST``
+     - ``/api/v2/dags/{dag_id}/tasks/{task_id}/holds``
+     - ``DAG.TASK_INSTANCE``
+     - ``PUT``
    * - ``POST``
      - ``/api/v2/dags/{dag_id}/unfavorite``
      - ``DAG``

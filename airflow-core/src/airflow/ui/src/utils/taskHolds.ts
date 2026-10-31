@@ -166,14 +166,14 @@ export const getDefaultHoldScope = ({
 }: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope =>
   runId !== undefined && !isTaskInstanceFinished(state) ? "taskInstance" : "task";
 
-/** The `task_id` and `run_id` that place a hold of a kind, from the page the dialog is opened from. */
-export const getHoldRequestScope = (
+/**
+ * The task, and for a task instance hold its run, that a hold of a kind is placed on, from the page the
+ * dialog is opened from. Which endpoint places it follows from whether there is a run.
+ */
+export const getHoldTarget = (
   scope: HoldScope,
   { runId, taskId }: HoldDialogOrigin,
-): { run_id: string | null; task_id: string } => ({
-  run_id: scope === "task" ? null : (runId ?? null),
-  task_id: taskId,
-});
+): { runId?: string; taskId: string } => (scope === "task" ? { taskId } : { runId, taskId });
 
 /**
  * What a lock is shown for: a task instance, or, with `dag_run_id` left out, a task across all of its

@@ -22,19 +22,11 @@ from typing import Annotated
 from pydantic import AwareDatetime, Field, StringConstraints
 
 from airflow.api_fastapi.core_api.base import BaseModel, StrictBaseModel
-from airflow.models.base import ID_LEN
 
 
 class TaskHoldBody(StrictBaseModel):
-    """Object used for create task hold request."""
+    """Object used for the requests that place a task instance hold or a task hold."""
 
-    task_id: Annotated[str, StringConstraints(min_length=1, max_length=ID_LEN)] = Field(
-        description="The task to hold, in every current and future run unless ``run_id`` is set.",
-    )
-    run_id: Annotated[str, StringConstraints(min_length=1, max_length=ID_LEN)] | None = Field(
-        default=None,
-        description="Hold the task only in this run.",
-    )
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     expires_at: AwareDatetime | None = Field(
         default=None,

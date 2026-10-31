@@ -90,7 +90,8 @@ describe("HoldDialog how long", () => {
 
     expect(mutate).toHaveBeenCalledWith({
       dagId: "example_dag",
-      requestBody: { expires_at: null, reason: "Maintenance", run_id: null, task_id: "load" },
+      requestBody: { expires_at: null, reason: "Maintenance" },
+      taskId: "load",
     });
   });
 
@@ -113,7 +114,8 @@ describe("HoldDialog how long", () => {
 
     expect(mutate).toHaveBeenCalledWith({
       dagId: "example_dag",
-      requestBody: { expires_at: FUTURE, reason: "Maintenance", run_id: null, task_id: "load" },
+      requestBody: { expires_at: FUTURE, reason: "Maintenance" },
+      taskId: "load",
     });
   });
 
@@ -165,7 +167,8 @@ describe("HoldDialog how long", () => {
 
     expect(mutate).toHaveBeenCalledWith({
       dagId: "example_dag",
-      requestBody: { expires_at: null, reason: "Maintenance", run_id: null, task_id: "load" },
+      requestBody: { expires_at: null, reason: "Maintenance" },
+      taskId: "load",
     });
   });
 

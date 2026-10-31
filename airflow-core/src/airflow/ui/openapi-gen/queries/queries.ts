@@ -2873,21 +2873,53 @@ export const useXcomServiceCreateXcomEntry = <TData = Common.XcomServiceCreateXc
   taskId: string;
 }, TContext>({ mutationFn: ({ dagId, dagRunId, requestBody, taskId }) => XcomService.createXcomEntry({ dagId, dagRunId, requestBody, taskId }) as unknown as Promise<TData>, ...options });
 /**
-* Create Task Hold
-* Place a hold on a task, in one run or in every run.
+* Create Task Instance Hold
+* Place a task instance hold: hold one task in one Dag run.
 *
 * A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
 * stops a new start. While it is active the scheduler does not schedule a task instance that has not
-* started, which waits in `none`, and does not queue one that is `scheduled`.
-* A hold covers every map index of its task: in that one run when `run_id` is set, otherwise in every
-* current and future run.
+* started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
+* index of the task. A task can carry several holds, and it starts only once the last of them ends.
 * The current attempt of a queued or running task instance continues, and later attempts, such as a
-* retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
-* answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task that
-* starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is already
-* `scheduled` keeps the decision it has. This endpoint changes no task instance.
+* retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a
+* human answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task
+* that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
+* already `scheduled` keeps the decision it has. This endpoint changes no task instance.
 * @param data The data for the request.
 * @param data.dagId
+* @param data.dagRunId
+* @param data.taskId
+* @param data.requestBody
+* @returns TaskHoldResponse Successful Response
+* @throws ApiError
+*/
+export const useTaskHoldServiceCreateTaskInstanceHold = <TData = Common.TaskHoldServiceCreateTaskInstanceHoldMutationResult, TError = unknown, TContext = unknown>(options?: Omit<UseMutationOptions<TData, TError, {
+  dagId: string;
+  dagRunId: string;
+  requestBody: TaskHoldBody;
+  taskId: string;
+}, TContext>, "mutationFn">) => useMutation<TData, TError, {
+  dagId: string;
+  dagRunId: string;
+  requestBody: TaskHoldBody;
+  taskId: string;
+}, TContext>({ mutationFn: ({ dagId, dagRunId, requestBody, taskId }) => TaskHoldService.createTaskInstanceHold({ dagId, dagRunId, requestBody, taskId }) as unknown as Promise<TData>, ...options });
+/**
+* Create Task Hold
+* Place a task hold: hold one task in every current and future Dag run.
+*
+* A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
+* stops a new start. While it is active the scheduler does not schedule a task instance that has not
+* started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
+* index of the task. A task can carry several holds, and it starts only once the last of them ends.
+* The current attempt of a queued or running task instance continues, and later attempts, such as a
+* retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a
+* human answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task
+* that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
+* already `scheduled` keeps the decision it has. This endpoint changes no task instance.
+* @param data The data for the request.
+* @param data.dagId
+* @param data.taskId
 * @param data.requestBody
 * @returns TaskHoldResponse Successful Response
 * @throws ApiError
@@ -2895,10 +2927,12 @@ export const useXcomServiceCreateXcomEntry = <TData = Common.XcomServiceCreateXc
 export const useTaskHoldServiceCreateTaskHold = <TData = Common.TaskHoldServiceCreateTaskHoldMutationResult, TError = unknown, TContext = unknown>(options?: Omit<UseMutationOptions<TData, TError, {
   dagId: string;
   requestBody: TaskHoldBody;
+  taskId: string;
 }, TContext>, "mutationFn">) => useMutation<TData, TError, {
   dagId: string;
   requestBody: TaskHoldBody;
-}, TContext>({ mutationFn: ({ dagId, requestBody }) => TaskHoldService.createTaskHold({ dagId, requestBody }) as unknown as Promise<TData>, ...options });
+  taskId: string;
+}, TContext>({ mutationFn: ({ dagId, requestBody, taskId }) => TaskHoldService.createTaskHold({ dagId, requestBody, taskId }) as unknown as Promise<TData>, ...options });
 /**
 * Release Task Hold
 * Release a task hold.

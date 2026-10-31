@@ -7834,11 +7834,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds:
     post:
       tags:
       - Task Hold
-      summary: Create Task Hold
-      description: 'Place a hold on a task, in one run or in every run.
+      summary: Create Task Instance Hold
+      description: 'Place a task instance hold: hold one task in one Dag run.
 
 
         A hold is a lock, not a task instance state: it never changes the state of
@@ -7848,25 +7849,126 @@ paths:
         instance that has not
 
         started, which waits in `none`, and does not queue one that is `scheduled`.
+        It covers every map
 
-        A hold covers every map index of its task: in that one run when `run_id` is
-        set, otherwise in every
-
-        current and future run.
+        index of the task. A task can carry several holds, and it starts only once
+        the last of them ends.
 
         The current attempt of a queued or running task instance continues, and later
         attempts, such as a
 
         retry or a clear, are held. A retry, a sensor reschedule and a task resuming
-        after a trigger or a human
+        after a trigger or a
 
-        answer reach `scheduled` as usual and wait there, except that a retry or reschedule
-        of a task that
+        human answer reach `scheduled` as usual and wait there, except that a retry
+        or reschedule of a task
 
-        starts from its trigger (`start_from_trigger`) waits in its state. A task
-        instance that is already
+        that starts from its trigger (`start_from_trigger`) waits in its state. A
+        task instance that is
 
-        `scheduled` keeps the decision it has. This endpoint changes no task instance.'
+        already `scheduled` keeps the decision it has. This endpoint changes no task
+        instance.'
+      operationId: create_task_instance_hold
+      security:
+      - OAuth2PasswordBearer: []
+      - HTTPBearer: []
+      parameters:
+      - name: dag_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dag Id
+      - name: dag_run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dag Run Id
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskHoldBody'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskHoldResponse'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Forbidden
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Bad Request
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v2/dags/{dag_id}/tasks/{task_id}/holds:
+    post:
+      tags:
+      - Task Hold
+      summary: Create Task Hold
+      description: 'Place a task hold: hold one task in every current and future Dag
+        run.
+
+
+        A hold is a lock, not a task instance state: it never changes the state of
+        a task instance, it only
+
+        stops a new start. While it is active the scheduler does not schedule a task
+        instance that has not
+
+        started, which waits in `none`, and does not queue one that is `scheduled`.
+        It covers every map
+
+        index of the task. A task can carry several holds, and it starts only once
+        the last of them ends.
+
+        The current attempt of a queued or running task instance continues, and later
+        attempts, such as a
+
+        retry or a clear, are held. A retry, a sensor reschedule and a task resuming
+        after a trigger or a
+
+        human answer reach `scheduled` as usual and wait there, except that a retry
+        or reschedule of a task
+
+        that starts from its trigger (`start_from_trigger`) waits in its state. A
+        task instance that is
+
+        already `scheduled` keeps the decision it has. This endpoint changes no task
+        instance.'
       operationId: create_task_hold
       security:
       - OAuth2PasswordBearer: []
@@ -7878,6 +7980,12 @@ paths:
         schema:
           type: string
           title: Dag Id
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
       requestBody:
         required: true
         content:
@@ -18032,21 +18140,6 @@ components:
       description: Task Dependency serializer for responses.
     TaskHoldBody:
       properties:
-        task_id:
-          type: string
-          maxLength: 250
-          minLength: 1
-          title: Task Id
-          description: The task to hold, in every current and future run unless ``run_id``
-            is set.
-        run_id:
-          anyOf:
-          - type: string
-            maxLength: 250
-            minLength: 1
-          - type: 'null'
-          title: Run Id
-          description: Hold the task only in this run.
         reason:
           type: string
           minLength: 1
@@ -18062,10 +18155,10 @@ components:
       additionalProperties: false
       type: object
       required:
-      - task_id
       - reason
       title: TaskHoldBody
-      description: Object used for create task hold request.
+      description: Object used for the requests that place a task instance hold or
+        a task hold.
     TaskHoldCollectionResponse:
       properties:
         task_holds:

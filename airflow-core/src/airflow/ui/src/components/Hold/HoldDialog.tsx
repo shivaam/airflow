@@ -32,7 +32,7 @@ import { DateTimeInput } from "src/components/DateTimeInput";
 import { useCreateTaskHold } from "src/queries/useCreateTaskHold";
 import {
   getDefaultHoldScope,
-  getHoldRequestScope,
+  getHoldTarget,
   getHoldTeardownNote,
   getOfferedHoldScopes,
   getScopeStateLineKey,
@@ -126,11 +126,8 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
 
     mutate({
       dagId,
-      requestBody: {
-        expires_at: duration === "until" ? expiresAt : null,
-        reason: reason.trim(),
-        ...getHoldRequestScope(scope, { runId, taskId }),
-      },
+      requestBody: { expires_at: duration === "until" ? expiresAt : null, reason: reason.trim() },
+      ...getHoldTarget(scope, { runId, taskId }),
     });
   };
 

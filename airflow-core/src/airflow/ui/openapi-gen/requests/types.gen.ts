@@ -2146,17 +2146,9 @@ export type TaskDependencyResponse = {
 };
 
 /**
- * Object used for create task hold request.
+ * Object used for the requests that place a task instance hold or a task hold.
  */
 export type TaskHoldBody = {
-    /**
-     * The task to hold, in every current and future run unless ``run_id`` is set.
-     */
-    task_id: string;
-    /**
-     * Hold the task only in this run.
-     */
-    run_id?: string | null;
     reason: string;
     /**
      * When the hold stops applying. The hold lasts until it is released if not set.
@@ -5432,9 +5424,19 @@ export type ListTaskHoldsData = {
 
 export type ListTaskHoldsResponse = TaskHoldCollectionResponse;
 
+export type CreateTaskInstanceHoldData = {
+    dagId: string;
+    dagRunId: string;
+    requestBody: TaskHoldBody;
+    taskId: string;
+};
+
+export type CreateTaskInstanceHoldResponse = TaskHoldResponse;
+
 export type CreateTaskHoldData = {
     dagId: string;
     requestBody: TaskHoldBody;
+    taskId: string;
 };
 
 export type CreateTaskHoldResponse = TaskHoldResponse;
@@ -9520,6 +9522,39 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
+    };
+    '/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds': {
+        post: {
+            req: CreateTaskInstanceHoldData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: TaskHoldResponse;
+                /**
+                 * Bad Request
+                 */
+                400: HTTPExceptionResponse;
+                /**
+                 * Unauthorized
+                 */
+                401: HTTPExceptionResponse;
+                /**
+                 * Forbidden
+                 */
+                403: HTTPExceptionResponse;
+                /**
+                 * Not Found
+                 */
+                404: HTTPExceptionResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/api/v2/dags/{dag_id}/tasks/{task_id}/holds': {
         post: {
             req: CreateTaskHoldData;
             res: {

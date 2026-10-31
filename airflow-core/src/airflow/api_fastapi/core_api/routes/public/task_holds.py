@@ -45,7 +45,11 @@ from airflow.models.taskhold import TaskHold
 if TYPE_CHECKING:
     from datetime import datetime
 
-task_holds_router = AirflowRouter(tags=["Task Hold"], prefix="/dags/{dag_id}/holds")
+    from sqlalchemy.orm import Session
+
+    from airflow.api_fastapi.auth.managers.models.base_user import BaseUser
+
+task_holds_router = AirflowRouter(tags=["Task Hold"], prefix="/dags/{dag_id}")
 
 
 def _to_response(hold: TaskHold, now: datetime) -> TaskHoldResponse:
@@ -55,8 +59,50 @@ def _to_response(hold: TaskHold, now: datetime) -> TaskHoldResponse:
     )
 
 
+def _place_hold(
+    *,
+    dag_id: str,
+    task_id: str,
+    run_id: str | None,
+    body: TaskHoldBody,
+    user: BaseUser,
+    session: Session,
+    dag_bag: DagBagDep,
+) -> TaskHoldResponse:
+    """Check the task, the run when there is one, and the expiry, then store the hold."""
+    now = timezone.utcnow()
+    dag = get_latest_version_of_dag(dag_bag, dag_id, session)
+
+    if run_id is not None and (
+        session.scalar(select(DagRun.id).where(DagRun.dag_id == dag_id, DagRun.run_id == run_id)) is None
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"The Dag Run with dag_id: `{dag_id}` and run_id: `{run_id}` was not found",
+        )
+    if not dag.has_task(task_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Task with ID: `{task_id}` not found in the latest version of Dag: `{dag_id}`",
+        )
+    if body.expires_at is not None and body.expires_at <= now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "expires_at must be in the future")
+
+    hold = TaskHold(
+        dag_id=dag_id,
+        task_id=task_id,
+        run_id=run_id,
+        reason=body.reason,
+        created_by=user.get_name(),
+        expires_at=body.expires_at,
+    )
+    session.add(hold)
+    session.flush()
+    return _to_response(hold, now)
+
+
 @task_holds_router.get(
-    "",
+    "/holds",
     dependencies=[Depends(requires_access_dag(method="GET", access_entity=DagAccessEntity.TASK_INSTANCE))],
 )
 def list_task_holds(
@@ -104,7 +150,49 @@ def list_task_holds(
 
 
 @task_holds_router.post(
-    "",
+    "/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds",
+    status_code=status.HTTP_201_CREATED,
+    responses=create_openapi_http_exception_doc([status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND]),
+    dependencies=[
+        Depends(requires_access_dag(method="PUT", access_entity=DagAccessEntity.TASK_INSTANCE)),
+        Depends(action_logging(event="hold_created")),
+    ],
+)
+def create_task_instance_hold(
+    dag_id: str,
+    dag_run_id: str,
+    task_id: str,
+    body: TaskHoldBody,
+    user: GetUserDep,
+    session: SessionDep,
+    dag_bag: DagBagDep,
+) -> TaskHoldResponse:
+    """
+    Place a task instance hold: hold one task in one Dag run.
+
+    A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
+    stops a new start. While it is active the scheduler does not schedule a task instance that has not
+    started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
+    index of the task. A task can carry several holds, and it starts only once the last of them ends.
+    The current attempt of a queued or running task instance continues, and later attempts, such as a
+    retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a
+    human answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task
+    that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
+    already `scheduled` keeps the decision it has. This endpoint changes no task instance.
+    """
+    return _place_hold(
+        dag_id=dag_id,
+        task_id=task_id,
+        run_id=dag_run_id,
+        body=body,
+        user=user,
+        session=session,
+        dag_bag=dag_bag,
+    )
+
+
+@task_holds_router.post(
+    "/tasks/{task_id}/holds",
     status_code=status.HTTP_201_CREATED,
     responses=create_openapi_http_exception_doc([status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND]),
     dependencies=[
@@ -114,58 +202,38 @@ def list_task_holds(
 )
 def create_task_hold(
     dag_id: str,
+    task_id: str,
     body: TaskHoldBody,
     user: GetUserDep,
     session: SessionDep,
     dag_bag: DagBagDep,
 ) -> TaskHoldResponse:
     """
-    Place a hold on a task, in one run or in every run.
+    Place a task hold: hold one task in every current and future Dag run.
 
     A hold is a lock, not a task instance state: it never changes the state of a task instance, it only
     stops a new start. While it is active the scheduler does not schedule a task instance that has not
-    started, which waits in `none`, and does not queue one that is `scheduled`.
-    A hold covers every map index of its task: in that one run when `run_id` is set, otherwise in every
-    current and future run.
+    started, which waits in `none`, and does not queue one that is `scheduled`. It covers every map
+    index of the task. A task can carry several holds, and it starts only once the last of them ends.
     The current attempt of a queued or running task instance continues, and later attempts, such as a
-    retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a human
-    answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task that
-    starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is already
-    `scheduled` keeps the decision it has. This endpoint changes no task instance.
+    retry or a clear, are held. A retry, a sensor reschedule and a task resuming after a trigger or a
+    human answer reach `scheduled` as usual and wait there, except that a retry or reschedule of a task
+    that starts from its trigger (`start_from_trigger`) waits in its state. A task instance that is
+    already `scheduled` keeps the decision it has. This endpoint changes no task instance.
     """
-    now = timezone.utcnow()
-    dag = get_latest_version_of_dag(dag_bag, dag_id, session)
-
-    if body.run_id is not None and (
-        session.scalar(select(DagRun.id).where(DagRun.dag_id == dag_id, DagRun.run_id == body.run_id)) is None
-    ):
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            f"The Dag Run with dag_id: `{dag_id}` and run_id: `{body.run_id}` was not found",
-        )
-    if not dag.has_task(body.task_id):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Task with ID: `{body.task_id}` not found in the latest version of Dag: `{dag_id}`",
-        )
-    if body.expires_at is not None and body.expires_at <= now:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "expires_at must be in the future")
-
-    hold = TaskHold(
+    return _place_hold(
         dag_id=dag_id,
-        task_id=body.task_id,
-        run_id=body.run_id,
-        reason=body.reason,
-        created_by=user.get_name(),
-        expires_at=body.expires_at,
+        task_id=task_id,
+        run_id=None,
+        body=body,
+        user=user,
+        session=session,
+        dag_bag=dag_bag,
     )
-    session.add(hold)
-    session.flush()
-    return _to_response(hold, now)
 
 
 @task_holds_router.post(
-    "/{hold_id}/release",
+    "/holds/{hold_id}/release",
     responses=create_openapi_http_exception_doc([status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT]),
     dependencies=[Depends(requires_access_dag(method="PUT", access_entity=DagAccessEntity.TASK_INSTANCE))],
 )

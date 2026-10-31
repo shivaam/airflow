@@ -147,11 +147,11 @@ describe("HoldDialog what to hold", () => {
     });
   });
 
-  describe("places a hold with the ids of the scope chosen", () => {
+  describe("places the kind of hold chosen, on the task and for a task instance its run", () => {
     it.each([
-      { scope: "taskInstance", sets: { run_id: "run_1", task_id: "load" } },
-      { scope: "task", sets: { run_id: null, task_id: "load" } },
-    ] as const)("for $scope, from a task instance page", async ({ scope, sets }) => {
+      { scope: "taskInstance", target: { runId: "run_1", taskId: "load" } },
+      { scope: "task", target: { taskId: "load" } },
+    ] as const)("for $scope, from a task instance page", async ({ scope, target }) => {
       render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
         wrapper: Wrapper,
       });
@@ -162,7 +162,8 @@ describe("HoldDialog what to hold", () => {
 
       expect(mutate).toHaveBeenCalledWith({
         dagId: "example_dag",
-        requestBody: { expires_at: null, reason: "Upstream data is wrong", ...sets },
+        requestBody: { expires_at: null, reason: "Upstream data is wrong" },
+        ...target,
       });
     });
 
@@ -177,7 +178,8 @@ describe("HoldDialog what to hold", () => {
 
       expect(mutate).toHaveBeenCalledWith({
         dagId: "example_dag",
-        requestBody: { expires_at: null, reason: "Fix first", run_id: null, task_id: "load" },
+        requestBody: { expires_at: null, reason: "Fix first" },
+        taskId: "load",
       });
     });
   });

@@ -1342,32 +1342,13 @@ class TaskDependencyResponse(BaseModel):
     reason: Annotated[str, Field(title="Reason")]
 
 
-class RunId(RootModel[str]):
-    root: Annotated[
-        str,
-        Field(description="Hold the task only in this run.", max_length=250, min_length=1, title="Run Id"),
-    ]
-
-
 class TaskHoldBody(BaseModel):
     """
-    Object used for create task hold request.
+    Object used for the requests that place a task instance hold or a task hold.
     """
 
     model_config = ConfigDict(
         extra="forbid",
-    )
-    task_id: Annotated[
-        str,
-        Field(
-            description="The task to hold, in every current and future run unless ``run_id`` is set.",
-            max_length=250,
-            min_length=1,
-            title="Task Id",
-        ),
-    ]
-    run_id: Annotated[RunId | None, Field(description="Hold the task only in this run.", title="Run Id")] = (
-        None
     )
     reason: Annotated[str, Field(min_length=1, title="Reason")]
     expires_at: Annotated[

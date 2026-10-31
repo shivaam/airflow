@@ -22,13 +22,24 @@ import { useTranslation } from "react-i18next";
 import {
   useDashboardServiceDagHoldCountsKey,
   useTaskHoldServiceCreateTaskHold,
+  useTaskHoldServiceCreateTaskInstanceHold,
   useTaskHoldServiceListTaskHoldsKey,
 } from "openapi/queries";
+import type { TaskHoldBody } from "openapi/requests/types.gen";
 
 import { toaster } from "src/system-components";
 
 import { createErrorToaster } from "src/utils";
 
+/** A hold to place: with `runId` a task instance hold, without it a task hold. */
+export type NewTaskHold = {
+  readonly dagId: string;
+  readonly requestBody: TaskHoldBody;
+  readonly runId?: string;
+  readonly taskId: string;
+};
+
+/** Places a task instance hold or a task hold, each through its own endpoint. */
 export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () => void }) => {
   const queryClient = useQueryClient();
   const { t: translate } = useTranslation("dags");
@@ -54,5 +65,16 @@ export const useCreateTaskHold = ({ onSuccessConfirm }: { onSuccessConfirm: () =
     onSuccessConfirm();
   };
 
-  return useTaskHoldServiceCreateTaskHold({ onError, onSuccess });
+  const taskInstanceHold = useTaskHoldServiceCreateTaskInstanceHold({ onError, onSuccess });
+  const taskHold = useTaskHoldServiceCreateTaskHold({ onError, onSuccess });
+
+  const mutate = ({ dagId, requestBody, runId, taskId }: NewTaskHold) => {
+    if (runId === undefined) {
+      taskHold.mutate({ dagId, requestBody, taskId });
+    } else {
+      taskInstanceHold.mutate({ dagId, dagRunId: runId, requestBody, taskId });
+    }
+  };
+
+  return { isPending: taskInstanceHold.isPending || taskHold.isPending, mutate };
 };

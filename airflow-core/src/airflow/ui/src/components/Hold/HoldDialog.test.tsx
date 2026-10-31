@@ -95,7 +95,9 @@ describe("HoldDialog", () => {
 
     expect(mutate).toHaveBeenCalledWith({
       dagId: "example_dag",
-      requestBody: { expires_at: null, reason: "Upstream data is wrong", run_id: "run_1", task_id: "load" },
+      requestBody: { expires_at: null, reason: "Upstream data is wrong" },
+      runId: "run_1",
+      taskId: "load",
     });
   });
 
@@ -107,7 +109,8 @@ describe("HoldDialog", () => {
 
     expect(mutate).toHaveBeenCalledWith({
       dagId: "example_dag",
-      requestBody: { expires_at: null, reason: "Maintenance", run_id: null, task_id: "load" },
+      requestBody: { expires_at: null, reason: "Maintenance" },
+      taskId: "load",
     });
   });
 });

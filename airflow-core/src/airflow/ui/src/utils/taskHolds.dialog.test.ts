@@ -23,7 +23,7 @@ import type { TaskInstanceState } from "openapi/requests/types.gen";
 
 import {
   getDefaultHoldScope,
-  getHoldRequestScope,
+  getHoldTarget,
   getOfferedHoldScopes,
   getScopeStateLineKey,
   isTaskInstanceFinished,
@@ -96,16 +96,16 @@ describe("getDefaultHoldScope", () => {
   });
 });
 
-describe("getHoldRequestScope", () => {
+describe("getHoldTarget", () => {
   it.each([
-    { scope: "taskInstance", sets: { run_id: "run_1", task_id: "load" } },
-    { scope: "task", sets: { run_id: null, task_id: "load" } },
-  ] as const)("sets $sets for a hold on $scope from a task instance page", ({ scope, sets }) => {
-    expect(getHoldRequestScope(scope, taskInstancePage)).toEqual(sets);
+    { scope: "taskInstance", target: { runId: "run_1", taskId: "load" } },
+    { scope: "task", target: { taskId: "load" } },
+  ] as const)("targets $target for a hold on $scope from a task instance page", ({ scope, target }) => {
+    expect(getHoldTarget(scope, taskInstancePage)).toStrictEqual(target);
   });
 
-  it("sets just the task from a task page", () => {
-    expect(getHoldRequestScope("task", taskPage)).toEqual({ run_id: null, task_id: "load" });
+  it("targets just the task from a task page", () => {
+    expect(getHoldTarget("task", taskPage)).toStrictEqual({ taskId: "load" });
   });
 });
 

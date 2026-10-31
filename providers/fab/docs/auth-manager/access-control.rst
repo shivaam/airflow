@@ -548,6 +548,10 @@ Stable API Permissions
      - GET
      - DAGs.can_read, Task Logs.can_read
      - Viewer
+   * - ``/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/holds``
+     - POST
+     - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
+     - User
    * - ``/api/v2/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/links``
      - GET
      - DAGs.can_read, DAG Runs.can_read, Task Instances.can_read
@@ -684,10 +688,6 @@ Stable API Permissions
      - GET
      - DAGs.can_read, DAG Runs.can_read, Task Instances.can_read
      - Viewer
-   * - ``/api/v2/dags/{dag_id}/holds``
-     - POST
-     - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
-     - User
    * - ``/api/v2/dags/{dag_id}/holds/{hold_id}/release``
      - POST
      - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
@@ -700,6 +700,10 @@ Stable API Permissions
      - GET
      - DAGs.can_read, Task Instances.can_read
      - Viewer
+   * - ``/api/v2/dags/{dag_id}/tasks/{task_id}/holds``
+     - POST
+     - DAGs.can_edit, DAG Runs.can_edit, Task Instances.can_edit
+     - User
    * - ``/api/v2/dags/{dag_id}/unfavorite``
      - POST
      - DAGs.can_read

@@ -7819,27 +7819,6 @@ export const $TaskDependencyResponse = {
 
 export const $TaskHoldBody = {
     properties: {
-        task_id: {
-            type: 'string',
-            maxLength: 250,
-            minLength: 1,
-            title: 'Task Id',
-            description: 'The task to hold, in every current and future run unless ``run_id`` is set.'
-        },
-        run_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 250,
-                    minLength: 1
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Run Id',
-            description: 'Hold the task only in this run.'
-        },
         reason: {
             type: 'string',
             minLength: 1,
@@ -7861,9 +7840,9 @@ export const $TaskHoldBody = {
     },
     additionalProperties: false,
     type: 'object',
-    required: ['task_id', 'reason'],
+    required: ['reason'],
     title: 'TaskHoldBody',
-    description: 'Object used for create task hold request.'
+    description: 'Object used for the requests that place a task instance hold or a task hold.'
 } as const;
 
 export const $TaskHoldCollectionResponse = {
