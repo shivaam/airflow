@@ -17,7 +17,6 @@
  * under the License.
  */
 import type {
-  DagRunState,
   GridNodeResponse,
   NodeResponse,
   StructureDataResponse,
@@ -87,10 +86,6 @@ const lockKindByState: Record<TaskInstanceState, HoldLockKind> = {
   upstream_failed: "finished",
 };
 
-/** Whether a task instance in this state has finished, the five states in which no attempt is left to run. */
-export const isTaskInstanceFinished = (state: TaskInstanceState | null | undefined): boolean =>
-  state !== null && state !== undefined && lockKindByState[state] === "finished";
-
 // A lock is pending where the hold has nothing to stop yet: the attempt carries on or has finished,
 // and the hold takes effect at its next start or resume. Everywhere else it is stopping the task now.
 const pendingByLockKind: Record<HoldLockKind, boolean> = {
@@ -147,39 +142,27 @@ export const getScopeStateLineKey = (
 ): HoldStateLineKey | undefined =>
   scope === "taskInstance" && state !== undefined ? getHoldStateLineKey(state) : undefined;
 
-/** Whether a Dag run has finished, after which it starts nothing unless it is cleared. */
-export const isRunFinished = (runState: DagRunState | undefined): boolean =>
-  runState === "success" || runState === "failed";
-
-/**
- * The task of the page the hold dialog is opened from, and on a task instance page its run and, once
- * known, the state of the run.
- */
+/** The task of the page the hold dialog is opened from, and on a task instance page its run. */
 export type HoldDialogOrigin = {
   readonly runId?: string;
-  readonly runState?: DagRunState;
   readonly taskId: string;
 };
 
 /**
- * The kinds of hold the dialog offers, in order. A task instance page can hold that task instance or the
- * task in every run. A task instance hold ends with its run, so once the run has finished, and from a
- * task page, only the task in every run is offered.
+ * The kinds of hold the dialog offers, in order: from a task instance page that task instance or the task
+ * in every run, and from a task page only the task in every run. They follow from the page alone, not from
+ * the state of the task instance or its run, which can change while the dialog is open. Whether a hold can
+ * be placed is the API's to say: it refuses a task instance hold on a run that has finished.
  */
-export const getOfferedHoldScopes = ({ runId, runState }: HoldDialogOrigin): Array<HoldScope> =>
-  runId === undefined || isRunFinished(runState) ? ["task"] : ["taskInstance", "task"];
+export const getOfferedHoldScopes = ({ runId }: HoldDialogOrigin): Array<HoldScope> =>
+  runId === undefined ? ["task"] : ["taskInstance", "task"];
 
 /**
- * The kind of hold the dialog starts on: the one of the page it is opened from. A task instance that has
- * finished cannot be stopped in its own run, so from its page the dialog starts on the task in every run,
- * as it does once the run has finished.
+ * The kind of hold the dialog starts on: the one of the page it is opened from. A finished task instance
+ * starts on itself too, since a hold on it applies if it is cleared while its run is active.
  */
-export const getDefaultHoldScope = ({
-  runId,
-  runState,
-  state,
-}: { readonly state?: TaskInstanceState | null } & HoldDialogOrigin): HoldScope =>
-  runId !== undefined && !isRunFinished(runState) && !isTaskInstanceFinished(state) ? "taskInstance" : "task";
+export const getDefaultHoldScope = ({ runId }: HoldDialogOrigin): HoldScope =>
+  runId === undefined ? "task" : "taskInstance";
 
 /**
  * The task, and for a task instance hold its run, that a hold of a kind is placed on, from the page the

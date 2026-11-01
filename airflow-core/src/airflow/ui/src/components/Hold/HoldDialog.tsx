@@ -22,7 +22,7 @@ import { Box, Button, Field, HStack, Text, Textarea, VStack } from "@chakra-ui/r
 import { useTranslation } from "react-i18next";
 import { LuHand, LuInfo } from "react-icons/lu";
 
-import { useDagRunServiceGetDagRun, useStructureServiceStructureData } from "openapi/queries";
+import { useStructureServiceStructureData } from "openapi/queries";
 import type { TaskInstanceState } from "openapi/requests/types.gen";
 
 import { Modal, RadioCardItem, RadioCardLabel, RadioCardRoot, Tooltip } from "src/system-components";
@@ -80,15 +80,10 @@ const HoldDialog = ({ dagId, isMapped = false, onClose, open, runId, state, task
   // Errors stay hidden until the first attempt to place the hold, so an untouched dialog is not red.
   const [showErrors, setShowErrors] = useState(false);
 
-  // A task instance hold ends with its run, so the state of the run decides whether one is offered.
-  const { data: run } = useDagRunServiceGetDagRun({ dagId, dagRunId: runId ?? "" }, undefined, {
-    enabled: open && runId !== undefined,
-  });
-  const runState = runId === undefined ? undefined : run?.state;
-  const offeredScopes = getOfferedHoldScopes({ runId, runState, taskId });
-  const scope =
-    offeredScopes.find((candidate) => candidate === chosenScope) ??
-    getDefaultHoldScope({ runId, runState, state, taskId });
+  // What can be held follows from the page alone, so the choice never changes by itself while the dialog
+  // is open. A task instance hold on a run that has finished is refused by the API, with a message.
+  const offeredScopes = getOfferedHoldScopes({ runId, taskId });
+  const scope = chosenScope ?? getDefaultHoldScope({ runId, taskId });
   const stateLineKey = getScopeStateLineKey(scope, { state });
   // The structure of the latest version is only needed to word the notes, so it is asked for while the
   // dialog is open.

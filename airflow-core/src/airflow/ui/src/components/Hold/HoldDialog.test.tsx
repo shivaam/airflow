@@ -20,10 +20,8 @@ import type { ChangeEvent } from "react";
 
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { serveRunsInState } from "src/mocks/handlers/holds";
-import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import HoldDialog from "./HoldDialog";
@@ -60,11 +58,6 @@ const choose = async (label: string) => {
   fireEvent.click(screen.getByText(label));
   await waitFor(() => expect(screen.getByText(label).closest("label")?.querySelector("input")).toBeChecked());
 };
-
-// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
-beforeEach(() => {
-  server.use(serveRunsInState("running"));
-});
 
 describe("HoldDialog", () => {
   it("does not show an error before the hold is attempted", () => {
@@ -166,8 +159,8 @@ describe("HoldDialog description", () => {
 });
 
 describe("HoldDialog state line", () => {
-  // The states of a group get the same line. It is about the task instance, so it is read with that
-  // chosen, which a finished one does not start on.
+  // The states of a group get the same line. It is about the task instance, which the dialog starts on
+  // from its page whatever its state.
   it.each([
     { key: "notStarted", state: null },
     { key: "waitingToRun", state: "scheduled" },
@@ -182,12 +175,11 @@ describe("HoldDialog state line", () => {
     { key: "finished", state: "skipped" },
     { key: "finished", state: "upstream_failed" },
     { key: "finished", state: "removed" },
-  ] as const)("says what the hold does to a task instance in state $state", async ({ key, state }) => {
+  ] as const)("says what the hold does to a task instance in state $state", ({ key, state }) => {
     render(
       <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state={state} taskId="load" />,
       { wrapper: Wrapper },
     );
-    await choose("taskHold.dialog.scope.taskInstance.label");
 
     expect(screen.getByTestId("hold-state-line").textContent).toBe(`taskHold.dialog.stateLine.${key}`);
   });

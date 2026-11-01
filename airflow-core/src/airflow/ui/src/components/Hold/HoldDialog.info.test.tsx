@@ -28,7 +28,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EdgeResponse, NodeResponse } from "openapi/requests/types.gen";
 
 import i18n from "src/i18n/config";
-import { serveRunsInState } from "src/mocks/handlers/holds";
 import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
@@ -92,11 +91,6 @@ const getNotes = async (icon: HTMLElement) => {
     vi.useRealTimers();
   }
 };
-
-// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
-beforeEach(() => {
-  server.use(serveRunsInState("running"));
-});
 
 describe("HoldDialog notes", () => {
   beforeEach(() => {

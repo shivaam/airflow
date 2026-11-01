@@ -20,10 +20,8 @@ import type { ChangeEvent } from "react";
 
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { serveRunsInState } from "src/mocks/handlers/holds";
-import { server } from "src/mocks/server";
 import { Wrapper } from "src/utils/Wrapper";
 
 import HoldDialog from "./HoldDialog";
@@ -70,11 +68,6 @@ const getScopeRadio = (scope: "task" | "taskInstance") =>
 
 const finishedStates = ["success", "failed", "skipped", "upstream_failed", "removed"] as const;
 
-// The run of a task instance is running unless a test says otherwise, so a task instance hold is offered.
-beforeEach(() => {
-  server.use(serveRunsInState("running"));
-});
-
 describe("HoldDialog what to hold", () => {
   describe("offers", () => {
     it("both kinds of hold from a task instance page, the task instance first", () => {
@@ -108,42 +101,47 @@ describe("HoldDialog what to hold", () => {
     });
   });
 
-  describe("on a run that has finished", () => {
-    // A task instance hold ends with its run, so on a finished run it would end at once.
-    it.each(["success", "failed"] as const)(
-      "offers only the task in every run once the run is %s, and places that",
-      async (runState) => {
-        server.use(serveRunsInState(runState));
-        render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
-          wrapper: Wrapper,
-        });
+  describe("never changes the kind of hold by itself", () => {
+    // The task instance page refreshes while the task runs. When it finishes with the dialog open, the
+    // dialog stays on the task instance rather than moving to the task in every run.
+    it("keeps the task instance when the task instance finishes while the dialog is open", () => {
+      const { rerender } = render(
+        <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state="running" taskId="load" />,
+        { wrapper: Wrapper },
+      );
 
-        // Once the run is known to have finished, the one kind left is shown as plain text.
-        expect(await screen.findByTestId("hold-scope")).toHaveTextContent("taskHold.scope.task");
-        expect(screen.queryAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(0);
-
-        typeReason("Fix first");
-        confirm();
-
-        expect(mutate).toHaveBeenCalledWith({
-          dagId: "example_dag",
-          requestBody: { expires_at: null, reason: "Fix first" },
-          taskId: "load",
-        });
-      },
-    );
-
-    it("offers both again for a run that is still running", async () => {
-      render(<HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" taskId="load" />, {
-        wrapper: Wrapper,
-      });
-
-      // The run is asked for when the dialog opens; once it is known to be running nothing changes.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 50);
-      });
-      expect(screen.getAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(2);
       expect(getScopeRadio("taskInstance")).toBeChecked();
+
+      rerender(
+        <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state="success" taskId="load" />,
+      );
+
+      expect(getScopeRadio("taskInstance")).toBeChecked();
+      expect(screen.getAllByRole("radio", { name: SCOPE_LABEL })).toHaveLength(2);
+
+      typeReason("Fix first");
+      confirm();
+
+      expect(mutate).toHaveBeenCalledWith({
+        dagId: "example_dag",
+        requestBody: { expires_at: null, reason: "Fix first" },
+        runId: "run_1",
+        taskId: "load",
+      });
+    });
+
+    it("keeps the kind chosen when the task instance's state changes", async () => {
+      const { rerender } = render(
+        <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state="success" taskId="load" />,
+        { wrapper: Wrapper },
+      );
+
+      await choose("taskHold.dialog.scope.task.label");
+      rerender(
+        <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state={null} taskId="load" />,
+      );
+
+      expect(getScopeRadio("task")).toBeChecked();
     });
   });
 
@@ -156,7 +154,8 @@ describe("HoldDialog what to hold", () => {
       expect(getScopeRadio("taskInstance")).toBeChecked();
     });
 
-    it.each(["scheduled", "running", "queued", "deferred", "up_for_retry", null] as const)(
+    // A hold on a finished task instance applies if it is cleared while its run is active.
+    it.each(["scheduled", "running", "queued", "deferred", "up_for_retry", null, ...finishedStates] as const)(
       "the task instance while it is %s",
       (state) => {
         render(
@@ -165,32 +164,9 @@ describe("HoldDialog what to hold", () => {
         );
 
         expect(getScopeRadio("taskInstance")).toBeChecked();
+        expect(getScopeRadio("task")).not.toBeChecked();
       },
     );
-
-    it.each(finishedStates)(
-      "the task in every run once the task instance is %s, which cannot be stopped in its run",
-      (state) => {
-        render(
-          <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state={state} taskId="load" />,
-          { wrapper: Wrapper },
-        );
-
-        expect(getScopeRadio("task")).toBeChecked();
-        expect(getScopeRadio("taskInstance")).not.toBeChecked();
-      },
-    );
-
-    it("a finished task instance still lets the person hold it in its own run", async () => {
-      render(
-        <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state="success" taskId="load" />,
-        { wrapper: Wrapper },
-      );
-
-      await choose("taskHold.dialog.scope.taskInstance.label");
-
-      expect(getScopeRadio("taskInstance")).toBeChecked();
-    });
   });
 
   describe("places the kind of hold chosen, on the task and for a task instance its run", () => {
@@ -213,7 +189,7 @@ describe("HoldDialog what to hold", () => {
       });
     });
 
-    it("for the task in every run when a finished task instance starts on it", () => {
+    it("for the task instance in its run when a finished one starts on it", () => {
       render(
         <HoldDialog dagId="example_dag" onClose={vi.fn()} open runId="run_1" state="failed" taskId="load" />,
         { wrapper: Wrapper },
@@ -225,6 +201,7 @@ describe("HoldDialog what to hold", () => {
       expect(mutate).toHaveBeenCalledWith({
         dagId: "example_dag",
         requestBody: { expires_at: null, reason: "Fix first" },
+        runId: "run_1",
         taskId: "load",
       });
     });

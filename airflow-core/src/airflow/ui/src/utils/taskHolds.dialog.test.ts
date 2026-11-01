@@ -18,71 +18,15 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { $TaskInstanceState } from "openapi/requests/schemas.gen";
-import type { TaskInstanceState } from "openapi/requests/types.gen";
-
-import {
-  getDefaultHoldScope,
-  getHoldTarget,
-  getOfferedHoldScopes,
-  getScopeStateLineKey,
-  isRunFinished,
-  isTaskInstanceFinished,
-} from "./taskHolds";
-
-const finishedStates: Array<TaskInstanceState> = [
-  "success",
-  "failed",
-  "skipped",
-  "upstream_failed",
-  "removed",
-];
-const unfinishedStates = $TaskInstanceState.enum.filter((state) => !finishedStates.includes(state));
+import { getDefaultHoldScope, getHoldTarget, getOfferedHoldScopes, getScopeStateLineKey } from "./taskHolds";
 
 const taskInstancePage = { runId: "run_1", taskId: "load" };
 const taskPage = { taskId: "load" };
-
-describe("isTaskInstanceFinished", () => {
-  it.each(finishedStates)("says a task instance in %s has finished", (state) => {
-    expect(isTaskInstanceFinished(state)).toBe(true);
-  });
-
-  it.each(unfinishedStates)("says a task instance in %s has not", (state) => {
-    expect(isTaskInstanceFinished(state)).toBe(false);
-  });
-
-  it("says a task instance with no state, or one not known, has not", () => {
-    expect(isTaskInstanceFinished(null)).toBe(false);
-    expect(isTaskInstanceFinished(undefined)).toBe(false);
-  });
-});
-
-describe("isRunFinished", () => {
-  it.each(["success", "failed"] as const)("says a run that is %s has finished", (runState) => {
-    expect(isRunFinished(runState)).toBe(true);
-  });
-
-  it.each(["queued", "running", undefined] as const)("says a run that is %s has not", (runState) => {
-    expect(isRunFinished(runState)).toBe(false);
-  });
-});
 
 describe("getOfferedHoldScopes", () => {
   it("offers both kinds from a task instance page, the task instance first", () => {
     expect(getOfferedHoldScopes(taskInstancePage)).toEqual(["taskInstance", "task"]);
   });
-
-  it.each(["queued", "running"] as const)("offers both kinds while the run is %s", (runState) => {
-    expect(getOfferedHoldScopes({ ...taskInstancePage, runState })).toEqual(["taskInstance", "task"]);
-  });
-
-  // A task instance hold ends with its run, so on a run that has finished it would end at once.
-  it.each(["success", "failed"] as const)(
-    "offers only the task in every run once the run is %s",
-    (runState) => {
-      expect(getOfferedHoldScopes({ ...taskInstancePage, runState })).toEqual(["task"]);
-    },
-  );
 
   it("offers only the task in every run from a task page", () => {
     expect(getOfferedHoldScopes(taskPage)).toEqual(["task"]);
@@ -90,39 +34,12 @@ describe("getOfferedHoldScopes", () => {
 });
 
 describe("getDefaultHoldScope", () => {
+  // It follows from the page alone, so it does not change while the dialog is open.
   it.each([
     { origin: taskInstancePage, scope: "taskInstance", title: "a task instance page" },
     { origin: taskPage, scope: "task", title: "a task page" },
   ] as const)("starts on the kind of hold of $title", ({ origin, scope }) => {
     expect(getDefaultHoldScope(origin)).toBe(scope);
-  });
-
-  it.each(unfinishedStates)("starts on the task instance while it is in %s", (state) => {
-    expect(getDefaultHoldScope({ ...taskInstancePage, state })).toBe("taskInstance");
-  });
-
-  it("starts on the task instance while it has no state, or its state is not known", () => {
-    expect(getDefaultHoldScope({ ...taskInstancePage, state: null })).toBe("taskInstance");
-    expect(getDefaultHoldScope(taskInstancePage)).toBe("taskInstance");
-  });
-
-  it.each(finishedStates)(
-    "starts on the task in every run once the task instance is %s, which cannot be stopped in its run",
-    (state) => {
-      expect(getDefaultHoldScope({ ...taskInstancePage, state })).toBe("task");
-    },
-  );
-
-  it.each(["success", "failed"] as const)(
-    "starts on the task in every run once the run is %s",
-    (runState) => {
-      expect(getDefaultHoldScope({ ...taskInstancePage, runState, state: null })).toBe("task");
-    },
-  );
-
-  it("leaves a task page on the task in every run whatever the state", () => {
-    expect(getDefaultHoldScope({ ...taskPage, state: "success" })).toBe("task");
-    expect(getDefaultHoldScope({ ...taskPage, state: "running" })).toBe("task");
   });
 });
 
