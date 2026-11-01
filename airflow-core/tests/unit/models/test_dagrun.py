@@ -3738,6 +3738,85 @@ def test_schedule_tis_empty_operator_does_not_short_circuit_if_ti_already_queued
     assert refreshed_ti.try_number == 1
 
 
+@pytest.mark.parametrize(
+    ("state", "on_the_run"),
+    [
+        pytest.param(None, True, id="task-instance-hold"),
+        pytest.param(None, False, id="task-hold"),
+        pytest.param(TaskInstanceState.UP_FOR_RETRY, True, id="task-instance-hold-on-a-retry"),
+    ],
+)
+def test_schedule_tis_empty_operator_waits_for_a_hold_saved_after_its_dependencies_passed(
+    dag_maker, session, state, on_the_run
+):
+    """
+    A hold saved after the scheduler found the EmptyOperator ready is still seen by the write.
+
+    Marking it success would start and end it in one step, with no later gate to stop it, so it is left
+    where it is instead.
+    """
+    with dag_maker(session=session) as dag:
+        EmptyOperator(task_id="empty_task")
+
+    dr = dag_maker.create_dagrun(session=session)
+    ti = dr.get_task_instance("empty_task", session=session)
+    ti.refresh_from_task(dag.get_task("empty_task"))
+    ti.state = state
+    session.commit()
+    ti_id = ti.id
+
+    # The scheduler has found it ready, and someone holds it before the write.
+    with create_session() as other_session:
+        other_session.add(
+            TaskHold(
+                dag_id=dr.dag_id,
+                task_id="empty_task",
+                run_id=dr.run_id if on_the_run else None,
+                reason="test",
+            )
+        )
+
+    assert dr.schedule_tis((ti,), session=session) == 0
+
+    session.expire_all()
+    assert session.get(TI, ti_id).state == state
+
+
+def test_schedule_tis_empty_operator_is_marked_success_once_its_holds_have_ended(dag_maker, session):
+    with dag_maker(session=session) as dag:
+        EmptyOperator(task_id="empty_task")
+
+    dr = dag_maker.create_dagrun(session=session)
+    ti = dr.get_task_instance("empty_task", session=session)
+    ti.refresh_from_task(dag.get_task("empty_task"))
+    now = timezone.utcnow()
+    session.add_all(
+        [
+            TaskHold(
+                dag_id=dr.dag_id,
+                task_id="empty_task",
+                run_id=dr.run_id,
+                reason="released",
+                released_at=now,
+                released_by="tester",
+            ),
+            TaskHold(
+                dag_id=dr.dag_id,
+                task_id="empty_task",
+                reason="expired",
+                expires_at=now - datetime.timedelta(minutes=1),
+            ),
+        ]
+    )
+    session.commit()
+    ti_id = ti.id
+
+    assert dr.schedule_tis((ti,), session=session) == 1
+
+    session.expire_all()
+    assert session.get(TI, ti_id).state == TaskInstanceState.SUCCESS
+
+
 @pytest.mark.parametrize("state", [None, TaskInstanceState.UP_FOR_RETRY, TaskInstanceState.UP_FOR_RESCHEDULE])
 @pytest.mark.parametrize("try_number", [1, 3])
 def test_schedule_tis_preserves_allocated_attempt(dag_maker, session, state, try_number):

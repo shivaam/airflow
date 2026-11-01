@@ -2399,6 +2399,9 @@ class SchedulerJobRunner(BaseJobRunner, LoggingMixin):
         ).all()
         if expired_holds:
             self._expire_task_holds(expired_holds, session=session)
+            # The session does not flush by itself, so without this the query below would still see these
+            # holds as not ended, and a hold that has both expired and lost its run would be recorded twice.
+            session.flush()
 
         # The holds of runs that have ended, or are gone, with how and when the run ended. A finished
         # run starts nothing, so recording its holds later changes nothing either.

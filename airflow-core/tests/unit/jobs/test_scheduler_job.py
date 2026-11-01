@@ -10187,6 +10187,48 @@ class TestSchedulerJob:
         assert (hold.released_at, hold.released_by) == (None, None)
         assert session.scalar(select(func.count()).select_from(Log).where(Log.dag_id == "hold_dag")) == 0
 
+    @pytest.mark.parametrize("first", ["expiry", "run_end"])
+    def test_a_hold_that_expired_and_lost_its_run_before_a_loop_is_recorded_once(
+        self, hold_dags, session, first
+    ):
+        """
+        A task instance hold can have expired and lost its run by the time a loop reaches it.
+
+        Either ending is true, and the hold covers nothing either way, so the loop records one of them, the
+        expiry it records first, and logs a single event, whichever came first.
+        """
+        session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
+        now = timezone.utcnow()
+        earlier, later = now - datetime.timedelta(minutes=2), now - datetime.timedelta(minutes=1)
+        run = session.scalar(select(DagRun).where(DagRun.dag_id == "hold_dag", DagRun.run_id == "run_a"))
+        run.set_state(DagRunState.FAILED)
+        run.end_date = later if first == "expiry" else earlier
+        hold = TaskHold(
+            dag_id="hold_dag",
+            task_id="t1",
+            run_id="run_a",
+            reason="test",
+            created_at=now - datetime.timedelta(minutes=3),
+            expires_at=earlier if first == "expiry" else later,
+        )
+        session.add(hold)
+        session.commit()
+        hold_id = hold.id
+
+        # Each loop commits the step; the second records nothing more.
+        for _ in range(2):
+            self.job_runner._maintain_task_holds(session=session)
+            session.commit()
+
+        recorded = session.scalar(
+            select(TaskHold).where(TaskHold.id == hold_id).execution_options(populate_existing=True)
+        )
+        assert (recorded.released_by, recorded.released_at) == ("expiry", recorded.expires_at)
+        events = session.scalars(
+            select(Log.event).where(Log.dag_id == "hold_dag", Log.event.like("hold_%"))
+        ).all()
+        assert events == ["hold_expired"]
+
     def test_task_instance_holds_of_ended_runs_are_recorded_a_bounded_batch_a_loop(self, hold_dags, session):
         session.execute(delete(Log).where(Log.dag_id == "hold_dag"))
         run = session.scalar(select(DagRun).where(DagRun.dag_id == "hold_dag", DagRun.run_id == "run_a"))

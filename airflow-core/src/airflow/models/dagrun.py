@@ -96,6 +96,7 @@ from airflow.models.dynamic_region import (
     DynamicRegion,
     public_region_filter,
 )
+from airflow.models.taskhold import TaskHold
 from airflow.models.taskinstance import TaskInstance as TI, _add_and_prime_mapped_ti
 from airflow.models.tasklog import LogTemplate
 from airflow.serialization.definitions.deadline import SerializedReferenceModels
@@ -2824,7 +2825,8 @@ class DagRun(Base, LoggingMixin):
         Each element of ``schedulable_tis`` should have its ``task`` attribute already set.
 
         Any EmptyOperator without ``on_execute_callback`` or ``on_success_callback`` or ``inlets`` or
-        ``outlets`` is instead set straight to the success state, without execution.
+        ``outlets`` is instead set straight to the success state, without execution, unless an active task
+        hold covers it: then it is left as it is.
 
         All the TIs should belong to this DagRun, but this code is in the hot-path, this is not checked -- it
         is the caller's responsibility to call this function only with TIs from a single dag run.
@@ -2922,10 +2924,19 @@ class DagRun(Base, LoggingMixin):
         # Tasks using EmptyOperator should not be executed, mark them as success
         if empty_ti_ids:
             dummy_ti_ids_chunks = chunks(empty_ti_ids, max_tis_per_query or len(empty_ti_ids))
+            now = timezone.utcnow()
             for id_chunk in dummy_ti_ids_chunks:
                 result = session.execute(
                     update(TI)
-                    .where(TI.id.in_(id_chunk), schedulable_state_clause)
+                    .where(
+                        TI.id.in_(id_chunk),
+                        schedulable_state_clause,
+                        # Writing success starts and ends the task in one step, with no later gate to stop
+                        # it, so the write itself is refused for a task instance an active task hold covers,
+                        # like the write that queues a task. A hold saved after the dependencies were
+                        # checked is still seen, and the task instance waits where it is.
+                        ~TaskHold.covering_clause(now),
+                    )
                     .values(
                         state=TaskInstanceState.SUCCESS,
                         start_date=timezone.utcnow(),
