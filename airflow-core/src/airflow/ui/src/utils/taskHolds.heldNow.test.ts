@@ -59,7 +59,6 @@ describe("getHeldNowLockKind", () => {
   it.each([
     { kind: "waiting", state: null },
     { kind: "held", state: "scheduled" },
-    { kind: "waiting", state: "restarting" },
   ] as const)(
     "gives the %s lock to a task instance the hold is stopping in state $state",
     ({ kind, state }) => {
@@ -72,6 +71,7 @@ describe("getHeldNowLockKind", () => {
     "up_for_reschedule",
     "queued",
     "running",
+    "restarting",
     "deferred",
     "awaiting_input",
     ...finishedStates,

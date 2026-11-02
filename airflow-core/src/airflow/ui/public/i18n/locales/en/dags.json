@@ -204,6 +204,7 @@
         "finished": "It has finished. If it is cleared, the new attempt waits.",
         "notStarted": "It hasn't started, and won't until the hold ends.",
         "queued": "This attempt starts anyway. Its next start or resume waits.",
+        "restarting": "This attempt is stopping. The next attempt waits until the hold ends.",
         "running": "This attempt keeps running. Its next start or resume waits: a retry, a re-run, or resuming after a trigger.",
         "waitingToRun": "It won't run until the hold ends."
       },

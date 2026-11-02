@@ -66,17 +66,18 @@ export type HoldLockKind =
 // started waits where it is, and again before it queues a `scheduled` one. Every other task instance
 // that is about to start again waits once it is `scheduled`: a retry or a reschedule moves there as
 // usual when its delay runs out, so the hold is pending until then and the lock says so, and a deferred
-// or awaiting-input task instance moves there when it resumes. An attempt that is already queued or running has passed both checks and carries on, so the
-// hold stops its next start or resume: a retry, a clear, or resuming after it defers. One that has
-// finished has nothing to stop yet, but if it is cleared the new attempt waits, so it shows a pending
-// hold as well.
+// or awaiting-input task instance moves there when it resumes. An attempt that is already queued or
+// running has passed both checks and carries on, so the hold stops its next start or resume: a retry, a
+// clear, or resuming after it defers. A restarting one was cleared while it ran and is stopping, so like
+// a running one the hold stops its next attempt. One that has finished has nothing to stop yet, but if
+// it is cleared the new attempt waits, so it shows a pending hold as well.
 const lockKindByState: Record<TaskInstanceState, HoldLockKind> = {
   awaiting_input: "awaitingInput",
   deferred: "deferred",
   failed: "finished",
   queued: "queued",
   removed: "finished",
-  restarting: "waiting",
+  restarting: "running",
   running: "running",
   scheduled: "held",
   skipped: "finished",
@@ -105,16 +106,23 @@ export const isHoldLockPending = (kind: HoldLockKind): boolean => pendingByLockK
 
 /** Which line of `taskHold.dialog.stateLine` says what a hold does to what it holds, given its state. */
 export type HoldStateLineKey =
-  "awaitingInput" | "deferred" | "finished" | "notStarted" | "queued" | "running" | "waitingToRun";
+  | "awaitingInput"
+  | "deferred"
+  | "finished"
+  | "notStarted"
+  | "queued"
+  | "restarting"
+  | "running"
+  | "waitingToRun";
 
-// A restarting task instance has no line. One with no state is told apart in `getHoldStateLineKey`.
-const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefined> = {
+// A task instance with no state is told apart in `getHoldStateLineKey`.
+const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey> = {
   awaiting_input: "awaitingInput",
   deferred: "deferred",
   failed: "finished",
   queued: "queued",
   removed: "finished",
-  restarting: undefined,
+  restarting: "restarting",
   running: "running",
   scheduled: "waitingToRun",
   skipped: "finished",
@@ -124,11 +132,8 @@ const stateLineKeyByState: Record<TaskInstanceState, HoldStateLineKey | undefine
   upstream_failed: "finished",
 };
 
-/**
- * The line the hold dialog shows for a task instance in this state, or nothing for a state it has no
- * line for. A task instance with no state has not started.
- */
-export const getHoldStateLineKey = (state: TaskInstanceState | null): HoldStateLineKey | undefined =>
+/** The line the hold dialog shows for a task instance in this state. One with no state has not started. */
+export const getHoldStateLineKey = (state: TaskInstanceState | null): HoldStateLineKey =>
   state === null ? "notStarted" : stateLineKeyByState[state];
 
 /**

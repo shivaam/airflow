@@ -170,6 +170,7 @@ describe("HoldDialog state line", () => {
     { key: "awaitingInput", state: "awaiting_input" },
     { key: "queued", state: "queued" },
     { key: "running", state: "running" },
+    { key: "restarting", state: "restarting" },
     { key: "finished", state: "success" },
     { key: "finished", state: "failed" },
     { key: "finished", state: "skipped" },
@@ -185,7 +186,6 @@ describe("HoldDialog state line", () => {
   });
 
   it.each([
-    { props: { runId: "run_1", state: "restarting", taskId: "load" }, title: "a restarting task instance" },
     { props: { runId: "run_1", taskId: "load" }, title: "a task instance whose state is not given" },
     { props: { state: "running", taskId: "load" }, title: "a task in every run" },
   ] as const)("has no state line for $title", ({ props }) => {

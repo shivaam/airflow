@@ -87,6 +87,26 @@ describe("HoldDialog what to hold, in English", () => {
   });
 });
 
+describe("HoldDialog state line, in English", () => {
+  it("says a restarting attempt stops and the next one waits", () => {
+    render(
+      <HoldDialog
+        dagId="example_dag"
+        onClose={vi.fn()}
+        open
+        runId="run_1"
+        state="restarting"
+        taskId="load"
+      />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByTestId("hold-state-line")).toHaveTextContent(
+      "This attempt is stopping. The next attempt waits until the hold ends.",
+    );
+  });
+});
+
 describe("HoldDialog how long, in English", () => {
   it("offers a hold until it is released, or until a date and time", () => {
     renderTaskPage();

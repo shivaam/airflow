@@ -128,9 +128,9 @@ describe("HoldLockBadge", () => {
       { label: "Held", pending: false, state: "scheduled", tooltip: stopsNow },
       { label: "Hold pending", pending: true, state: "up_for_retry", tooltip: waitsOutDelay },
       { label: "Hold pending", pending: true, state: "up_for_reschedule", tooltip: waitsOutDelay },
-      { label: "Held", pending: false, state: "restarting", tooltip: stopsNow },
       { label: "Hold pending", pending: true, state: "queued", tooltip: carriesOn },
       { label: "Hold pending", pending: true, state: "running", tooltip: carriesOn },
+      { label: "Hold pending", pending: true, state: "restarting", tooltip: carriesOn },
       {
         label: "Hold pending",
         pending: true,

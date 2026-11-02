@@ -122,11 +122,12 @@ describe("getHoldLockKind", () => {
   describe("for a task instance", () => {
     const holds = [makeHold({ task_id: "load" })];
 
-    const waitingStates: Array<TaskInstanceState> = ["restarting"];
+    // A restarting attempt is stopping, and like a running one the hold stops its next attempt.
     const carryingOnKinds = {
       awaiting_input: "awaitingInput",
       deferred: "deferred",
       queued: "queued",
+      restarting: "running",
       running: "running",
     } as const satisfies Partial<Record<TaskInstanceState, HoldLockKind>>;
 
@@ -142,10 +143,6 @@ describe("getHoldLockKind", () => {
         expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("delay");
       },
     );
-
-    it.each(waitingStates)("waits where it is while the task instance is %s", (state) => {
-      expect(getHoldLockKind(holds, makeTaskInstance(state))).toBe("waiting");
-    });
 
     it("waits where it is while the task instance has no state, whether it is null or left out", () => {
       expect(getHoldLockKind(holds, makeTaskInstance(null))).toBe("waiting");
@@ -172,7 +169,7 @@ describe("getHoldLockKind", () => {
     );
 
     it("decides every task instance state", () => {
-      const decided = [...heldStates, ...waitingStates, ...Object.keys(carryingOnKinds), ...finishedStates];
+      const decided = [...heldStates, ...Object.keys(carryingOnKinds), ...finishedStates];
 
       expect(decided.sort()).toEqual([...$TaskInstanceState.enum].sort());
     });
@@ -304,6 +301,7 @@ describe("getHoldStateLineKey", () => {
     awaiting_input: "awaitingInput",
     deferred: "deferred",
     queued: "queued",
+    restarting: "restarting",
     running: "running",
   } as const satisfies Partial<Record<TaskInstanceState, HoldStateLineKey>>;
 
@@ -323,12 +321,8 @@ describe("getHoldStateLineKey", () => {
     expect(getHoldStateLineKey(state)).toBe("finished");
   });
 
-  it("has no line for a task instance that is restarting", () => {
-    expect(getHoldStateLineKey("restarting")).toBeUndefined();
-  });
-
   it("decides every task instance state", () => {
-    const decided = [...heldStates, ...Object.keys(startedKinds), ...finishedStates, "restarting"];
+    const decided = [...heldStates, ...Object.keys(startedKinds), ...finishedStates];
 
     expect(decided.sort()).toEqual([...$TaskInstanceState.enum].sort());
   });
